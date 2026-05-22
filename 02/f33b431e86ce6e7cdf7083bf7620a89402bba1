@@ -1,0 +1,29 @@
+tests/unit/core/test_event_bus.py
+  s_6f0ac3f1a2ed3e::t_c8e43fda684482 139-141
+  s_6f0ac3f1a2ed3e::t_2826d85c100bb1 1-64,68-76,78-86,89-98,101-138,142-177
+  s_6f0ac3f1a2ed3e::t_4062cfbd5defcd 65-67,77
+  s_6f0ac3f1a2ed3e::t_4ddbfe696faeba 87-88,99-100
+src/gg_relay/core/event_bus.py
+  s_6f0ac3f1a2ed3e::t_9589d3383531f7 6-17,23,25,31-33,35-46,51-52,56,61-66,73-74,76-77,82-84,86-87,90-91,98,104-109,114-115,120-123
+  s_6f0ac3f1a2ed3e::t_8b31a3362e21b2 1-5,18-22,24,26-30,34,47-50,53-55,57-60,67-72,75,78-81,85,88-89,92-97,99-103,110-113,116-119
+src/gg_relay/core/domain.py
+  s_6f0ac3f1a2ed3e::t_0bc1d1dc1ea847 1-59
+src/gg_relay/core/__init__.py
+  s_6f0ac3f1a2ed3e::t_bd9bbea9374a7d 1-10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "02f33b431e86ce6e7cdf7083bf7620a89402bba1",
+  "prompts": {},
+  "sessions": {
+    "s_6f0ac3f1a2ed3e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "66b0fb54-9a09-41a0-9028-d61647965347",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
