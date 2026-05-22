@@ -1,0 +1,26 @@
+docs/superpowers/plans/2026-05-22-plan-2-plugin-assembly-and-real-sdk-dispatch.md
+  s_b97a9241cc4000::t_bf01430a8bbcd8 591
+  s_b97a9241cc4000::t_79120fc8a99266 590
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_b97a9241cc4000::t_f1448b7764b9ff 370-372,376-377
+  s_b97a9241cc4000::t_2419e414f5b3ea 180,188-192
+  s_b97a9241cc4000::t_47e4e83aa430c9 287-331
+  s_b97a9241cc4000::t_db9dd278e5f798 447-500
+  s_b97a9241cc4000::t_08dbc17719da82 402-403
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "c84f69e38fc41d83489624e804fb07c650765e95",
+  "prompts": {},
+  "sessions": {
+    "s_b97a9241cc4000": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c221d2fe-009a-4d37-8d4f-3b1e30350cbe",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
