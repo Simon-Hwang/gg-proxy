@@ -1,0 +1,45 @@
+docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md
+  s_6f45e1b6148a9e::t_d9ebe0402be824 179-183
+  s_6f45e1b6148a9e::t_1566b70150d43d 683-698
+  s_6f45e1b6148a9e::t_c52ea2f2db78e0 745-747,752-759
+  s_6f45e1b6148a9e::t_0f834238284c7d 825,833-842
+  s_6f45e1b6148a9e::t_f97fcf84760a88 1996-2003
+  s_6f45e1b6148a9e::t_e9284b4b56d5ff 2034-2037
+pyproject.toml
+  s_6f45e1b6148a9e::t_88db5e774428c2 59
+  s_6f45e1b6148a9e::t_59cf1fb54795c1 58,64,66
+  s_6f45e1b6148a9e::t_988eafd891102f 60-63,65
+src/gg_relay/session/spec.py
+  s_6f45e1b6148a9e::t_f649a7e2654c10 19-23
+src/gg_relay/session/client.py
+  s_6f45e1b6148a9e::t_43918c82168da5 51-58
+  s_6f45e1b6148a9e::t_5bab05c634de1d 89-92
+README.md
+  s_6f45e1b6148a9e::t_7f8515638153a5 42-61
+tests/unit/session/test_policy.py
+  s_6f45e1b6148a9e::t_53fd62c0262d18 43-58
+  s_6f45e1b6148a9e::t_7a8054afa2456c 105-107,112-119
+src/gg_relay/session/hitl/policy.py
+  s_6f45e1b6148a9e::t_b4bd9874ab77b8 42,50-59
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "abb8fef1dd21f29f34dc3f93405aaf621b6ce5d9",
+  "prompts": {},
+  "humans": {
+    "h_2781cf4fccc75f": {
+      "author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  },
+  "sessions": {
+    "s_6f45e1b6148a9e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "4c78278d-0b91-4a8a-9159-1c8d4517e5bf",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
