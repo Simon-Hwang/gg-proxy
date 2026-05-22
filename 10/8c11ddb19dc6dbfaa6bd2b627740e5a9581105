@@ -1,0 +1,21 @@
+tests/integration/test_docker_executor.py
+  s_bcc9af754accd4::t_600db66bcca46b 1-158
+docs/superpowers/plans/2026-05-22-plan-3-docker-backend-and-wire-transport.md
+  s_bcc9af754accd4::t_e6c6ac7181869b 922
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "108c11ddb19dc6dbfaa6bd2b627740e5a9581105",
+  "prompts": {},
+  "sessions": {
+    "s_bcc9af754accd4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbaf1feb-32ab-447d-99c8-c669aebdf483",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
