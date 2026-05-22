@@ -1,0 +1,27 @@
+src/gg_relay/core/event_bus.py
+  s_65c41fbea581d9::t_00a1666d04335e 148-153
+  s_65c41fbea581d9::t_aae60955e0cb0c 199-201,204-206,208-210,213-230
+  s_65c41fbea581d9::t_b47917eee083b7 63-69,74,77
+  s_65c41fbea581d9::t_730fa499c833d5 1,23-43
+  s_65c41fbea581d9::t_7d92642fbf027a 94,97,107-117
+  s_65c41fbea581d9::t_0269ce596b1d9b 137-141
+tests/unit/core/test_delivery_tier.py
+  s_65c41fbea581d9::t_503d5b4ca8c36f 1-52,54,62,64-75,79-128
+  s_65c41fbea581d9::t_a5706a9c32b443 53,55-61,63,76-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "77e7ff1fd0df505d675e19de421e487e84f69576",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
