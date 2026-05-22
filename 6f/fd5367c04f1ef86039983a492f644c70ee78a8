@@ -1,0 +1,24 @@
+src/gg_relay/core/events.py
+  s_65c41fbea581d9::t_96af53e8b0dcbd 1-380
+tests/unit/core/test_events_hierarchy.py
+  s_65c41fbea581d9::t_cd4becaede6213 1-16,18-262
+  s_65c41fbea581d9::t_7817e386eb475b 17
+src/gg_relay/core/__init__.py
+  s_65c41fbea581d9::t_37a80222d0c848 4-20,24,26-35,37,39-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "6ffd5367c04f1ef86039983a492f644c70ee78a8",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
