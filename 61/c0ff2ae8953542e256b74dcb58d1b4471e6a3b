@@ -1,0 +1,32 @@
+docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md
+  s_94a339c4db0f60::t_5db6aaf3400b7e 2100-2107
+  s_94a339c4db0f60::t_3889613d178768 1917
+  s_94a339c4db0f60::t_8d973c473dbd23 1745-1825
+  s_94a339c4db0f60::t_e7a8c81e7c31d5 2003-2008,2010,2043-2048,2066-2070
+tests/integration/test_walking_skeleton.py
+  s_94a339c4db0f60::t_783860c2feb83e 271-351
+src/gg_relay/session/client.py
+  s_94a339c4db0f60::t_fcb35eb0e9a4ee 13
+  s_94a339c4db0f60::t_4831fa85c47b6b 99-104,106,139-144,162-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "61c0ff2ae8953542e256b74dcb58d1b4471e6a3b",
+  "prompts": {},
+  "humans": {
+    "h_2781cf4fccc75f": {
+      "author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  },
+  "sessions": {
+    "s_94a339c4db0f60": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5225126d-228b-4d06-846e-3964cbf2515d",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
