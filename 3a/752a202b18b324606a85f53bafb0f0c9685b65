@@ -1,0 +1,33 @@
+src/gg_relay/session/plugins/__init__.py
+  s_b97a9241cc4000::t_edc68da9576269 1-21
+tests/unit/session/test_plugins_assembler.py
+  s_b97a9241cc4000::t_c27bbeb70aee75 138-142
+  s_b97a9241cc4000::t_f983e0bb41b2c9 161-165
+  s_b97a9241cc4000::t_44c9ba250845e6 1-137,143-160,166-265
+src/gg_relay/session/plugins/protocol.py
+  s_b97a9241cc4000::t_bdd6b33ba24402 1-59
+src/gg_relay/session/plugins/install_shell.py
+  s_b97a9241cc4000::t_4eae30880e51d8 1-88
+src/gg_relay/session/spec.py
+  s_b97a9241cc4000::t_4f668490411b12 52-58,70
+tests/unit/session/test_spec.py
+  s_b97a9241cc4000::t_3ce75ad2189371 19,21,26
+docs/superpowers/plans/2026-05-22-plan-2-plugin-assembly-and-real-sdk-dispatch.md
+  s_b97a9241cc4000::t_e4c90f2e41081d 586
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "3a752a202b18b324606a85f53bafb0f0c9685b65",
+  "prompts": {},
+  "sessions": {
+    "s_b97a9241cc4000": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c221d2fe-009a-4d37-8d4f-3b1e30350cbe",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
