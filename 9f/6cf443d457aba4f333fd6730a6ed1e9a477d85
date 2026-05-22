@@ -1,0 +1,22 @@
+pyproject.toml
+  s_6f0ac3f1a2ed3e::t_7efb2f616224f5 80-83
+  s_6f0ac3f1a2ed3e::t_380d8c4fcb9d6b 35-38,47
+tests/integration/test_api_sessions.py
+  s_6f0ac3f1a2ed3e::t_b684d596c3d9b8 134-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "9f6cf443d457aba4f333fd6730a6ed1e9a477d85",
+  "prompts": {},
+  "sessions": {
+    "s_6f0ac3f1a2ed3e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "66b0fb54-9a09-41a0-9028-d61647965347",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
