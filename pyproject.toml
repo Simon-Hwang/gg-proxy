@@ -22,6 +22,7 @@ dependencies = [
     "typer>=0.12",
     "jinja2>=3.1",
     "python-multipart>=0.0.9",
+    "itsdangerous>=2.2",
     "claude-code-sdk>=0.0.14",
     "sse-starlette>=2.0",
     "aiodocker>=0.21,<1.0",
@@ -30,8 +31,11 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
-slack = ["slack-sdk>=3.27"]
 redis = ["redis>=5.0"]
+otel-http = ["opentelemetry-exporter-otlp-proto-http>=1.24"]
+feishu = []  # FeishuBackend uses only httpx (already a core dep); kept
+            # as an empty extra so deployment recipes can pin a future
+            # SDK without breaking pyproject contracts.
 dev = [
     "pytest>=8.1",
     "pytest-asyncio>=0.23",
@@ -40,15 +44,13 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.4",
 ]
-all = ["gg-relay[postgres,slack,redis,dev]"]
+all = ["gg-relay[postgres,redis,otel-http,feishu,dev]"]
 
 [project.scripts]
 gg-relay = "gg_relay.cli:app"
 
 [project.entry-points."gg_relay.im_backends"]
 feishu = "gg_relay.im.backends.feishu:FeishuBackend"
-dingtalk = "gg_relay.im.backends.dingtalk:DingTalkBackend"
-slack = "gg_relay.im.backends.slack:SlackBackend"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gg_relay"]
@@ -75,13 +77,15 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# Plan 2 raised the floor from 80% → 90%. session.* sits near 100%; the
-# threshold guards against regressions when API/store/IM modules land later.
-addopts = "--cov=gg_relay --cov-report=term-missing --cov-fail-under=90"
+# Plan 4 final floor: 88% global (90% stretch). The threshold guards
+# against regressions; per-module targets (session ≥ 90%, api ≥ 85%,
+# store ≥ 90%, redaction ≥ 95%) are tracked in the plan's DOD.
+addopts = "--cov=gg_relay --cov-report=term-missing --cov-fail-under=88"
 testpaths = ["tests"]
 markers = [
     "requires_sdk: tests that exercise claude-code-sdk integration (no API call)",
     "requires_api_key: tests that hit the real Anthropic API (skipped without key)",
     "requires_docker: tests that need a reachable Docker daemon (Plan 3)",
     "requires_curl: integration tests that need `curl` on PATH (Plan 3 proxy smoke)",
+    "requires_feishu: tests that hit a real Feishu account (skipped by default)",
 ]

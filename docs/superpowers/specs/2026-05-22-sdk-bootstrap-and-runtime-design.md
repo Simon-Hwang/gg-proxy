@@ -942,4 +942,89 @@ tests/integration/
 
 ---
 
+## 14. Plan 4 增量（Session 生命周期 / HTTP API / Dashboard）
+
+Plan 4 把 Plan 3 完成的可执行后端封装为可对外服务，新增以下 spec 条目。
+
+### 14.1 Session 状态机（D4.5 / D4.18 / D4.6）
+
+```
+                               ┌── timeout ─────────┐
+                               │                    ▼
+   submit() ─► queued ──► running ──► completed
+                  │           │   │
+                  │           │   └── error ─► failed
+                  │           ├── cancel ──► cancelled
+                  │           └── SIGKILL/crash → interrupted (recover-on-start)
+                  └── cancel ─► cancelled
+```
+
+- `queued`：`submit()` 返回 session_id 后、`asyncio.Semaphore` 拿到槽位之前；进程崩溃后此状态不会被自动恢复（仍为 queued）。
+- `running`：执行器 start 成功，bridge/drain 协程在跑；状态机里只能从 running 走向 completed/failed/cancelled/interrupted。
+- `completed`：runner 正常发出 `session.end{status=completed}`。
+- `failed`：plugin install / executor.start 失败，或运行期未捕获异常；`end_reason` 写明根因（`install:*`、`ExceptionType:msg` 前 96 字）。
+- `cancelled`：显式 `cancel()`、超时、或全局 grace 期满后强制 cancel。
+- `interrupted`：进程在 `running` 时崩溃；下一次启动由 `recover_on_startup()` 把孤儿行扫一遍并落 `end_reason=startup_recovery`。**默认不自动 resume**（D4.6 保守策略）。
+
+### 14.2 HTTP API 契约（D4.7 / D4.17）
+
+| Method | Path | Auth | 说明 |
+|---|---|---|---|
+| `POST` | `/api/v1/sessions` | X-API-Key | submit；body 携带 `credentials`（不持久化，不回显） |
+| `GET` | `/api/v1/sessions` | X-API-Key | list；query `status / tag / limit / offset` |
+| `GET` | `/api/v1/sessions/{id}` | X-API-Key | detail；`frames_limit / frames_offset` 分页 |
+| `POST` | `/api/v1/sessions/{id}/cancel` | X-API-Key | cancel；body `{reason}` |
+| `GET` | `/api/v1/sessions/{id}/hitl/pending` | X-API-Key | list pending |
+| `POST` | `/api/v1/sessions/{id}/hitl/{req_id}` | X-API-Key | resolve；body `{decision, reason?, resolver?}` |
+| `POST` | `/im/feishu/callback` | HMAC-SHA256 | Feishu interactive-card 回调 |
+| `GET` | `/dashboard/login`, `/dashboard/sessions`, `/dashboard/sessions/{id}` | session cookie | HTMX 页面 |
+| `GET` | `/healthz`, `/readyz` | 无 | k8s liveness / readiness |
+
+认证模型：
+- `/api/v1/*` 走 `APIKeyAuthMiddleware`（多 key 容忍，operator 通过加新 key + 滚下旧 key 实现轮换）。
+- `/dashboard/*`（除 `/dashboard/login`）走 `SessionMiddleware`（itsdangerous 签名 cookie）。
+- `/im/feishu/callback` 自己做签名校验（`verify_feishu_signature`）；不走 X-API-Key 中间件。
+
+**Credentials 不落地不回显（P0）**：`SessionSubmitRequest.credentials` 仅注入 `SessionRuntimeContext`，从不写入 `sessions.spec_json`，也不出现在任何 `SessionResponse` / dashboard 模板。
+
+### 14.3 Dashboard HTMX 流程（D4.10 / D4.11）
+
+```
+Browser ──GET /dashboard/sessions─► [sessions_list.html]
+   │            ▲                          │ hx-trigger="every 5s"
+   │ POST /login│                          │ hx-target=closest table
+   │            │                          ▼
+   │     (303→/sessions)                rerendered table
+   │
+   └─ GET /dashboard/sessions/{id} ─► [session_detail.html]
+                                          │
+                                          │ if pending_hitl:
+                                          ▼
+                                       [hitl_form.html × N]
+                                          │ hx-post .../hitl/{req_id}
+                                          ▼
+                                    POST to coordinator
+                                          ▼
+                                    swap → <div class="hitl-resolved">
+```
+
+模板只渲染 `RedactionEngine` 处理过的 `spec_json` / 每帧 `payload`，无原始 credentials 入口。
+
+### 14.4 Observability 边界（D4.15）
+
+- session span：`session_state{status=running}` 开 → 终态事件关；属性 `gg_relay.end_status / gg_relay.end_reason`。
+- tool span：`frame{type=tool.request}` 开 → 匹配 `req_id` 的 `tool.result` 关；child-of session span。
+- error 事件：`frame{type=error}` 作为 OTel `add_event("error", ...)` 挂到 session span。
+- 未配置 `RELAY_OTEL_ENDPOINT` 时 subscriber 不启动；HTTP exporter 走 optional dep。
+
+### 14.5 Graceful shutdown 协议（D4.18 — C3 grace+drain）
+
+`SessionManager.shutdown(grace_period_s)` 阶段：
+1. `accepting_new = False`；`/readyz` 返回 `draining`。
+2. 等待已 `running` 的 task 自然结束，最长 `grace_period_s` 秒。
+3. 仍 in-flight 的：对 coordinator 发 `cancel_all`，对 task 发 `cancel()`，最后 `_persist_frame(error)` 持久化最后帧。
+4. 关 EventBus → bg tasks → engine.dispose()。
+
+---
+
 *Spec 完。下一步：用户 review → 进入 `writing-plans` 拆实施步骤。*

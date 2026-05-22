@@ -79,7 +79,13 @@ class PluginManifest:
 
 @dataclass(frozen=True, slots=True)
 class SessionSpec:
-    """handler → SessionManager 的唯一入参。"""
+    """handler → SessionManager 的唯一入参。
+
+    Plan 4 D4.13 / D4.20 additions:
+    - ``hitl_policy``: optional per-session ToolPolicy override; if ``None``
+      the SessionManager falls back to its constructed default_policy.
+    - ``tags``: free-form labels surfaced by the dashboard / list API.
+    """
 
     prompt: str
     cwd: Path
@@ -87,6 +93,13 @@ class SessionSpec:
     executor: Literal["docker", "inprocess"] = "docker"
     timeout_s: int = 1800
     metadata: tuple[tuple[str, Any], ...] = ()
+    hitl_policy: Any | None = None
+    """Optional per-session ToolPolicy override.
+
+    Typed as Any to avoid a circular import between spec.py and
+    hitl.policy; SessionManager / api.schemas perform the runtime check.
+    """
+    tags: tuple[str, ...] = ()
 
     def to_json(self) -> str:
         """Serialise to a string suitable for ``GG_RELAY_SPEC_JSON`` env in the
@@ -95,8 +108,26 @@ class SessionSpec:
 
         Round-trippable via ``SessionSpec.from_json()``. Does NOT include
         ``SessionRuntimeContext`` data — credentials are never serialised.
+        ``hitl_policy`` is NOT serialised either — its enforcement happens
+        host-side, so the container runner never needs it.
         """
-        payload = {
+        payload = self.to_json_safe()
+        return json.dumps(payload, separators=(",", ":"))
+
+    def to_json_safe(self) -> dict[str, Any]:
+        """Return a JSON-serialisable dict shape of this spec.
+
+        Used by SessionManager when persisting ``sessions.spec_json`` (after
+        running the dict through RedactionEngine first). All complex
+        types are reduced to JSON primitives:
+
+        - ``Path`` → ``str``
+        - tuples of pairs → lists of two-element lists
+        - ``hitl_policy`` (ToolPolicy) is intentionally OMITTED to keep the
+          column free of class-level wiring; the policy is reconstituted
+          from the request body if a session is later replayed.
+        """
+        return {
             "prompt": self.prompt,
             "cwd": str(self.cwd),
             "plugins": {
@@ -110,12 +141,12 @@ class SessionSpec:
             "executor": self.executor,
             "timeout_s": self.timeout_s,
             "metadata": [list(p) for p in self.metadata],
+            "tags": list(self.tags),
         }
-        return json.dumps(payload, separators=(",", ":"))
 
     @classmethod
     def from_json(cls, raw: str) -> SessionSpec:
-        """Inverse of :meth:`to_json`."""
+        """Inverse of :meth:`to_json`. Does NOT reconstruct ``hitl_policy``."""
         data = cast(dict[str, Any], json.loads(raw))
         plugins_data = data["plugins"]
         plugins = PluginManifest(
@@ -135,6 +166,7 @@ class SessionSpec:
             executor=data.get("executor", "docker"),
             timeout_s=int(data.get("timeout_s", 1800)),
             metadata=tuple((k, v) for k, v in (data.get("metadata") or [])),
+            tags=tuple(data.get("tags") or ()),
         )
 
 

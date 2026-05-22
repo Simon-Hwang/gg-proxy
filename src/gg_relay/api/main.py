@@ -1,0 +1,235 @@
+"""FastAPI app factory + lifespan.
+
+The lifespan wires every shared service (store, bus, coordinator,
+SessionManager, optional Feishu, OTel) onto ``app.state``. Routers and
+middlewares are added by :func:`create_app` so tests can override pieces.
+
+Graceful shutdown (D4.18 C3 grace+drain) is implemented in the lifespan's
+``finally``: SessionManager stops accepting new submits, waits up to
+``grace_period_s`` for running sessions to finish, then cancels the rest.
+"""
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
+from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.sessions import SessionMiddleware
+
+from gg_relay.api.middleware.api_key_auth import APIKeyAuthMiddleware
+from gg_relay.api.middleware.logging import StructuredLoggingMiddleware
+from gg_relay.api.routers import health_router, hitl_router, sessions_router
+from gg_relay.config import Config
+from gg_relay.core import EventBus
+from gg_relay.dashboard import STATIC_DIR as DASHBOARD_STATIC_DIR
+from gg_relay.dashboard import router as dashboard_router
+from gg_relay.im import feishu_router
+from gg_relay.redaction import RedactionEngine
+from gg_relay.session.executor.docker import DockerExecutor
+from gg_relay.session.executor.inprocess import InProcessExecutor
+from gg_relay.session.hitl.coordinator import HITLCoordinator
+from gg_relay.session.hitl.policy import ToolPolicy
+from gg_relay.session.manager import ExecutorFactory, SessionManager
+from gg_relay.session.plugins.install_shell import InstallShellAssembler
+from gg_relay.session.plugins.protocol import PluginAssembler
+from gg_relay.session.recovery import recover_on_startup
+from gg_relay.session.runner.bridge import WireBridge  # noqa: F401  (re-export for plugins)
+from gg_relay.store import SessionRepository, make_async_engine
+
+logger = logging.getLogger("gg_relay.api")
+
+
+class _NoopAssembler:
+    """In-memory assembler used when ``gg_plugins_home`` is missing.
+
+    Real installs require ``install.sh`` on disk; when running unit tests
+    against the API factory without that filesystem layout we still need a
+    PluginAssembler-conformant object so the SessionManager constructs.
+    """
+
+    async def prepare(
+        self, spec: Any, *, install_dir: Any
+    ) -> Any:
+        from gg_relay.session.plugins.protocol import InstallReport
+
+        del spec
+        install_dir.mkdir(parents=True, exist_ok=True)
+        return InstallReport(
+            schema_version="noop.v1",
+            profile_id=None,
+            selected_modules=(),
+            included_components=(),
+            excluded_components=(),
+            install_root=install_dir,
+            installed_at="",
+            duration_ms=0,
+        )
+
+
+def _build_executor_factory(cfg: Config) -> ExecutorFactory:
+    """Return an :data:`ExecutorFactory` that picks docker vs in-process.
+
+    The in-process path uses :func:`make_sdk_runner` only when the
+    claude-code-sdk is importable; tests can override the factory entirely
+    via ``app.state.executor_factory`` if they need finer control.
+    """
+    def _factory(
+        kind: str,
+        policy: ToolPolicy,
+        coordinator: HITLCoordinator,
+        session_id: str,
+    ) -> Any:
+        if kind == "docker":
+            return DockerExecutor(
+                image=cfg.docker_image,
+                socket_root=cfg.docker_socket_root,
+                proxy_url=cfg.outbound_proxy_url,
+            )
+        from gg_relay.session.client import make_sdk_runner
+
+        runner = make_sdk_runner(
+            policy=policy, coordinator=coordinator, session_id=session_id
+        )
+        return InProcessExecutor(runner=runner)
+
+    return _factory
+
+
+def _build_assembler(cfg: Config) -> PluginAssembler:
+    try:
+        return InstallShellAssembler(cfg.gg_plugins_home)
+    except FileNotFoundError:
+        logger.warning(
+            "gg_plugins_home=%s missing install.sh; using NoopAssembler",
+            cfg.gg_plugins_home,
+        )
+        return _NoopAssembler()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    cfg: Config = getattr(app.state, "config", None) or Config()
+    app.state.config = cfg
+
+    engine = make_async_engine(cfg.database_url)
+    store = SessionRepository(engine)
+    bus = EventBus()
+    coordinator = HITLCoordinator()
+    redactor = RedactionEngine(
+        sensitive_keys=(
+            list(getattr(RedactionEngine, "_keys", []))
+            + cfg.redaction_keys
+            + ["api_key", "token", "secret", "password", "credentials"]
+        ),
+    )
+    assembler = _build_assembler(cfg)
+    executor_factory: ExecutorFactory = (
+        getattr(app.state, "executor_factory_override", None)
+        or _build_executor_factory(cfg)
+    )
+
+    report = await recover_on_startup(store)
+    if report.interrupted_count:
+        logger.warning(
+            "recovery: marked %d sessions as interrupted", report.interrupted_count
+        )
+
+    # Optional OTel subscriber — only wired when an endpoint is configured.
+    otel_subscriber = None
+    if cfg.otel_endpoint:
+        try:
+            from gg_relay.tracing import OtelSubscriber, setup_tracer
+
+            provider = setup_tracer(
+                endpoint=cfg.otel_endpoint,
+                exporter=cfg.otel_exporter,
+                install_global=False,
+            )
+            otel_subscriber = OtelSubscriber(bus, provider)
+        except ImportError:
+            logger.warning("OTel HTTP exporter requested but optional dep missing")
+
+    manager = SessionManager(
+        executor_factory=executor_factory,
+        assembler=assembler,
+        store=store,
+        bus=bus,
+        coordinator=coordinator,
+        redactor=redactor,
+        default_policy=ToolPolicy(),
+        install_dir_root=cfg.install_dir_root,
+        default_timeout_s=cfg.default_timeout_s,
+        max_concurrent=cfg.max_concurrent,
+        grace_period_s=cfg.grace_period_s,
+    )
+
+    app.state.engine = engine
+    app.state.store = store
+    app.state.bus = bus
+    app.state.coordinator = coordinator
+    app.state.redactor = redactor
+    app.state.manager = manager
+    # Background tasks (proxy, OTel subscriber) can be attached by tests by
+    # registering them on app.state.bg_tasks before yielding.
+    bg_tasks: list[asyncio.Task[Any]] = getattr(app.state, "bg_tasks", [])
+    if otel_subscriber is not None:
+        bg_tasks.append(asyncio.create_task(otel_subscriber.run(), name="otel"))
+    app.state.bg_tasks = bg_tasks
+    try:
+        yield
+    finally:
+        # Stop accepting new submits, give in-flight sessions grace, then cancel.
+        await manager.shutdown(grace_period_s=cfg.grace_period_s)
+        if otel_subscriber is not None:
+            await otel_subscriber.stop()
+        for task in bg_tasks:
+            task.cancel()
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await task
+        await bus.close()
+        await engine.dispose()
+
+
+def create_app(config: Config | None = None) -> FastAPI:
+    """Construct the FastAPI app with all routers wired."""
+    app = FastAPI(title="gg-relay", lifespan=lifespan)
+    if config is not None:
+        app.state.config = config
+    # Middleware (added in reverse order of execution).
+    keys = [k.get_secret_value() for k in (config.api_keys if config else [])]
+    session_secret = (
+        config.dashboard_session_secret.get_secret_value()
+        if config is not None
+        and config.dashboard_session_secret is not None
+        else "dev-only-session-secret-do-not-use"
+    )
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret,
+        session_cookie="gg_relay_session",
+        same_site="lax",
+    )
+    app.add_middleware(
+        APIKeyAuthMiddleware,
+        expected_keys=keys,
+        protected_prefix="/api/v1",
+        allow_no_keys=not keys,
+    )
+    app.add_middleware(StructuredLoggingMiddleware)
+    # Routers.
+    app.include_router(sessions_router, prefix="/api/v1")
+    app.include_router(hitl_router, prefix="/api/v1")
+    app.include_router(health_router)
+    app.include_router(dashboard_router)
+    app.include_router(feishu_router)
+    app.mount(
+        "/dashboard/static",
+        StaticFiles(directory=str(DASHBOARD_STATIC_DIR)),
+        name="dashboard-static",
+    )
+    return app

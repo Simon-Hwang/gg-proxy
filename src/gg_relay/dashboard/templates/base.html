@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>{% block title %}gg-relay{% endblock %}</title>
+    <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <link rel="stylesheet" href="/dashboard/static/app.css">
+</head>
+<body>
+    <header class="topbar">
+        <a class="brand" href="/dashboard/sessions">gg-relay</a>
+        <nav>
+            <a href="/dashboard/sessions">Sessions</a>
+            <form method="post" action="/dashboard/logout" style="display:inline">
+                <button type="submit">Logout</button>
+            </form>
+        </nav>
+    </header>
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

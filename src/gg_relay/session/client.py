@@ -81,6 +81,10 @@ class _CoordinatorLike(Protocol):
 
     The dispatch loop never inspects the coordinator beyond this signature —
     keeps in-process and wire-mode runners interchangeable.
+
+    ``session_id`` is optional so the wire proxy (which simply forwards the
+    decision across the transport) can ignore it; the in-process
+    HITLCoordinator uses it for cancel_all scoping.
     """
 
     async def request(
@@ -89,6 +93,7 @@ class _CoordinatorLike(Protocol):
         *,
         tool: str,
         args: dict[str, Any],
+        session_id: str = ...,
     ) -> Any: ...
 
 
@@ -193,6 +198,7 @@ async def _make_runner_core(
     policy: ToolPolicy,
     sdk_factory: SdkFactory,
     install_report: InstallReport | None,
+    session_id: str = "",
 ) -> None:
     """Shared dispatch loop for the in-process and wire runners.
 
@@ -258,7 +264,10 @@ async def _make_runner_core(
         # NEEDS_HITL → publish tool.request, await coordinator decision.
         # 12 hex chars = 48 bits, birthday-bound ~16M concurrent pending
         # (vs 8 hex / 32 bits → only ~65K before 50% collision).
-        req_id = f"r-{uuid.uuid4().hex[:12]}"
+        # Plan 4 D4 namespacing: prefix with session_id when supplied so the
+        # coordinator can scope cancel_all / pending_snapshot per session.
+        short = uuid.uuid4().hex[:12]
+        req_id = f"{session_id}:{short}" if session_id else f"r-{short}"
         fi = _freeze(tool_input)
 
         matched_uid = _pair_perm_with_block(tool_name, fi)
@@ -273,7 +282,7 @@ async def _make_runner_core(
             make_tool_request(seq, req_id, tool_name, tool_input)
         )
         decision = await coordinator.request(
-            req_id, tool=tool_name, args=tool_input
+            req_id, tool=tool_name, args=tool_input, session_id=session_id
         )
         if decision == "accept":
             return PermissionResultAllow()
@@ -385,10 +394,17 @@ def make_sdk_runner(
     coordinator: HITLCoordinator,
     sdk_factory: SdkFactory = ClaudeSDKClient,
     install_report: InstallReport | None = None,
+    session_id: str = "",
 ) -> RunnerCallable:
-    """In-process runner factory. ``coordinator`` is a real
-    :class:`HITLCoordinator` living in the host event loop; HITL decisions
-    are awaited directly without round-tripping through the transport.
+    """In-process runner factory.
+
+    ``coordinator`` is a real :class:`HITLCoordinator` living in the host
+    event loop; HITL decisions are awaited directly without round-tripping
+    through the transport.
+
+    ``session_id``, when supplied, is used to namespace generated req_ids
+    so that :meth:`HITLCoordinator.cancel_all(session_id=...)` can scope a
+    bulk cancel to a single session.
     """
 
     async def runner(transport: SessionTransport, spec: SessionSpec) -> None:
@@ -399,6 +415,7 @@ def make_sdk_runner(
             policy=policy,
             sdk_factory=sdk_factory,
             install_report=install_report,
+            session_id=session_id,
         )
 
     return runner
@@ -409,6 +426,7 @@ def make_wire_runner(
     policy: ToolPolicy,
     coordinator: WireCoordinatorProxy,
     sdk_factory: SdkFactory = ClaudeSDKClient,
+    session_id: str = "",
 ) -> RunnerCallable:
     """Container-side runner factory.
 
@@ -428,6 +446,7 @@ def make_wire_runner(
             policy=policy,
             sdk_factory=sdk_factory,
             install_report=None,
+            session_id=session_id,
         )
 
     return runner

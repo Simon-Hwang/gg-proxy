@@ -973,17 +973,17 @@ async def test_submit_run_approve_complete(tmp_path):
 
 ## 10. Self-Review checklist
 
-- [ ] Plan 3 已合入 main，container backend 可用
-- [ ] 每 task TDD
-- [ ] mypy strict + ruff 全清
-- [ ] `pytest tests/ -m "not requires_docker and not requires_api_key and not requires_feishu"` 在 CI 全绿
-- [ ] coverage 阈值达成
-- [ ] `gg-relay check-secrets` 校验通过
-- [ ] `gg-relay migrate && gg-relay serve` 本地起得来
-- [ ] `examples/end_to_end_demo.py` 跑通
-- [ ] docs/deployment.md + security.md 完整
-- [ ] subagent-driven-development
-- [ ] 最终 squash merge
+- [x] Plan 3 已合入 main，container backend 可用
+- [x] 每 task TDD
+- [x] mypy strict + ruff 全清
+- [x] `pytest tests/ -m "not requires_docker and not requires_api_key and not requires_feishu"` 在 CI 全绿
+- [x] coverage 阈值达成
+- [x] `gg-relay check-secrets` 校验通过
+- [x] `gg-relay migrate && gg-relay serve` 本地起得来
+- [x] `examples/end_to_end_demo.py` 跑通
+- [x] docs/deployment.md + security.md 完整
+- [x] subagent-driven-development（每 task 独立 commit）
+- [ ] 最终 squash merge（保留多 commit 以利 review；user 自行决定）
 
 ---
 

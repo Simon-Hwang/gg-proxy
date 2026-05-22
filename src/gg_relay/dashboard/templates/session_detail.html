@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Session {{ detail.id }} · gg-relay{% endblock %}
+{% block content %}
+<h2>Session <code>{{ detail.id }}</code></h2>
+<dl class="detail-meta">
+    <dt>Status</dt><dd><span class="badge badge-{{ detail.status.value }}">{{ detail.status.value }}</span></dd>
+    <dt>Backend</dt><dd>{{ detail.backend }}</dd>
+    <dt>Runtime ID</dt><dd>{{ detail.runtime_id or "—" }}</dd>
+    <dt>Submitted</dt><dd>{{ detail.submitted_at.isoformat() }}</dd>
+    {% if detail.started_at %}<dt>Started</dt><dd>{{ detail.started_at.isoformat() }}</dd>{% endif %}
+    {% if detail.ended_at %}<dt>Ended</dt><dd>{{ detail.ended_at.isoformat() }}</dd>{% endif %}
+    {% if detail.end_reason %}<dt>End reason</dt><dd>{{ detail.end_reason }}</dd>{% endif %}
+    <dt>Tags</dt><dd>{{ detail.tags|join(", ") or "—" }}</dd>
+</dl>
+
+<section>
+    <h3>Spec (redacted)</h3>
+    <pre class="spec-json">{{ detail.spec_json|tojson(indent=2) }}</pre>
+</section>
+
+{% if pending_hitl %}
+<section>
+    <h3>Pending HITL</h3>
+    {% for item in pending_hitl %}
+        {% include "hitl_form.html" %}
+    {% endfor %}
+</section>
+{% endif %}
+
+<section>
+    <h3>Frames</h3>
+    <table class="frames">
+        <thead><tr><th>seq</th><th>ts</th><th>type</th><th>payload</th></tr></thead>
+        <tbody>
+        {% for f in detail.frames %}
+            <tr>
+                <td>{{ f.seq }}</td>
+                <td>{{ f.ts.isoformat() if f.ts.isoformat is defined else f.ts }}</td>
+                <td>{{ f.type }}</td>
+                <td><pre class="frame-payload">{{ f.payload|tojson }}</pre></td>
+            </tr>
+        {% else %}
+            <tr><td colspan="4" class="muted">No frames yet.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</section>
+{% endblock %}

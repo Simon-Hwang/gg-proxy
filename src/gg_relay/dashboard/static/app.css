@@ -1,0 +1,51 @@
+:root {
+    --bg: #0f1419;
+    --panel: #1a2027;
+    --text: #d4d4d4;
+    --muted: #888;
+    --accent: #4fc1ff;
+    --success: #4ec9b0;
+    --warn: #d7ba7d;
+    --danger: #f48771;
+    --border: #2a323d;
+}
+
+body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 12px 24px; background: var(--panel); border-bottom: 1px solid var(--border); }
+.brand { color: var(--accent); font-weight: 600; text-decoration: none; font-size: 1.2em; }
+nav a, nav button { color: var(--text); text-decoration: none; margin-left: 18px; background: none; border: none; cursor: pointer; }
+main { padding: 24px; max-width: 1200px; margin: 0 auto; }
+h2, h3 { color: var(--accent); }
+.muted { color: var(--muted); }
+.error { color: var(--danger); }
+
+/* sessions table */
+table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+table th, table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); font-size: 0.9em; }
+table a { color: var(--accent); text-decoration: none; }
+
+/* status badges */
+.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; }
+.badge-queued { background: #2a3340; color: var(--muted); }
+.badge-running { background: #2a4055; color: var(--accent); }
+.badge-completed { background: #2a4040; color: var(--success); }
+.badge-failed, .badge-cancelled, .badge-interrupted { background: #4a2820; color: var(--danger); }
+
+/* session detail */
+.detail-meta { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; margin: 16px 0; }
+.detail-meta dt { color: var(--muted); }
+pre.spec-json, pre.frame-payload, pre.hitl-args { background: var(--panel); padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 0.85em; }
+
+/* HITL */
+.hitl-card { background: var(--panel); padding: 16px; border: 1px solid var(--warn); border-radius: 6px; margin-bottom: 12px; }
+.hitl-actions button { margin-right: 8px; padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border); cursor: pointer; }
+.btn-accept { background: var(--success); color: var(--bg); }
+.btn-deny { background: var(--danger); color: var(--bg); }
+.hitl-resolved { padding: 12px; background: var(--panel); border-left: 4px solid var(--success); }
+
+/* login */
+.login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card { background: var(--panel); padding: 32px; border-radius: 8px; min-width: 320px; }
+.login-card label { display: block; margin-bottom: 12px; }
+.login-card input { width: 100%; padding: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+.login-card button { width: 100%; padding: 10px; background: var(--accent); color: var(--bg); border: none; border-radius: 4px; font-weight: 600; cursor: pointer; }

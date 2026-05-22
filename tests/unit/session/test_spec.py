@@ -110,6 +110,50 @@ class TestSessionSpec:
         for forbidden in ("ANTHROPIC_API_KEY", "credentials"):
             assert forbidden not in payload
 
+    def test_to_json_safe_returns_dict(self, tmp_path: Path):
+        spec = SessionSpec(
+            prompt="hello",
+            cwd=tmp_path,
+            plugins=PluginManifest(profile="minimal"),
+            tags=("urgent", "alice"),
+        )
+        d = spec.to_json_safe()
+        assert isinstance(d, dict)
+        assert d["prompt"] == "hello"
+        assert d["cwd"] == str(tmp_path)
+        assert d["tags"] == ["urgent", "alice"]
+        # hitl_policy intentionally absent so spec_json column never carries
+        # class wiring.
+        assert "hitl_policy" not in d
+
+    def test_hitl_policy_round_trip_loses_policy_by_design(
+        self, tmp_path: Path
+    ):
+        """Per Plan 4 D4.13, hitl_policy is host-side only and NOT persisted."""
+        from gg_relay.session.hitl.policy import ToolPolicy
+
+        spec = SessionSpec(
+            prompt="hi",
+            cwd=tmp_path,
+            plugins=PluginManifest(profile="minimal"),
+            hitl_policy=ToolPolicy(),
+        )
+        restored = SessionSpec.from_json(spec.to_json())
+        assert restored.hitl_policy is None
+        # Everything else should match.
+        assert restored.prompt == spec.prompt
+        assert restored.tags == spec.tags
+
+    def test_tags_round_trip(self, tmp_path: Path):
+        spec = SessionSpec(
+            prompt="hi",
+            cwd=tmp_path,
+            plugins=PluginManifest(profile="minimal"),
+            tags=("a", "b", "c"),
+        )
+        restored = SessionSpec.from_json(spec.to_json())
+        assert restored.tags == ("a", "b", "c")
+
 
 class TestDecision:
     def test_string_values(self):

@@ -61,22 +61,23 @@ class WireCoordinatorProxy:
         *,
         tool: str,
         args: dict[str, Any],
+        session_id: str = "",
     ) -> Decision:
         """Suspend until ``tool.decision`` for ``req_id`` arrives.
 
         Mirrors :meth:`HITLCoordinator.request` so ``client.py`` can call
         ``coordinator.request(...)`` without caring which backend it is.
-        ``tool`` / ``args`` are accepted for signature parity; they are NOT
-        re-sent (the caller already emitted the ``tool.request`` frame).
+        ``tool`` / ``args`` / ``session_id`` are accepted for signature
+        parity; they are NOT re-sent (the caller already emitted the
+        ``tool.request`` frame and the host bridge tracks session_id at
+        the coordinator side).
         """
         if req_id in self._pending:
             raise ValueError(f"duplicate req_id {req_id!r}")
         loop = asyncio.get_running_loop()
         fut: asyncio.Future[Decision] = loop.create_future()
         self._pending[req_id] = fut
-        # Refer to the args so static checkers (and unused-arg linters) are
-        # happy without us pretending to do something with them on the wire.
-        del tool, args
+        del tool, args, session_id
         try:
             return await fut
         finally:

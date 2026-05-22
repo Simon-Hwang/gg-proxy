@@ -1,0 +1,14 @@
+<div class="hitl-card">
+    <p><strong>req_id:</strong> <code>{{ item.req_id }}</code></p>
+    <p><strong>tool:</strong> <code>{{ item.tool }}</code></p>
+    <pre class="hitl-args">{{ item.args|tojson(indent=2) }}</pre>
+    <form
+        class="hitl-actions"
+        hx-post="/dashboard/sessions/{{ detail.id }}/hitl/{{ item.req_id }}"
+        hx-swap="outerHTML"
+    >
+        <button type="submit" name="decision" value="accept" class="btn-accept">✅ Approve</button>
+        <button type="submit" name="decision" value="deny" class="btn-deny">❌ Deny</button>
+        <input type="text" name="reason" placeholder="reason (optional)">
+    </form>
+</div>

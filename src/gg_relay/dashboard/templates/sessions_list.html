@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Sessions · gg-relay{% endblock %}
+{% block content %}
+<h2>Sessions</h2>
+<p class="muted">Auto-refreshes every 5s.</p>
+<table class="sessions" hx-get="/dashboard/sessions" hx-trigger="every 5s" hx-target="closest table" hx-swap="outerHTML">
+    <thead>
+        <tr>
+            <th>ID</th>
+            <th>Status</th>
+            <th>Backend</th>
+            <th>Submitted</th>
+            <th>Ended</th>
+            <th>Tags</th>
+        </tr>
+    </thead>
+    <tbody>
+    {% for s in sessions %}
+        <tr class="status-{{ s.status.value }}">
+            <td><a href="/dashboard/sessions/{{ s.id }}">{{ s.id }}</a></td>
+            <td><span class="badge badge-{{ s.status.value }}">{{ s.status.value }}</span></td>
+            <td>{{ s.backend }}</td>
+            <td>{{ s.submitted_at.isoformat() }}</td>
+            <td>{% if s.ended_at %}{{ s.ended_at.isoformat() }}{% else %}—{% endif %}</td>
+            <td>{{ s.tags|join(", ") }}</td>
+        </tr>
+    {% else %}
+        <tr><td colspan="6" class="muted">No sessions yet.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
