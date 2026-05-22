@@ -1,0 +1,23 @@
+src/gg_relay/core/domain.py
+  s_d9e2a754ff0cf8::t_7dbb0cebae50a4 18-22,24-28,33,50-90
+tests/unit/core/test_states.py
+  s_d9e2a754ff0cf8::t_2da91e8c7faa6d 1-107
+src/gg_relay/core/__init__.py
+  s_d9e2a754ff0cf8::t_4d3e0723904371 2-8,29,49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "f72559b0cd33a7d09eecf7ecb322344e88d2e8cf",
+  "prompts": {},
+  "sessions": {
+    "s_d9e2a754ff0cf8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "01ddea3d-c97c-4c10-aa59-848e52eb8d38",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
