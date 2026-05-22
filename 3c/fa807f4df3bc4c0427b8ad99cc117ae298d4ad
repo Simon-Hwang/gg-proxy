@@ -1,0 +1,21 @@
+.github/workflows/ci.yml
+  s_65c41fbea581d9::t_e69e6652838a2b 1-85
+pyproject.toml
+  s_65c41fbea581d9::t_212df2e7a32917 35-37,50
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "3cfa807f4df3bc4c0427b8ad99cc117ae298d4ad",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
