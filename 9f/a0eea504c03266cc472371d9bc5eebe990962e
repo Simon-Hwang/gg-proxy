@@ -1,0 +1,27 @@
+README.md
+  s_6f0ac3f1a2ed3e::t_01dcafa466043c 3-7,9-12,14,16,18-28,30,32,35,37-41,43-45,48,51-64,67-69,71-73,75,77,80-105,108-109,111,113,115-119,121,123,126-128,131-134,136,138,140-148
+docs/superpowers/plans/2026-05-22-plan-4-session-manager-api-dashboard-and-ops.md
+  s_6f0ac3f1a2ed3e::t_b5897f9d8fc2fd 976-986
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_6f0ac3f1a2ed3e::t_8fcfe2fc2c5415 945-1029
+docs/security.md
+  s_6f0ac3f1a2ed3e::t_0585c33e727acb 1-100
+docs/deployment.md
+  s_6f0ac3f1a2ed3e::t_c46d9446ebaa82 1-141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "9fa0eea504c03266cc472371d9bc5eebe990962e",
+  "prompts": {},
+  "sessions": {
+    "s_6f0ac3f1a2ed3e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "66b0fb54-9a09-41a0-9028-d61647965347",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
