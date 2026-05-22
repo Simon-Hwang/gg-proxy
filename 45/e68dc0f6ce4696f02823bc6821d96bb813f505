@@ -1,0 +1,29 @@
+src/gg_relay/im/backends/feishu.py
+  s_d9e2a754ff0cf8::t_e30a2c70ec4ff5 133-136
+  s_d9e2a754ff0cf8::t_244e41c2f2fdd6 1-3,5-11,23-29,31,34-35,37-39,43-53,55,58,65-66,81-82,94-95,103-132,137-275,286,288,301,325-358
+tests/unit/im/test_feishu_card_builder.py
+  s_d9e2a754ff0cf8::t_44c12aeb0d194c 1-116
+tests/unit/im/test_feishu_backend.py
+  s_d9e2a754ff0cf8::t_566533de6020d7 209-210
+  s_d9e2a754ff0cf8::t_3817442b809ef9 16
+  s_d9e2a754ff0cf8::t_6de84cc3a6d93b 139-208,211-222
+src/gg_relay/api/main.py
+  s_d9e2a754ff0cf8::t_25cdfcda6fca2a 216-236,243-247
+  s_d9e2a754ff0cf8::t_da7f01c7c4742e 37-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "45e68dc0f6ce4696f02823bc6821d96bb813f505",
+  "prompts": {},
+  "sessions": {
+    "s_d9e2a754ff0cf8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "01ddea3d-c97c-4c10-aa59-848e52eb8d38",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
