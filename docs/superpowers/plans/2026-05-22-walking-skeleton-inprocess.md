@@ -176,6 +176,11 @@ if TYPE_CHECKING:
 
 class Decision(StrEnum):
     ACCEPT = "accept"
+    # DENY = explicit refusal at the policy layer (e.g. category blacklist).
+    # Distinct from the HITLCoordinator.resolve(decision="deny") string
+    # literal, which represents the *user's* refusal after a tool.request.
+    # Policy → Decision enum; HITL → str literal. Keep the two channels
+    # separate even though both end in PermissionResultDeny.
     DENY = "deny"
     NEEDS_HITL = "needs_hitl"
 
@@ -435,6 +440,8 @@ git commit -m "feat(transport): SessionTransport Protocol + frame TypedDicts
 - Create: `tests/unit/session/__init__.py` (if not exists)
 - Create: `tests/unit/session/test_transport_inmemory.py`
 
+> **Updated by Task 7 (commit `25c4f65`):** the eager `_alive` early-return in `recv()` was removed to support drain-then-close (spec §6.4). The sentinel branch is now the sole close-detection path.
+
 - [ ] **Step 3.1: 写失败测试**
 
 写入 `tests/unit/session/test_transport_inmemory.py`：
@@ -550,8 +557,8 @@ class InMemoryTransport:
 
     def __init__(
         self,
-        inbound: asyncio.Queue,
-        outbound: asyncio.Queue,
+        inbound: asyncio.Queue[object],
+        outbound: asyncio.Queue[object],
         paired: "InMemoryTransport | None" = None,
     ) -> None:
         self._inbound = inbound
@@ -563,12 +570,12 @@ class InMemoryTransport:
     def is_alive(self) -> bool:
         return self._alive
 
-    async def send(self, frame: ControlFrame | EventFrame) -> None:  # type: ignore[override]
+    async def send(self, frame: ControlFrame | EventFrame) -> None:
         if not self._alive:
             raise TransportClosed("transport closed")
         await self._outbound.put(frame)
 
-    async def recv(self) -> EventFrame:  # type: ignore[override]
+    async def recv(self) -> EventFrame:
         if not self._alive:
             raise TransportClosed("transport closed")
         item = await self._inbound.get()
@@ -590,8 +597,8 @@ def make_pair(
     maxsize: int = 1024,
 ) -> tuple[InMemoryTransport, InMemoryTransport]:
     """Return (host_side, runner_side) — frames sent by host arrive at runner.recv."""
-    q_h2r: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
-    q_r2h: asyncio.Queue = asyncio.Queue(maxsize=maxsize)
+    q_h2r: asyncio.Queue[object] = asyncio.Queue(maxsize=maxsize)
+    q_r2h: asyncio.Queue[object] = asyncio.Queue(maxsize=maxsize)
     host = InMemoryTransport(inbound=q_r2h, outbound=q_h2r)
     runner = InMemoryTransport(inbound=q_h2r, outbound=q_r2h, paired=host)
     host._paired = runner
@@ -673,8 +680,48 @@ class TestAutoAcceptFileTools:
         d = DEFAULT_POLICY.decide("Write", {"file_path": path}, Path("/work"))
         assert d == Decision.NEEDS_HITL
 
-    def test_missing_path_needs_hitl(self):
-        d = DEFAULT_POLICY.decide("Write", {}, Path("/work"))
+    @pytest.mark.parametrize("args", [
+        {},
+        {"file_path": ""},
+        {"file_path": None},
+        {"notebook_path": ""},
+        {"path": ""},
+        {"file_path": "", "notebook_path": "", "path": ""},
+    ])
+    def test_missing_or_empty_path_needs_hitl(self, args):
+        """Path-required tools without a usable path string trigger HITL.
+
+        Empty strings and None must be treated identically to a missing key —
+        otherwise an SDK that passes `file_path=""` would bypass the path
+        scoping check entirely.
+        """
+        d = DEFAULT_POLICY.decide("Write", args, Path("/work"))
+        assert d == Decision.NEEDS_HITL
+
+    def test_dangerous_pattern_case_insensitive(self, tmp_path: Path):
+        """Uppercase variants of dangerous filenames must still trigger HITL.
+
+        Fixes case-sensitivity bypass: .ENV / ID_RSA / .PEM are equivalent on
+        macOS/Windows filesystems and must not slip through.
+        """
+        d = DEFAULT_POLICY.decide(
+            "Write", {"file_path": str(tmp_path / "config.ENV")}, tmp_path
+        )
+        assert d == Decision.NEEDS_HITL
+
+    def test_dangerous_pattern_via_symlink(self, tmp_path: Path):
+        """A cwd-internal symlink pointing at a dangerous target must trigger HITL.
+
+        Fixes symlink-bypass: an innocuous-looking name like 'innocent.txt'
+        that resolves to '/work/.env' must be matched on the resolved path.
+        """
+        dangerous = tmp_path / ".env"
+        dangerous.write_text("SECRET=x")
+        link = tmp_path / "innocent.txt"
+        link.symlink_to(dangerous)
+        d = DEFAULT_POLICY.decide(
+            "Write", {"file_path": str(link)}, tmp_path
+        )
         assert d == Decision.NEEDS_HITL
 
 
@@ -695,10 +742,21 @@ class TestPolicyOverride:
             auto_accept_tools=frozenset({"Bash"}),
             hitl_tools=frozenset(),
             neutral_tools=frozenset(),
+            # Bash isn't a file tool, so don't require a path. Must be a subset
+            # of auto_accept_tools per ToolPolicy.__post_init__ invariant.
+            path_required_tools=frozenset(),
             dangerous_patterns=(),
         )
         # Bash + no path-check (since no file_path key) → ACCEPT
         assert custom.decide("Bash", {"command": "ls"}, Path("/work")) == Decision.ACCEPT
+
+    def test_invariant_rejects_leaked_path_required(self):
+        """path_required_tools must be a subset of auto_accept_tools."""
+        with pytest.raises(ValueError, match="path_required_tools"):
+            ToolPolicy(
+                auto_accept_tools=frozenset({"Edit"}),
+                path_required_tools=frozenset({"Edit", "Bash"}),
+            )
 ```
 
 - [ ] **Step 4.2: 跑测试确认失败**
@@ -728,10 +786,16 @@ __all__ = ["DEFAULT_POLICY", "ToolPolicy"]
 文件类工具（Edit/Write/MultiEdit/NotebookEdit）：
   - 路径在 cwd 子树内 → ACCEPT
   - 路径越界或命中危险 pattern → NEEDS_HITL
+  - 路径缺失 → NEEDS_HITL（路径强制集合 path_required_tools 内的工具）
 
 HITL 工具（Bash/WebFetch/Task）→ 始终 NEEDS_HITL
 中立工具（Read/Glob/Grep/LS）→ 始终 ACCEPT
 未知工具 → NEEDS_HITL（保守）
+
+`path_required_tools` 与 `auto_accept_tools` 解耦：
+  - 默认两者一致（都是文件类四件套）
+  - 调用方可以把非文件类工具（如 Bash）放进 auto_accept_tools，
+    而不必同时放进 path_required_tools，从而不触发路径校验。
 """
 from __future__ import annotations
 
@@ -742,11 +806,11 @@ from typing import Any
 
 from gg_relay.session.spec import Decision
 
-
 _DEFAULT_AUTO_ACCEPT = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
 _DEFAULT_HITL = frozenset({"Bash", "WebFetch", "Task"})
 _DEFAULT_NEUTRAL = frozenset({"Read", "Glob", "Grep", "LS"})
-_DEFAULT_DANGEROUS = (
+_DEFAULT_PATH_REQUIRED = _DEFAULT_AUTO_ACCEPT
+_DEFAULT_DANGEROUS: tuple[str, ...] = (
     "*.env",
     "*/.git/*",
     "*/secrets/*",
@@ -758,12 +822,24 @@ _DEFAULT_DANGEROUS = (
 _PATH_FIELDS = ("file_path", "notebook_path", "path")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, kw_only=True)
 class ToolPolicy:
     auto_accept_tools: frozenset[str] = field(default=_DEFAULT_AUTO_ACCEPT)
     hitl_tools: frozenset[str] = field(default=_DEFAULT_HITL)
     neutral_tools: frozenset[str] = field(default=_DEFAULT_NEUTRAL)
+    path_required_tools: frozenset[str] = field(default=_DEFAULT_PATH_REQUIRED)
     dangerous_patterns: tuple[str, ...] = field(default=_DEFAULT_DANGEROUS)
+
+    def __post_init__(self) -> None:
+        # Invariant: path checks only run for tools that are also auto-accepted,
+        # so requiring a path on a tool outside auto_accept_tools is dead code
+        # and almost certainly a misconfiguration. Catch it at construction.
+        leak = self.path_required_tools - self.auto_accept_tools
+        if leak:
+            raise ValueError(
+                "ToolPolicy invariant: path_required_tools must be a subset of "
+                f"auto_accept_tools; offending tools: {sorted(leak)}"
+            )
 
     def decide(self, tool: str, args: dict[str, Any], cwd: Path) -> Decision:
         if tool in self.neutral_tools:
@@ -771,7 +847,9 @@ class ToolPolicy:
         if tool in self.auto_accept_tools:
             path = self._extract_path(args)
             if path is None:
-                return Decision.NEEDS_HITL
+                if tool in self.path_required_tools:
+                    return Decision.NEEDS_HITL
+                return Decision.ACCEPT
             if not self._inside_cwd(path, cwd):
                 return Decision.NEEDS_HITL
             if self._matches_dangerous(path):
@@ -798,8 +876,13 @@ class ToolPolicy:
             return False
 
     def _matches_dangerous(self, path: Path) -> bool:
-        s = str(path)
-        return any(fnmatch(s, pat) for pat in self.dangerous_patterns)
+        # 同时关闭两个旁路：
+        #   I-1 symlink bypass — 用 resolved 路径而不是原始字符串（cwd 内的伪装链接
+        #       innocent.txt → /work/.env 在 resolve 后才暴露危险后缀）
+        #   I-2 case-sensitivity bypass — fnmatch 在 POSIX 大小写敏感，但 macOS/APFS、
+        #       Windows/NTFS 视 .ENV == .env，必须双侧小写以兜底
+        resolved = str(path.resolve(strict=False)).lower()
+        return any(fnmatch(resolved, pat.lower()) for pat in self.dangerous_patterns)
 
 
 DEFAULT_POLICY = ToolPolicy()
@@ -811,7 +894,8 @@ DEFAULT_POLICY = ToolPolicy()
 pytest tests/unit/session/test_policy.py -v
 ```
 
-Expected: 14 passed.
+Expected: 22 passed (4 + 4 + 1 + 5 + 1 + 1 + 1 + 3 + 1 + 1 — parametrized cases each count;
+含 case-insensitive 与 symlink-bypass 两条安全回归测试).
 
 - [ ] **Step 4.5: 提交**
 
@@ -877,11 +961,12 @@ class TestHITLCoordinator:
         with pytest.raises(HITLNotPending):
             await coord.resolve("nope", "accept")
 
-    async def test_double_resolve_idempotent(self):
+    async def test_resolve_after_completion_raises(self):
+        """After request() returns, the entry is popped; a stale resolve raises."""
         coord = HITLCoordinator()
         asyncio.create_task(coord.resolve("req-3", "accept"))
         await coord.request("req-3", tool="Bash", args={})
-        # second resolve should not raise
+        # req-3 已被 request() pop 出 _pending，再 resolve 应当抛 HITLNotPending
         with pytest.raises(HITLNotPending):
             await coord.resolve("req-3", "accept")
 
@@ -935,7 +1020,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 
 class HITLNotPending(LookupError):
@@ -946,7 +1031,7 @@ class HITLNotPending(LookupError):
 class _PendingEntry:
     tool: str
     args: dict[str, Any]
-    future: "asyncio.Future[tuple[str, str | None]]"
+    future: asyncio.Future[tuple[str, str | None]]
 
 
 class HITLCoordinator:
@@ -976,7 +1061,7 @@ class HITLCoordinator:
         finally:
             async with self._lock:
                 self._pending.pop(req_id, None)
-        return decision  # type: ignore[return-value]
+        return cast(Literal["accept", "deny"], decision)
 
     async def resolve(
         self,
@@ -992,13 +1077,34 @@ class HITLCoordinator:
             entry.future.set_result((decision, reason))
 
     def pending_snapshot(self) -> dict[str, dict[str, Any]]:
-        """Return a snapshot of all currently-pending requests."""
+        """Return a snapshot of all currently-pending requests.
+
+        Returns a shallow-defensive-copy so mutating the returned structure
+        cannot affect runner state. Safe to publish to dashboards / IM
+        cards (which may inadvertently modify their input).
+
+        Note: ``dict(e.args)`` is a shallow copy — sufficient because ``args``
+        values are expected to be scalars per spec §6.2 (strings, ints, paths).
+        If a caller stores nested dicts/lists in ``args``, they would still
+        see mutations propagate one level deep; deep-copy is deferred until
+        Plan 4 needs it.
+
+        Must be called from the same event loop thread that owns this
+        coordinator. Safe on CPython under single-threaded asyncio (dict
+        comprehension is atomic at the bytecode level); not safe under
+        threadpool/PyPy/multi-loop scenarios.
+        """
         return {
-            rid: {"tool": e.tool, "args": e.args}
+            rid: {"tool": e.tool, "args": dict(e.args)}
             for rid, e in self._pending.items()
             if not e.future.done()
         }
 ```
+
+> **Plan-template sync (final-review I-5):** ``pending_snapshot`` now returns a
+> shallow-defensive-copy of the per-entry ``args`` dict so dashboards / IM
+> cards mutating the returned structure cannot poison runner state. Regression
+> test ``test_pending_snapshot_isolation`` covers it.
 
 更新 `src/gg_relay/session/hitl/__init__.py`：
 
@@ -1045,9 +1151,10 @@ git commit -m "feat(hitl): HITLCoordinator with pending-future routing
 
 ```python
 """ExecutorBackend implementations."""
-from gg_relay.session.executor.protocol import ExecutorBackend
+from gg_relay.session.executor.inprocess import InProcessExecutor
+from gg_relay.session.executor.protocol import ExecutorBackend, RunnerFn
 
-__all__ = ["ExecutorBackend"]
+__all__ = ["ExecutorBackend", "InProcessExecutor", "RunnerFn"]
 ```
 
 写入 `src/gg_relay/session/executor/protocol.py`：
@@ -1056,9 +1163,30 @@ __all__ = ["ExecutorBackend"]
 """ExecutorBackend Protocol — abstracts in-process vs. docker vs. (future) k8s."""
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Protocol, runtime_checkable
 
 from gg_relay.session.spec import RuntimeHandle, SessionSpec
+from gg_relay.session.transport.inmemory import InMemoryTransport
+
+RunnerFn = Callable[[InMemoryTransport, SessionSpec], Awaitable[None]]
+"""Runner coroutine signature for InProcessExecutor.
+
+Canonical home for the type alias (the executor's contract). Re-exported
+from ``executor/inprocess.py`` and ``client.py`` for back-compat with
+existing call sites.
+
+CONTRACT (cooperative cancellation):
+- The runner MUST have at least one ``await`` point so ``stop()``'s
+  ``task.cancel()`` can land. A runner that does ``while True: pass`` will
+  hang ``stop()`` indefinitely because asyncio can't preempt non-yielding
+  coroutines.
+- When the runner returns or raises, ``runner_wrapper.finally`` closes the
+  runner-side transport, which propagates a close sentinel to the host side.
+- For Task 8+ (real SDK runner): exceptions inside the runner should be
+  surfaced to the host via an ``error`` event frame before re-raising, so
+  the host can observe the root cause beyond just ``TransportClosed``.
+"""
 
 
 @runtime_checkable
@@ -1074,6 +1202,13 @@ class ExecutorBackend(Protocol):
     async def stop(self, handle: RuntimeHandle) -> None: ...
     async def health(self, handle: RuntimeHandle) -> bool: ...
 ```
+
+> **Plan-template sync (final-review I-3):** ``RunnerFn`` is now defined
+> canonically in ``executor/protocol.py`` (it IS the executor's contract).
+> Both ``executor/inprocess.py`` and ``client.py`` re-export it for
+> back-compat. ``session/executor/__init__.py`` also surfaces
+> ``InProcessExecutor`` and ``RunnerFn`` alongside the protocol so downstream
+> imports can stay shallow.
 
 - [ ] **Step 6.2: 编译检查**
 
@@ -1119,18 +1254,29 @@ import pytest
 
 from gg_relay.session.executor.inprocess import InProcessExecutor
 from gg_relay.session.spec import PluginManifest, SessionSpec
+from gg_relay.session.transport.inmemory import InMemoryTransport
 
 
-async def _stub_runner(transport, spec) -> None:
+async def _stub_runner(transport: InMemoryTransport, spec: SessionSpec) -> None:
     """A stub runner that just echoes one msg.chunk and ends."""
-    await transport.send({
+    await transport.send({  # type: ignore[arg-type]
         "v": 1, "type": "msg.chunk", "seq": 0, "ts": "2026-01-01T00:00:00Z",
         "data": {"prompt": spec.prompt},
     })
-    await transport.send({
+    await transport.send({  # type: ignore[arg-type]
         "v": 1, "type": "session.end", "seq": 1, "ts": "2026-01-01T00:00:00Z",
         "status": "completed",
     })
+
+
+async def _drain_until_closed(transport: InMemoryTransport):
+    """Async generator that yields frames until TransportClosed (spec §6.4 drain semantics)."""
+    from gg_relay.session.transport import TransportClosed
+    try:
+        while True:
+            yield await transport.recv()
+    except TransportClosed:
+        return
 
 
 class TestInProcessExecutor:
@@ -1145,7 +1291,6 @@ class TestInProcessExecutor:
         handle = await exec_.start(spec)
         assert handle.backend == "inprocess"
         assert handle.transport.is_alive
-        # drain
         frames = []
         for _ in range(2):
             frames.append(await handle.transport.recv())
@@ -1165,7 +1310,7 @@ class TestInProcessExecutor:
         assert await exec_.health(handle) is False
 
     async def test_runner_exception_propagates(self, tmp_path: Path):
-        async def bad_runner(transport, spec):
+        async def bad_runner(transport: InMemoryTransport, spec: SessionSpec) -> None:
             raise RuntimeError("boom")
 
         exec_ = InProcessExecutor(runner=bad_runner)
@@ -1174,13 +1319,92 @@ class TestInProcessExecutor:
             executor="inprocess",
         )
         handle = await exec_.start(spec)
-        # transport should still be valid; the exception is observed via stop()
-        # or by recv() seeing TransportClosed when the runner finishes.
+        # runner_wrapper closes runner_side in finally → host sees TransportClosed.
         from gg_relay.session.transport import TransportClosed
         with pytest.raises(TransportClosed):
             await handle.transport.recv()
         await exec_.stop(handle)
+
+    async def test_stop_after_runner_finished_natural(self, tmp_path: Path):
+        """stop() on a runner that already returned naturally should be a no-op for cancel."""
+        exec_ = InProcessExecutor(runner=_stub_runner)
+        spec = SessionSpec(
+            prompt="hi", cwd=tmp_path, plugins=PluginManifest(profile="minimal"),
+            executor="inprocess",
+        )
+        handle = await exec_.start(spec)
+        async for _ in _drain_until_closed(handle.transport):
+            pass
+        # _tasks should be auto-cleaned by add_done_callback after a scheduling round
+        await asyncio.sleep(0)
+        assert handle.runtime_id not in exec_._tasks
+        await exec_.stop(handle)
+        assert handle.transport.is_alive is False
+
+    async def test_stop_unknown_handle_is_noop(self, tmp_path: Path):
+        """stop() on a handle whose runtime_id is not in _tasks is idempotent."""
+        exec_ = InProcessExecutor(runner=_stub_runner)
+        spec = SessionSpec(
+            prompt="x", cwd=tmp_path, plugins=PluginManifest(profile="minimal"),
+            executor="inprocess",
+        )
+        handle = await exec_.start(spec)
+        exec_._tasks.pop(handle.runtime_id, None)
+        await exec_.stop(handle)
+        assert handle.transport.is_alive is False
+
+    async def test_concurrent_starts_independent(self, tmp_path: Path):
+        """Two start() calls should yield two independent runtime_ids and transports."""
+        exec_ = InProcessExecutor(runner=_stub_runner)
+        spec = SessionSpec(
+            prompt="hi", cwd=tmp_path, plugins=PluginManifest(profile="minimal"),
+            executor="inprocess",
+        )
+        h1, h2 = await asyncio.gather(exec_.start(spec), exec_.start(spec))
+        assert h1.runtime_id != h2.runtime_id
+        assert h1.transport is not h2.transport
+        async for _ in _drain_until_closed(h1.transport):
+            pass
+        async for _ in _drain_until_closed(h2.transport):
+            pass
+        await exec_.stop(h1)
+        await exec_.stop(h2)
+
+    async def test_drain_after_runner_close(self, tmp_path: Path):
+        """Buffered frames sent before close must be drainable on the host side (spec §6.4)."""
+        async def burst_runner(transport: InMemoryTransport, spec: SessionSpec) -> None:
+            for i in range(5):
+                await transport.send({  # type: ignore[arg-type]
+                    "v": 1, "type": "msg.chunk", "seq": i,
+                    "ts": "2026-01-01T00:00:00Z",
+                    "data": {"i": i},
+                })
+            await transport.send({  # type: ignore[arg-type]
+                "v": 1, "type": "session.end", "seq": 5,
+                "ts": "2026-01-01T00:00:00Z",
+                "status": "completed",
+            })
+
+        exec_ = InProcessExecutor(runner=burst_runner)
+        spec = SessionSpec(
+            prompt="burst", cwd=tmp_path, plugins=PluginManifest(profile="minimal"),
+            executor="inprocess",
+        )
+        handle = await exec_.start(spec)
+        await asyncio.sleep(0.01)
+        frames = []
+        from gg_relay.session.transport import TransportClosed
+        try:
+            while True:
+                frames.append(await handle.transport.recv())
+        except TransportClosed:
+            pass
+        assert len(frames) == 6
+        assert frames[-1]["type"] == "session.end"
+        await exec_.stop(handle)
 ```
+
+> 测试侧前置依赖：`InMemoryTransport.recv()` 必须支持「peer 已关闭但 inbound 仍有数据」的 drain-then-close 语义（spec §6.4）。Task 3/4 提交的初版 transport 有 eager `_alive` 检查（commit `15828ce`/`be2bf8a`），Task 7 实施时显式去除（commit `25c4f65`），是 Task 7 的硬前置改动而非可有可无的优化。
 
 - [ ] **Step 7.2: 跑测试确认失败**
 
@@ -1204,21 +1428,17 @@ runner-side transport is closed automatically.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import uuid
-from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from gg_relay.session.executor.protocol import RunnerFn
 from gg_relay.session.spec import RuntimeHandle, SessionSpec
 from gg_relay.session.transport.inmemory import make_pair
 
-
-RunnerFn = Callable[
-    ["InMemoryTransportLike", SessionSpec],  # forward-ref via str alias
-    Awaitable[None],
-]
-
-# Type alias only used in annotation
-from gg_relay.session.transport.inmemory import InMemoryTransport as InMemoryTransportLike  # noqa: E402
+# Re-exported so existing `from gg_relay.session.executor.inprocess import RunnerFn`
+# call sites keep working. Canonical definition lives in executor/protocol.py.
+__all__ = ["InProcessExecutor", "RunnerFn"]
 
 
 class InProcessExecutor:
@@ -1226,7 +1446,7 @@ class InProcessExecutor:
 
     def __init__(self, runner: RunnerFn) -> None:
         self._runner = runner
-        self._tasks: dict[str, asyncio.Task] = {}
+        self._tasks: dict[str, asyncio.Task[None]] = {}
 
     async def start(self, spec: SessionSpec) -> RuntimeHandle:
         host_side, runner_side = make_pair()
@@ -1240,27 +1460,43 @@ class InProcessExecutor:
 
         task = asyncio.create_task(runner_wrapper(), name=f"runner-{runtime_id}")
         self._tasks[runtime_id] = task
+        # Auto-drop entry on natural completion so _tasks doesn't grow unbounded
+        # when SessionManager (Task 10+) drives sessions whose normal exit isn't
+        # paired with a stop() call. stop() also pops; pop(default) is idempotent.
+        task.add_done_callback(lambda _t: self._tasks.pop(runtime_id, None))
 
         return RuntimeHandle(
             backend="inprocess",
             runtime_id=runtime_id,
-            transport=host_side,  # type: ignore[arg-type]
-            started_at=datetime.now(timezone.utc),
+            transport=host_side,
+            started_at=datetime.now(UTC),
         )
 
     async def stop(self, handle: RuntimeHandle) -> None:
         task = self._tasks.pop(handle.runtime_id, None)
         if task is not None and not task.done():
             task.cancel()
-            try:
+            # Swallow CancelledError + any runner exception; we are tearing
+            # down. Runner failures surface to the host side via TransportClosed
+            # on the next recv() (runner_wrapper closes the transport in finally).
+            # NOT BaseException — SystemExit / KeyboardInterrupt must propagate.
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
         await handle.transport.close()
 
     async def health(self, handle: RuntimeHandle) -> bool:
         return handle.transport.is_alive
 ```
+
+> **模板与初稿的差异（已修正）**：
+> 1. `RunnerFn` 用 `InMemoryTransport` 直接标注，移除 `InMemoryTransportLike` 别名 + 末位 `# noqa: E402` 后置导入（mypy strict + ruff 都会报）。
+> 2. `datetime.now(timezone.utc)` → `datetime.now(UTC)`（仓库约定，ruff UP017）。
+> 3. `dict[str, asyncio.Task]` → `dict[str, asyncio.Task[None]]`（mypy strict 需要泛型参数）。
+> 4. `try/except (CancelledError, Exception): pass` → `contextlib.suppress(asyncio.CancelledError, Exception)`（ruff SIM105；用窄类型而非 `BaseException`，让 `SystemExit` / `KeyboardInterrupt` 正常向上传递）。
+> 5. `transport=host_side,  # type: ignore[arg-type]` 中的 ignore 已删除（`SessionTransport` 是 `runtime_checkable` Protocol，结构子类型 mypy 接受）。
+> 6. 测试侧 `_stub_runner` / `bad_runner` 加上 `transport: InMemoryTransport, spec: SessionSpec` 类型标注；`transport.send({...})` 加 `# type: ignore[arg-type]`（host-side Protocol 签名是 `ControlFrame`，runner-side 实际写的是 `EventFrame`，与 `test_transport_inmemory.py` 现有约定一致）。
+> 7. `start()` 末尾 `task.add_done_callback(lambda _t: self._tasks.pop(runtime_id, None))`：runner 自然完成时自动清理 `_tasks`，防止 SessionManager 长跑时 dict 泄漏（quality review I-2）。
+> 8. `RunnerFn` 加上协作式取消契约 docstring：runner 必须有 await point 否则 `stop()` 死等；同时提示 Task 8+ 真 SDK runner 要把异常先打成 `error` event frame 再 raise，让宿主能拿到根因而不只是 `TransportClosed`（quality review I-3）。
 
 - [ ] **Step 7.4: 跑测试确认通过**
 
@@ -1268,7 +1504,7 @@ class InProcessExecutor:
 pytest tests/unit/session/test_executor_inprocess.py -v
 ```
 
-Expected: 3 passed.
+Expected: 7 passed（3 base + 4 lifecycle/drain 回归）。
 
 - [ ] **Step 7.5: 提交**
 
@@ -1293,7 +1529,7 @@ git commit -m "feat(executor): InProcessExecutor with pluggable runner
 >   1. `make_sdk_runner(policy, coord)` — 返回一个 RunnerFn 给 InProcessExecutor 用
 >   2. `GgRelayClaudeClient` — 宿主侧的高层 API（持 transport 消费事件流）
 
-- [ ] **Step 8.1: 写集成测试（标记 requires_sdk，不需要真 API key）**
+- [x] **Step 8.1: 写集成测试（标记 requires_sdk，不需要真 API key）**
 
 更新 `pyproject.toml` 增加 marker（如果还没）。在 `[tool.pytest.ini_options]` 段：
 
@@ -1318,14 +1554,16 @@ Uses a stub SDK transport (claude_code_sdk.Transport subclass) so no API call is
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 pytestmark = pytest.mark.requires_sdk
 
 
-async def test_walking_skeleton_completes(tmp_path: Path):
+async def test_walking_skeleton_completes(tmp_path: Path) -> None:
     """handler → InProcessExecutor → stub-SDK runner → see msg.chunk + session.end."""
     from gg_relay.session.client import make_sdk_runner
     from gg_relay.session.executor.inprocess import InProcessExecutor
@@ -1349,13 +1587,13 @@ async def test_walking_skeleton_completes(tmp_path: Path):
     )
     handle = await executor.start(spec)
 
-    frames = []
+    frames: list[dict[str, Any]] = []
     while True:
         try:
             f = await asyncio.wait_for(handle.transport.recv(), timeout=1.0)
         except Exception:
             break
-        frames.append(f)
+        frames.append(dict(f))
         if f["type"] == "session.end":
             break
 
@@ -1367,7 +1605,7 @@ async def test_walking_skeleton_completes(tmp_path: Path):
     assert frames[-1]["status"] == "completed"
 
 
-async def test_walking_skeleton_auto_accept_write(tmp_path: Path):
+async def test_walking_skeleton_auto_accept_write(tmp_path: Path) -> None:
     """When stub SDK requests a Write inside cwd, can_use_tool returns Allow."""
     from gg_relay.session.client import make_sdk_runner
     from gg_relay.session.executor.inprocess import InProcessExecutor
@@ -1390,21 +1628,21 @@ async def test_walking_skeleton_auto_accept_write(tmp_path: Path):
     )
     handle = await executor.start(spec)
 
-    decisions = []
+    decisions: list[bool] = []
     while True:
         try:
             f = await asyncio.wait_for(handle.transport.recv(), timeout=1.0)
         except Exception:
             break
         if f["type"] == "tool.result":
-            decisions.append(f["ok"])
+            decisions.append(bool(f["ok"]))  # type: ignore[typeddict-item]
         if f["type"] == "session.end":
             break
     await executor.stop(handle)
     assert decisions == [True]   # the Write was allowed
 
 
-async def test_walking_skeleton_hitl_path_blocks_then_approves(tmp_path: Path):
+async def test_walking_skeleton_hitl_path_blocks_then_approves(tmp_path: Path) -> None:
     """Bash request → policy says NEEDS_HITL → coord resolved externally → allowed."""
     from gg_relay.session.client import make_sdk_runner
     from gg_relay.session.executor.inprocess import InProcessExecutor
@@ -1414,7 +1652,7 @@ async def test_walking_skeleton_hitl_path_blocks_then_approves(tmp_path: Path):
 
     coord = HITLCoordinator()
 
-    async def auto_approve_after_delay():
+    async def auto_approve_after_delay() -> None:
         # wait until something is pending, then approve
         for _ in range(50):
             snap = coord.pending_snapshot()
@@ -1445,7 +1683,7 @@ async def test_walking_skeleton_hitl_path_blocks_then_approves(tmp_path: Path):
             f = await asyncio.wait_for(handle.transport.recv(), timeout=2.0)
         except Exception:
             break
-        if f["type"] == "tool.result" and f.get("ok") is True:
+        if f["type"] == "tool.result" and f.get("ok") is True:  # type: ignore[typeddict-item]
             bash_result_ok = True
         if f["type"] == "session.end":
             break
@@ -1453,36 +1691,247 @@ async def test_walking_skeleton_hitl_path_blocks_then_approves(tmp_path: Path):
     assert bash_result_ok, "Bash tool should have been approved via HITL"
 
 
+async def test_walking_skeleton_hitl_path_deny(tmp_path: Path) -> None:
+    """coord.resolve(req_id, 'deny') → can_use_tool returns Deny → stub sees behavior == 'deny'."""
+    from gg_relay.session.client import make_sdk_runner
+    from gg_relay.session.executor.inprocess import InProcessExecutor
+    from gg_relay.session.hitl.coordinator import HITLCoordinator
+    from gg_relay.session.hitl.policy import DEFAULT_POLICY
+    from gg_relay.session.spec import PluginManifest, SessionSpec
+
+    coord = HITLCoordinator()
+
+    async def auto_deny_after_delay() -> None:
+        for _ in range(50):
+            snap = coord.pending_snapshot()
+            if snap:
+                req_id = next(iter(snap))
+                await coord.resolve(req_id, "deny", reason="not safe")
+                return
+            await asyncio.sleep(0.02)
+
+    runner = make_sdk_runner(
+        policy=DEFAULT_POLICY,
+        coordinator=coord,
+        sdk_factory=lambda options: _StubBashAttemptClient(options),
+    )
+    executor = InProcessExecutor(runner=runner)
+    spec = SessionSpec(
+        prompt="run ls", cwd=tmp_path,
+        plugins=PluginManifest(profile="minimal"), executor="inprocess",
+    )
+    asyncio.create_task(auto_deny_after_delay())
+
+    handle = await executor.start(spec)
+    bash_result_ok: bool | None = None
+    while True:
+        try:
+            f = await asyncio.wait_for(handle.transport.recv(), timeout=2.0)
+        except Exception:
+            break
+        if f["type"] == "tool.result":
+            bash_result_ok = bool(f["ok"])  # type: ignore[typeddict-item]
+        if f["type"] == "session.end":
+            break
+    await executor.stop(handle)
+    assert bash_result_ok is False, "Bash tool should have been denied via HITL"
+
+
+async def test_walking_skeleton_policy_deny(tmp_path: Path) -> None:
+    """A custom ToolPolicy that returns Decision.DENY → can_use_tool returns Deny."""
+    from gg_relay.session.client import make_sdk_runner
+    from gg_relay.session.executor.inprocess import InProcessExecutor
+    from gg_relay.session.hitl.coordinator import HITLCoordinator
+    from gg_relay.session.spec import Decision, PluginManifest, SessionSpec
+
+    class _AlwaysDenyPolicy:
+        """Mock policy that returns DENY for Bash, ACCEPT for everything else."""
+
+        def decide(self, tool: str, args: object, cwd: object) -> Decision:
+            if tool == "Bash":
+                return Decision.DENY
+            return Decision.ACCEPT
+
+    runner = make_sdk_runner(
+        policy=_AlwaysDenyPolicy(),  # type: ignore[arg-type]
+        coordinator=HITLCoordinator(),
+        sdk_factory=lambda options: _StubBashAttemptClient(options),
+    )
+    executor = InProcessExecutor(runner=runner)
+    spec = SessionSpec(
+        prompt="ls", cwd=tmp_path,
+        plugins=PluginManifest(profile="minimal"), executor="inprocess",
+    )
+    handle = await executor.start(spec)
+    bash_result_ok: bool | None = None
+    while True:
+        try:
+            f = await asyncio.wait_for(handle.transport.recv(), timeout=2.0)
+        except Exception:
+            break
+        if f["type"] == "tool.result":
+            bash_result_ok = bool(f["ok"])  # type: ignore[typeddict-item]
+        if f["type"] == "session.end":
+            break
+    await executor.stop(handle)
+    assert bash_result_ok is False, "Policy DENY should have produced PermissionResultDeny"
+
+
+async def test_walking_skeleton_error_frame_on_runner_exception(tmp_path: Path) -> None:
+    """Runner exception → error frame published before TransportClosed."""
+    from gg_relay.session.client import make_sdk_runner
+    from gg_relay.session.executor.inprocess import InProcessExecutor
+    from gg_relay.session.hitl.coordinator import HITLCoordinator
+    from gg_relay.session.hitl.policy import DEFAULT_POLICY
+    from gg_relay.session.spec import PluginManifest, SessionSpec
+
+    class _ExplodingClient(_StubBaseClient):
+        async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
+            if False:  # make this an async-generator without yielding
+                yield {}
+            raise RuntimeError("simulated SDK failure")
+
+    runner = make_sdk_runner(
+        policy=DEFAULT_POLICY,
+        coordinator=HITLCoordinator(),
+        sdk_factory=lambda options: _ExplodingClient(options),
+    )
+    executor = InProcessExecutor(runner=runner)
+    spec = SessionSpec(
+        prompt="x", cwd=tmp_path,
+        plugins=PluginManifest(profile="minimal"), executor="inprocess",
+    )
+    handle = await executor.start(spec)
+    seen_error = False
+    while True:
+        try:
+            f = await asyncio.wait_for(handle.transport.recv(), timeout=1.0)
+        except Exception:
+            break
+        if f["type"] == "error":
+            seen_error = True
+            assert f["code"] == "RuntimeError"  # type: ignore[typeddict-item]
+            assert "simulated SDK failure" in f["message"]  # type: ignore[typeddict-item]
+            break
+    await executor.stop(handle)
+    assert seen_error, "error frame must be emitted before close on runner exception"
+
+
+async def test_walking_skeleton_factory_exception_publishes_error(tmp_path: Path) -> None:
+    """sdk_factory itself raising → error frame published (I-1 regression)."""
+    from gg_relay.session.client import make_sdk_runner
+    from gg_relay.session.executor.inprocess import InProcessExecutor
+    from gg_relay.session.hitl.coordinator import HITLCoordinator
+    from gg_relay.session.hitl.policy import DEFAULT_POLICY
+    from gg_relay.session.spec import PluginManifest, SessionSpec
+
+    def _exploding_factory(_options: Any) -> Any:
+        raise RuntimeError("factory boom")
+
+    runner = make_sdk_runner(
+        policy=DEFAULT_POLICY,
+        coordinator=HITLCoordinator(),
+        sdk_factory=_exploding_factory,
+    )
+    executor = InProcessExecutor(runner=runner)
+    spec = SessionSpec(
+        prompt="x", cwd=tmp_path,
+        plugins=PluginManifest(profile="minimal"), executor="inprocess",
+    )
+    handle = await executor.start(spec)
+    seen_error = False
+    while True:
+        try:
+            f = await asyncio.wait_for(handle.transport.recv(), timeout=1.0)
+        except Exception:
+            break
+        if f["type"] == "error":
+            assert f["code"] == "RuntimeError"  # type: ignore[typeddict-item]
+            assert "factory boom" in f["message"]  # type: ignore[typeddict-item]
+            seen_error = True
+            break
+    await executor.stop(handle)
+    assert seen_error, "factory exception must publish an error frame (I-1)"
+
+
+async def test_walking_skeleton_cancellation_no_false_error(tmp_path: Path) -> None:
+    """executor.stop() mid-flight must NOT publish error frame with code=CancelledError (I-2)."""
+    from gg_relay.session.client import make_sdk_runner
+    from gg_relay.session.executor.inprocess import InProcessExecutor
+    from gg_relay.session.hitl.coordinator import HITLCoordinator
+    from gg_relay.session.hitl.policy import DEFAULT_POLICY
+    from gg_relay.session.spec import PluginManifest, SessionSpec
+
+    class _NeverEndsClient(_StubBaseClient):
+        async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
+            while True:
+                await asyncio.sleep(0.05)
+                yield {"type": "AssistantMessage", "content": "still going"}
+
+    runner = make_sdk_runner(
+        policy=DEFAULT_POLICY,
+        coordinator=HITLCoordinator(),
+        sdk_factory=lambda options: _NeverEndsClient(options),
+    )
+    executor = InProcessExecutor(runner=runner)
+    spec = SessionSpec(
+        prompt="x", cwd=tmp_path,
+        plugins=PluginManifest(profile="minimal"), executor="inprocess",
+    )
+    handle = await executor.start(spec)
+
+    # Drain at least one frame to ensure runner is actively yielding
+    await asyncio.wait_for(handle.transport.recv(), timeout=1.0)
+    # Now yank the runner
+    await executor.stop(handle)
+
+    # Drain remaining frames; assert no CancelledError-coded error frame
+    seen_false_error = False
+    while True:
+        try:
+            f = await asyncio.wait_for(handle.transport.recv(), timeout=0.3)
+        except Exception:
+            break
+        if f["type"] == "error" and f.get("code") == "CancelledError":  # type: ignore[typeddict-item]
+            seen_false_error = True
+            break
+    assert not seen_false_error, "cancellation must not surface as an error frame (I-2)"
+
+
 # ── Stub SDK clients (avoid hitting real API) ──────────────────────────────
 
 
 class _StubBaseClient:
     """Common stub matching the subset of ClaudeSDKClient we use."""
-    def __init__(self, options):
+
+    def __init__(self, options: Any) -> None:
         self._options = options
 
-    async def connect(self): pass
-    async def disconnect(self): pass
-    async def query(self, prompt: str): pass
-    async def interrupt(self): pass
+    async def connect(self) -> None: ...
+    async def disconnect(self) -> None: ...
+    async def query(self, prompt: str) -> None: ...
+    async def interrupt(self) -> None: ...
 
 
-def _make_stub_sdk_client(options):
+def _make_stub_sdk_client(options: Any) -> _StubBaseClient:
     """Minimal stub: just yields one assistant message and ends."""
+
     class _C(_StubBaseClient):
-        async def receive_messages(self):
+        async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
             yield {"type": "AssistantMessage", "content": "hi"}
             yield {"type": "ResultMessage", "subtype": "success", "total_cost_usd": 0.0}
+
     return _C(options)
 
 
 class _StubWriteAttemptClient(_StubBaseClient):
     """Stub that triggers options.can_use_tool with a Write request."""
-    def __init__(self, options, file_path: str):
+
+    def __init__(self, options: Any, file_path: str) -> None:
         super().__init__(options)
         self._file_path = file_path
 
-    async def receive_messages(self):
+    async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
         from claude_code_sdk import ToolPermissionContext
         ctx = ToolPermissionContext(signal=None, suggestions=[])
         result = await self._options.can_use_tool(
@@ -1499,7 +1948,7 @@ class _StubWriteAttemptClient(_StubBaseClient):
 
 
 class _StubBashAttemptClient(_StubBaseClient):
-    async def receive_messages(self):
+    async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
         from claude_code_sdk import ToolPermissionContext
         ctx = ToolPermissionContext(signal=None, suggestions=[])
         result = await self._options.can_use_tool(
@@ -1515,7 +1964,7 @@ class _StubBashAttemptClient(_StubBaseClient):
         yield {"type": "ResultMessage", "subtype": "success", "total_cost_usd": 0.0}
 ```
 
-- [ ] **Step 8.2: 跑测试确认失败**
+- [x] **Step 8.2: 跑测试确认失败**
 
 ```bash
 pytest tests/integration/test_walking_skeleton.py -v
@@ -1523,7 +1972,7 @@ pytest tests/integration/test_walking_skeleton.py -v
 
 Expected: `ImportError: cannot import name 'make_sdk_runner'`
 
-- [ ] **Step 8.3: 实现 client.py**
+- [x] **Step 8.3: 实现 client.py**
 
 写入 `src/gg_relay/session/client.py`：
 
@@ -1533,19 +1982,20 @@ Expected: `ImportError: cannot import name 'make_sdk_runner'`
 The runner factory wires together:
   - ClaudeSDKClient (or stub) — owns the actual SDK conversation
   - ClaudeCodeOptions.can_use_tool — host-side ToolPolicy + HITLCoordinator
-  - InMemoryTransport (runner side) — pipes SDK events as JSONL frames to the host
+  - InMemoryTransport (runner side) — pipes SDK events as event frames to the host
 
 The host side of the transport is consumed by the calling handler / SessionManager
 (out of scope for this Plan; will be added in Plan 4).
 """
 from __future__ import annotations
 
-import json
+import asyncio
+import contextlib
+import traceback
 import uuid
-from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any
+from collections.abc import Callable
+from datetime import UTC, datetime
+from typing import Any, cast
 
 from claude_code_sdk import (
     ClaudeCodeOptions,
@@ -1555,21 +2005,35 @@ from claude_code_sdk import (
     ToolPermissionContext,
 )
 
+from gg_relay.session.executor.protocol import RunnerFn
 from gg_relay.session.hitl.coordinator import HITLCoordinator
 from gg_relay.session.hitl.policy import ToolPolicy
 from gg_relay.session.spec import Decision, SessionSpec
 from gg_relay.session.transport.inmemory import InMemoryTransport
+from gg_relay.session.transport.protocol import EventFrame
 
+SdkFactory = Callable[[ClaudeCodeOptions], Any]
+"""Factory returning a ClaudeSDKClient-like object.
 
-SdkFactory = Callable[[ClaudeCodeOptions], Any]   # returns a ClaudeSDKClient-like object
-RunnerFn = Callable[[InMemoryTransport, SessionSpec], Awaitable[None]]
+Returns Any (not ClaudeSDKClient) so test stubs can satisfy the duck-typed
+surface (connect/disconnect/query/receive_messages) without inheriting from
+the real SDK class.
+"""
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def _envelope(seq: int, type_: str, **rest: Any) -> dict[str, Any]:
+    """Build a wire-format frame dict for transport.send.
+
+    Sequence numbering note: `seq` is **monotonic but not gapless**. The
+    ResultMessage branch in the runner increments `seq` twice — once for the
+    assistant message body itself, once for the trailing `session.end` frame —
+    so consumers must not assume contiguous integer ranges. They should only
+    rely on strict ordering (later frame ⇒ strictly larger `seq`).
+    """
     return {"v": 1, "type": type_, "seq": seq, "ts": _now_iso(), **rest}
 
 
@@ -1577,9 +2041,21 @@ def make_sdk_runner(
     *,
     policy: ToolPolicy,
     coordinator: HITLCoordinator,
-    sdk_factory: SdkFactory = ClaudeSDKClient,   # default: real SDK
+    sdk_factory: SdkFactory = ClaudeSDKClient,
 ) -> RunnerFn:
-    """Return a RunnerFn suitable for InProcessExecutor(runner=...)."""
+    """Return a RunnerFn suitable for InProcessExecutor(runner=...).
+
+    **SCOPE — Plan 1, in-process only.** This factory takes the host's
+    HITLCoordinator directly; it never consumes ControlFrames from the
+    transport. For cross-process backends (Plan 3 Docker, future K8s),
+    a separate ``make_wire_runner`` will route HITL decisions via
+    ``tool.decision`` ControlFrames instead.
+
+    The returned coroutine owns the lifecycle of one SDK conversation:
+    connect → query → drain receive_messages → disconnect (in finally).
+    Each SDK message becomes a transport EventFrame on the runner side, which
+    propagates to the host via the paired InMemoryTransport.
+    """
 
     async def runner(transport: InMemoryTransport, spec: SessionSpec) -> None:
         seq = 0
@@ -1594,13 +2070,15 @@ def make_sdk_runner(
                 return PermissionResultAllow()
             if d == Decision.DENY:
                 return PermissionResultDeny(message=f"policy denied {tool_name}")
-            # NEEDS_HITL → publish tool.request, await coordinator decision
-            req_id = f"r-{uuid.uuid4().hex[:8]}"
+            # NEEDS_HITL → publish tool.request, await coordinator decision.
+            # 12 hex chars = 48 bits, birthday-bound ~16M concurrent pending
+            # (vs 8 hex / 32 bits → only ~65K before 50% collision).
+            req_id = f"r-{uuid.uuid4().hex[:12]}"
             nonlocal seq
             seq += 1
-            await transport.send(_envelope(
+            await transport.send(cast(EventFrame, _envelope(
                 seq, "tool.request", req_id=req_id, tool=tool_name, args=tool_input,
-            ))
+            )))
             decision = await coordinator.request(req_id, tool=tool_name, args=tool_input)
             if decision == "accept":
                 return PermissionResultAllow()
@@ -1612,41 +2090,119 @@ def make_sdk_runner(
             env=dict(spec.plugins.extra_env),
         )
 
-        client = sdk_factory(options)
+        # sdk_factory() must be invoked INSIDE the try so a factory that raises
+        # synchronously (bad options, ImportError, etc.) still surfaces as an
+        # `error` event frame per RunnerFn contract (I-1). `client` is bound
+        # to None first so the finally clause can guard against the
+        # never-constructed case.
+        client: Any = None
         try:
+            client = sdk_factory(options)
             await client.connect()
             await client.query(spec.prompt)
             async for msg in client.receive_messages():
                 seq += 1
                 msg_type = msg.get("type") if isinstance(msg, dict) else type(msg).__name__
                 if msg_type == "ToolResult" and isinstance(msg, dict):
-                    await transport.send(_envelope(
+                    await transport.send(cast(EventFrame, _envelope(
                         seq, "tool.result",
+                        # TODO Plan 4: map SDK tool_use_id → host-side req_id; for now
+                        # the dict-stub path passes req_id through verbatim or "".
                         req_id=msg.get("req_id", ""),
-                        ok=msg.get("ok", True),
+                        # Fail-safe default: a ToolResult without an "ok" field means
+                        # we don't know if it succeeded, so treat it as failure.
+                        ok=msg.get("ok", False),
                         result=msg.get("result", {}),
-                    ))
+                    )))
                 elif msg_type == "ResultMessage":
                     seq += 1
-                    await transport.send(_envelope(
+                    await transport.send(cast(EventFrame, _envelope(
                         seq, "session.end",
                         status="completed",
                         tokens=msg.get("usage", {}) if isinstance(msg, dict) else {},
-                        cost_usd=msg.get("total_cost_usd", 0.0) if isinstance(msg, dict) else 0.0,
-                    ))
+                        cost_usd=(
+                            msg.get("total_cost_usd", 0.0) if isinstance(msg, dict) else 0.0
+                        ),
+                    )))
                     break
                 else:
-                    await transport.send(_envelope(
+                    await transport.send(cast(EventFrame, _envelope(
                         seq, "msg.chunk",
                         data=msg if isinstance(msg, dict) else {"repr": repr(msg)},
-                    ))
+                    )))
+        except asyncio.CancelledError:
+            # Clean cancellation (e.g. executor.stop()) — propagate without
+            # publishing a misleading `error` frame. runner_wrapper.finally
+            # closes the transport so the host observes the session boundary
+            # via TransportClosed. (I-2)
+            raise
+        except BaseException as exc:
+            # Per RunnerFn contract (executor/inprocess.py docstring): runner
+            # exceptions must surface to the host as an `error` frame before
+            # propagating, otherwise the host only sees TransportClosed and
+            # loses the root cause. Catch BaseException so KeyboardInterrupt /
+            # SystemExit also publish the frame before unwinding. Suppress any
+            # send failure so the original exception is re-raised intact.
+            seq += 1
+            with contextlib.suppress(Exception):
+                await transport.send(cast(EventFrame, _envelope(
+                    seq, "error",
+                    code=type(exc).__name__,
+                    message=str(exc),
+                    traceback=traceback.format_exc(),
+                )))
+            raise
         finally:
-            await client.disconnect()
+            # Disconnect must not mask the original exception if it raises,
+            # and must be skipped if sdk_factory() never produced a client.
+            if client is not None:
+                with contextlib.suppress(Exception):
+                    await client.disconnect()
 
     return runner
 ```
 
-- [ ] **Step 8.4: 跑集成测试**
+> **Plan-template fixes applied in Task 8 commit** (synced from implementation):
+>
+> 1. **`import json` removed** — runner doesn't serialize JSON; frames stay as dicts in-process.
+> 2. **`datetime.timezone` → `datetime.UTC`** (ruff UP017, repo convention; matches `executor/inprocess.py` from Task 7).
+> 3. **`cast(EventFrame, _envelope(...))` at each `transport.send` call** — `_envelope` returns `dict[str, Any]` but `InMemoryTransport.send` expects `ControlFrame | EventFrame` (TypedDict union). Cast is cleaner than per-call `# type: ignore[arg-type]`.
+> 4. **Unused `from pathlib import Path`** removed.
+> 5. **Test file**: typed `__init__`/methods on `_StubBaseClient` (Any, str, None returns); `AsyncIterator[dict[str, Any]]` return types on `receive_messages`; `dict(f)` coercion into `frames` list to satisfy `list[dict[str, Any]]`; `# type: ignore[typeddict-item]` on `f["ok"]` access (EventFrame union has no static `ok` key — only `ToolResultFrame` does, and TypedDict narrowing on `f["type"]` literal isn't picked up).
+> 6. **`_StubBaseClient` empty methods use `...` (PEP 8) instead of `pass`** to keep ruff happy under `B`/`SIM`.
+> 7. **`SdkFactory` docstring** added — explains why factory returns `Any` (duck-typing for test stubs vs. inheriting `ClaudeSDKClient`).
+> 8. **Public `EventFrame` import** added to `client.py` to support the cast.
+>
+> `claude-code-sdk` ships `py.typed` so mypy strict resolves without an `[[tool.mypy.overrides]]` block.
+>
+> **Follow-up fixes (post-`db4a7fd` spec review)** — applied as a separate commit on top:
+>
+> A. **Issue [A] (MEDIUM): error event frame on runner exception**. The runner now catches `BaseException`, publishes an `error` envelope (`code=type(exc).__name__`, `message=str(exc)`, `traceback=traceback.format_exc()`) before re-raising. Honors the `RunnerFn` contract documented in `executor/inprocess.py` and means the host gets a meaningful root cause instead of a bare `TransportClosed`. Requires `import contextlib` and `import traceback` at the top of the module; the `finally: client.disconnect()` is also wrapped in `contextlib.suppress(Exception)` so a disconnect failure can't mask the original exception. `ErrorFrame` is already in the `EventFrame` union from Task 2, so no protocol change was needed.
+>
+> B. **Issue [C.1] (LOW): fail-safe `ok` default**. Changed `ok=msg.get("ok", True)` → `ok=msg.get("ok", False)`. Missing field = unknown outcome → fail-safe direction. Also added a `TODO Plan 4` comment on the `req_id=msg.get("req_id", "")` line — the SDK uses `tool_use_id` and the host needs to map it back to its own `req_id`; that mapping lives in SessionManager (Plan 4), not here.
+>
+> C. **Issue [F.1/F.2] (MEDIUM): deny-path tests + error-frame test**. Three new tests added to `tests/integration/test_walking_skeleton.py`:
+>    - `test_walking_skeleton_hitl_path_deny` — `coord.resolve(req_id, "deny", reason=...)` → `can_use_tool` returns `PermissionResultDeny` → stub sees `behavior == "deny"`, yields `ok=False`, runner forwards `tool.result` with `ok=False`.
+>    - `test_walking_skeleton_policy_deny` — Custom `_AlwaysDenyPolicy` returning `Decision.DENY` for Bash → `can_use_tool` short-circuits without involving the coordinator → same `ok=False` outcome.
+>    - `test_walking_skeleton_error_frame_on_runner_exception` — `_ExplodingClient.receive_messages` raises `RuntimeError("simulated SDK failure")` → host reads an `error` frame with `code="RuntimeError"` and the message verbatim before `TransportClosed`. Brings `client.py` to **100%** coverage.
+>
+> **Explicitly deferred to Plan 4** (SessionManager + real SDK dispatch): dataclass message unwrapping (Issue [B.1-3]), `tool_use_id → req_id` mapping (Issue [B.3 + C.2]), concurrent multi-tool HITL test (Issue [F.4] — already covered by `HITLCoordinator` unit `test_concurrent_requests`), `tool.request` frame field assertions (Issue [F.5]). Cosmetic `req_id` length (Issue [G]) and `seq` gap polish (Issue [E]) are Task 10 work.
+>
+> **Error-frame boundary fixes (post-`333dd81` quality review)** — landed as a separate commit:
+>
+> D. **Issue [I-1] (IMPORTANT): factory exception bypasses error frame**. `sdk_factory(options)` was originally called *before* entering the try block, so a factory that raised synchronously (bad options, ImportError, etc.) escaped without publishing an `error` frame. Moved the call **inside** the try and pre-bound `client: Any = None` so the finally clause can `if client is not None` guard the `client.disconnect()`.
+>
+> E. **Issue [I-2] (IMPORTANT): `CancelledError` surfaced as misleading error frame**. `executor.stop()` cancels the runner task, which propagates `asyncio.CancelledError` into the runner body. The pre-existing `except BaseException` catch-all swallowed it and published `{"type": "error", "code": "CancelledError", ...}` — host code would mistake clean teardown for a runner crash. Added an `except asyncio.CancelledError: raise` clause **before** the `BaseException` catch; cancellation now propagates cleanly and `runner_wrapper.finally` still closes the transport so the host observes the session boundary via `TransportClosed`. Added `import asyncio` to the module.
+>
+> Two new TDD regression tests cover both fixes (RED-then-GREEN verified): `test_walking_skeleton_factory_exception_publishes_error` and `test_walking_skeleton_cancellation_no_false_error`. Together with prior commits this brings `client.py` and the rest of the `session` package to **100% coverage** (8 integration + 53 unit = 61 total tests).
+>
+> **Final-review polish (Plan 1 closeout)** — landed in a separate refactor commit:
+>
+> F. **Issue [I-2] (final review): make_sdk_runner docstring SCOPE stanza**. Added an explicit ``**SCOPE — Plan 1, in-process only.**`` lead-in clarifying that this factory reaches the host's ``HITLCoordinator`` directly and never consumes ``ControlFrame``s. Plan 3 (Docker) will introduce a separate ``make_wire_runner`` that routes HITL decisions via ``tool.decision`` ControlFrames over the wire.
+>
+> G. **Issue [I-3] (final review): RunnerFn deduped**. ``RunnerFn = Callable[[InMemoryTransport, SessionSpec], Awaitable[None]]`` was defined twice (``executor/inprocess.py`` and ``client.py``). Canonical home is now ``executor/protocol.py`` (it IS the executor's contract). Both call sites re-export the symbol so existing imports keep working. No cycle risk: ``executor/protocol.py → transport/inmemory → transport/protocol → stdlib``.
+
+- [x] **Step 8.4: 跑集成测试**
 
 ```bash
 pytest tests/integration/test_walking_skeleton.py -v
@@ -1654,7 +2210,7 @@ pytest tests/integration/test_walking_skeleton.py -v
 
 Expected: 3 passed.
 
-- [ ] **Step 8.5: 提交**
+- [x] **Step 8.5: 提交**
 
 ```bash
 git add src/gg_relay/session/client.py tests/integration/test_walking_skeleton.py pyproject.toml
@@ -1679,6 +2235,23 @@ Spike § 验证：can_use_tool 是 async + PermissionResult 返回 — 全部直
 
 写入 `examples/walking_skeleton_demo.py`：
 
+> **Implementation note (synced from Task 9 commit):** the original template
+> had several mypy-strict / ruff violations. The version below is the final
+> shipped code. Key fixes:
+>
+> 1. `_DemoSDK.__init__` parameter typed as `options: Any` (mypy strict refuses
+>    untyped params); also `-> None` on all stub coroutines.
+> 2. `receive_messages` typed as `AsyncIterator[dict[str, Any]]`.
+> 3. `except (asyncio.TimeoutError, Exception):` — `asyncio.TimeoutError` IS
+>    `TimeoutError` (3.11+) IS an `Exception` subclass, so the tuple is
+>    misleading. Split into explicit `except TimeoutError` and
+>    `except TransportClosed` branches so each path can print a useful reason
+>    (timeout vs runner shutdown).
+> 4. Hold a named reference to the `asyncio.create_task(im_responder(...))`
+>    return value (responder_task) and cancel + `contextlib.suppress` it in
+>    `finally` — fire-and-forget tasks can be GC'd mid-flight under load and
+>    swallow exceptions.
+
 ```python
 """Walking-skeleton end-to-end demo.
 
@@ -1695,49 +2268,79 @@ This uses a stub SDK (no real API call). It demonstrates:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import tempfile
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 from gg_relay.session.client import make_sdk_runner
 from gg_relay.session.executor.inprocess import InProcessExecutor
 from gg_relay.session.hitl.coordinator import HITLCoordinator
 from gg_relay.session.hitl.policy import DEFAULT_POLICY
 from gg_relay.session.spec import PluginManifest, SessionSpec
+from gg_relay.session.transport.protocol import TransportClosed
 
 
 class _DemoSDK:
-    """Fake SDK that requests Write (auto-accept) then Bash (HITL) then ends."""
-    def __init__(self, options):
+    """Fake SDK that requests Write (auto-accept) then Bash (HITL) then ends.
+
+    Duck-typed against ClaudeSDKClient; consumed via make_sdk_runner's
+    `sdk_factory` hook so the demo runs without a real API key.
+    `options` is typed as Any because the runner only reads `.can_use_tool`
+    and `.cwd`, and constraining to ClaudeCodeOptions here adds no safety.
+    """
+
+    def __init__(self, options: Any) -> None:
         self._options = options
 
-    async def connect(self): pass
-    async def disconnect(self): pass
-    async def query(self, prompt: str): pass
+    async def connect(self) -> None:
+        return None
 
-    async def receive_messages(self):
+    async def disconnect(self) -> None:
+        return None
+
+    async def query(self, prompt: str) -> None:
+        return None
+
+    async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
         from claude_code_sdk import ToolPermissionContext
+
         ctx = ToolPermissionContext(signal=None, suggestions=[])
 
-        # 1. Write (should auto-accept)
+        # Write under cwd → policy ACCEPT → no HITL round-trip
         write_result = await self._options.can_use_tool(
             "Write",
-            {"file_path": str(Path(self._options.cwd) / "demo.txt"), "content": "hello"},
+            {
+                "file_path": str(Path(self._options.cwd) / "demo.txt"),
+                "content": "hello",
+            },
             ctx,
         )
-        yield {"type": "ToolResult", "tool_name": "Write", "ok": write_result.behavior == "allow"}
+        yield {
+            "type": "ToolResult",
+            "tool_name": "Write",
+            "ok": write_result.behavior == "allow",
+        }
 
-        # 2. Bash (should HITL)
+        # Bash → policy NEEDS_HITL → runner publishes tool.request, awaits coordinator
         bash_result = await self._options.can_use_tool(
-            "Bash", {"command": "ls /tmp"}, ctx,
+            "Bash",
+            {"command": "ls /tmp"},
+            ctx,
         )
-        yield {"type": "ToolResult", "tool_name": "Bash", "ok": bash_result.behavior == "allow"}
+        yield {
+            "type": "ToolResult",
+            "tool_name": "Bash",
+            "ok": bash_result.behavior == "allow",
+        }
 
         yield {"type": "ResultMessage", "subtype": "success", "total_cost_usd": 0.0}
 
 
 async def im_responder(coord: HITLCoordinator) -> None:
-    """Simulate an IM user approving HITL requests after 100ms."""
+    """Simulate an IM user approving HITL requests as soon as they appear."""
     for _ in range(100):
         snap = coord.pending_snapshot()
         if snap:
@@ -1767,20 +2370,31 @@ async def main() -> None:
         )
 
         print(f"▶ Starting session in {cwd}")
-        asyncio.create_task(im_responder(coord))
-        handle = await executor.start(spec)
+        # Keep a reference so the responder isn't garbage-collected mid-flight.
+        responder_task = asyncio.create_task(im_responder(coord))
+        try:
+            handle = await executor.start(spec)
+            print(f"▶ runtime_id={handle.runtime_id}\n")
 
-        print(f"▶ runtime_id={handle.runtime_id}\n")
-        while True:
-            try:
-                frame = await asyncio.wait_for(handle.transport.recv(), timeout=3.0)
-            except (asyncio.TimeoutError, Exception):
-                break
-            print(f"◀ frame: {json.dumps(frame, default=str)[:200]}")
-            if frame["type"] == "session.end":
-                break
+            while True:
+                try:
+                    frame = await asyncio.wait_for(handle.transport.recv(), timeout=3.0)
+                except TimeoutError:
+                    print("◀ timeout waiting for frame; aborting")
+                    break
+                except TransportClosed:
+                    print("◀ transport closed by runner")
+                    break
+                print(f"◀ frame: {json.dumps(frame, default=str)[:200]}")
+                if frame["type"] == "session.end":
+                    break
 
-        await executor.stop(handle)
+            await executor.stop(handle)
+        finally:
+            responder_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await responder_task
+
         print("\n✓ session ended cleanly")
 
 

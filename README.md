@@ -39,6 +39,26 @@ mypy src/
 ruff format src/ tests/
 ```
 
+## Quick Start: Walking Skeleton (in-process)
+
+The in-process executor lets you drive a fake (or real) Claude Code SDK session
+end-to-end without containers, plugin install, IM webhooks, or a database — useful
+for local development, contract tests, and smoke-testing transport changes.
+
+```bash
+source .venv/bin/activate
+python examples/walking_skeleton_demo.py
+```
+
+Expected output: a sequence of `tool.result` / `tool.request` / `session.end`
+event frames, with a synthetic IM responder auto-approving every `tool.request`.
+The demo exits 0 when the session completes cleanly.
+
+References:
+- Design — [`docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md`](./docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md)
+- Implementation plan — [`docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md`](./docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md)
+- Demo source — [`examples/walking_skeleton_demo.py`](./examples/walking_skeleton_demo.py)
+
 ## License
 
 MIT

@@ -138,10 +138,16 @@ class SessionSpec:
     cwd:          Path
     plugins:      PluginManifest
     executor:     Literal["docker", "inprocess"] = "docker"
-    hitl_policy:  ToolPolicy | None = None        # None → 使用 DEFAULT_POLICY
     timeout_s:    int = 1800
     metadata:     tuple[tuple[str, Any], ...] = ()
 ```
+
+> **Plan 1 deviation:** the `hitl_policy: ToolPolicy | None` field originally
+> proposed in this section is deferred to Plan 4 (SessionManager). Plan 1
+> binds the policy at `make_sdk_runner` construction time, which is
+> sufficient for the in-process case where a single policy serves all
+> sessions in the same process. Per-session override will be reintroduced
+> when SessionManager needs to differentiate (e.g. different tenants).
 
 ### 4.2 `PluginManifest` — 与 install.sh CLI 1:1 对齐
 
@@ -181,6 +187,20 @@ class PluginManifest:
 
 ### 4.3 `ToolPolicy` — HITL 策略
 
+`ToolPolicy` 是 frozen dataclass，决策矩阵由 5 个字段定义。`PATH_REQUIRED_TOOLS`
+与 `AUTO_ACCEPT_TOOLS` 解耦：默认两者相同（4 个文件工具），但当调用方扩展
+`auto_accept_tools`（例如把 Bash 加入）时，不应强制要求 Bash 提供 path。
+路径提取由 `_extract_path()` 完成，返回 `Path | None`；当返回 `None` 时，是否升级
+为 `NEEDS_HITL` 由 `path_required_tools` 决定——只对那些"语义上必须带 path"
+的工具触发"missing path → NEEDS_HITL"，避免误拦无关的非文件工具。
+
+`DANGEROUS_PATTERNS` 使用 `fnmatch` 兼容的 shell-style glob（通配符必须显式书写，
+不是子字符串匹配），与 `policy.py` 实现保持一致。`_matches_dangerous()` 内部把
+输入路径与 patterns 都做 `path.resolve(strict=False)` + 双侧小写后再 fnmatch，
+关闭两条已知旁路：(I-1) cwd 内伪装符号链接 `innocent.txt → /work/.env` 不能逃避
+危险后缀匹配；(I-2) `.ENV` / `ID_RSA` / `.PEM` 在 macOS/APFS 与 Windows/NTFS
+等大小写不敏感文件系统上不能绕过策略。
+
 ```python
 class Decision(StrEnum):
     ACCEPT     = "accept"
@@ -188,19 +208,23 @@ class Decision(StrEnum):
     NEEDS_HITL = "needs_hitl"
 
 class ToolPolicy:
-    AUTO_ACCEPT_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
-    HITL_TOOLS        = frozenset({"Bash", "WebFetch", "Task"})
-    NEUTRAL_TOOLS     = frozenset({"Read", "Glob", "Grep", "LS"})
+    AUTO_ACCEPT_TOOLS   = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit"})
+    HITL_TOOLS          = frozenset({"Bash", "WebFetch", "Task"})
+    NEUTRAL_TOOLS       = frozenset({"Read", "Glob", "Grep", "LS"})
+    PATH_REQUIRED_TOOLS = AUTO_ACCEPT_TOOLS  # 默认与 auto-accept 集合一致；override 时可独立缩窄
 
-    DANGEROUS_PATTERNS = (".env", ".git/", "secrets/", "credentials/", "id_rsa", "*.pem")
+    DANGEROUS_PATTERNS  = ("*.env", "*/.git/*", "*/secrets/*", "*/credentials/*", "*id_rsa*", "*.pem")
 
     def decide(self, tool: str, args: dict, cwd: Path) -> Decision:
         if tool in self.NEUTRAL_TOOLS:
             return Decision.ACCEPT
         if tool in self.AUTO_ACCEPT_TOOLS:
-            target = self._extract_path(tool, args)
-            if not self._inside_cwd(target, cwd):     return Decision.NEEDS_HITL
-            if self._matches_dangerous(target):       return Decision.NEEDS_HITL
+            target = self._extract_path(args)              # Path | None
+            if target is None:
+                if tool in self.PATH_REQUIRED_TOOLS:       return Decision.NEEDS_HITL
+                return Decision.ACCEPT
+            if not self._inside_cwd(target, cwd):          return Decision.NEEDS_HITL
+            if self._matches_dangerous(target):            return Decision.NEEDS_HITL
             return Decision.ACCEPT
         if tool in self.HITL_TOOLS:
             return Decision.NEEDS_HITL
@@ -220,6 +244,39 @@ class RuntimeHandle:
     started_at:  datetime
     extra:       tuple[tuple[str, Any], ...] = ()   # 后端特定的额外元数据（如 docker_image_tag）
 ```
+
+### 4.5 `HITLCoordinator` — Pending-Future Decision Router
+
+进程级路由器：把 `can_use_tool` 阻塞回调里发起的"需要人工介入"请求挂起，等待外部决策（REST endpoint、IM 回调、CLI 提示、或测试桩）通过 `resolve()` 唤醒。`request()` 与 `resolve()` 通过 `req_id` 配对，同 `req_id` 重复 `request` fail-fast 抛 `ValueError`，对已被 `request()` 清理出 `_pending` 的 `req_id` 调用 `resolve()` 抛 `HITLNotPending(LookupError)`。
+
+```python
+class HITLNotPending(LookupError): ...
+
+class HITLCoordinator:
+    async def request(
+        self,
+        req_id: str,
+        *,
+        tool: str,
+        args: dict[str, Any],
+    ) -> Literal["accept", "deny"]: ...
+
+    async def resolve(
+        self,
+        req_id: str,
+        decision: Literal["accept", "deny"],
+        reason: str | None = None,
+    ) -> None: ...
+
+    def pending_snapshot(self) -> dict[str, dict[str, Any]]: ...
+```
+
+**Concurrency contract:**
+- `_lock` 仅保护 `_pending` 字典的 mutations；future 的 `set_result` 与 `await` 都在 lock 外（避免持锁等待协程）。
+- "resolve 在 request 释锁后、await 前到达" 是常态 race：`set_result` 同步设置已就绪 future，await 立即返回，无丢决策。
+- `pending_snapshot` 不持锁 — `dict` 迭代在 CPython 单线程下原子；`future.done()` 过滤排除 race 中间项，避免被 dashboard / IM 误显示。
+
+**Reason 字段透传 (TODO Task 6+):** 当前 `request()` 只返回 `decision`，`reason` 在内部静默丢弃。接 transport `tool.decision` 控制帧 / IM 卡片之后，返回类型扩展为 `tuple[Literal["accept","deny"], str | None]` 或专属 dataclass，把 reason 透到 caller。
 
 ---
 
@@ -315,6 +372,23 @@ class PluginAssembler(Protocol):
 - 不占网络端口（不动防火墙规则）
 - 字段演进：`v` 字段做版本号，宿主侧能向后兼容多个 runner 镜像
 - **风险**：帧大小没有 hard cap → 由协议层限制 64KB / 帧；大 payload（如长文件 diff）走分块
+
+### 6.4 Transport Close Semantics
+
+`SessionTransport` 关闭后的读写不对称语义（与 POSIX pipe / TCP socket 一致）：
+
+| 操作 | close 之前 | close 之后 |
+|---|---|---|
+| `send(frame)` | normal | 立即 `raise TransportClosed`（等价 `EBADF`/`EPIPE`） |
+| `recv()` | 阻塞或返回 frame | **先把 inbound 已缓冲的 EventFrame 全部 drain 给消费者**，看到 sentinel 才 `raise TransportClosed`（等价 `read() == 0` EOF） |
+| `is_alive` | `True` | `False`，反映 *send capability*；**不**约束 `recv()` 是否有数据可读 |
+
+实现要点：
+- 关闭由"投递 sentinel + 同步设置 `_alive=False`"两步组成；sentinel 沿 inbound 队列 FIFO 传递，保证 buffered frame 不会被丢弃
+- `is_alive == False && recv() returns frame` 是合法的中间态，调用方应循环 `recv()` 直到看到 `TransportClosed`
+- 这条契约同样适用于 `UnixSocketTransport` / `TcpSocketTransport`：peer half-close 后本侧仍可 recv 剩余 buffered data
+
+这条语义在 Task 7 (`InProcessExecutor` + runner) 接入时被显式验证：runner 同步发送多帧后 close runner_side，host 必须能 drain 完所有帧才看到 `TransportClosed`。
 
 ---
 

@@ -24,3 +24,6 @@ venv/
 # Project local
 .env
 *.local
+
+# Cursor IDE local config (skills, hooks, plugins)
+.cursor/

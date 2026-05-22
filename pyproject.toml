@@ -55,6 +55,15 @@ packages = ["src/gg_relay"]
 strict = true
 python_version = "3.12"
 
+[[tool.mypy.overrides]]
+module = "tests.*"
+# Pytest test methods carry an implicit `self`, which mypy treats as partial
+# typing — so strict mode reports them under `disallow_incomplete_defs` rather
+# than `disallow_untyped_defs`. Disable both to silence the ~17 pre-existing
+# `no-untyped-def` warnings without weakening type-checking elsewhere.
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
 [tool.ruff]
 target-version = "py312"
 line-length = 100
@@ -66,3 +75,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 asyncio_mode = "auto"
 addopts = "--cov=gg_relay --cov-report=term-missing --cov-fail-under=80"
 testpaths = ["tests"]
+markers = [
+    "requires_sdk: tests that exercise claude-code-sdk integration (no API call)",
+    "requires_api_key: tests that hit the real Anthropic API (skipped without key)",
+]
