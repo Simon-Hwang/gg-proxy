@@ -1,0 +1,21 @@
+docs/sdk-interrupt-resume-spike.md
+  s_d9e2a754ff0cf8::t_d41541f1961156 133-195
+scripts/spike_sdk_long_pause.py
+  s_d9e2a754ff0cf8::t_761ea6af4659f6 1-483
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "4a1b4170fec803948442a1b53e22c80f07bc0e4f",
+  "prompts": {},
+  "sessions": {
+    "s_d9e2a754ff0cf8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "01ddea3d-c97c-4c10-aa59-848e52eb8d38",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
