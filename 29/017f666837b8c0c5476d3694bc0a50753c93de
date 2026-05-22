@@ -1,0 +1,23 @@
+tests/integration/test_real_sdk_dispatch.py
+  s_b97a9241cc4000::t_20f9991eff58db 1-313
+tests/integration/test_real_api_smoke.py
+  s_b97a9241cc4000::t_b9f4e133bc928e 1-71
+docs/superpowers/plans/2026-05-22-plan-2-plugin-assembly-and-real-sdk-dispatch.md
+  s_b97a9241cc4000::t_e9d3c73602eff4 592
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "29017f666837b8c0c5476d3694bc0a50753c93de",
+  "prompts": {},
+  "sessions": {
+    "s_b97a9241cc4000": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c221d2fe-009a-4d37-8d4f-3b1e30350cbe",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
