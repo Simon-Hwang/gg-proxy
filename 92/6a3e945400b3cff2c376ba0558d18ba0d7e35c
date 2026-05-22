@@ -1,0 +1,25 @@
+tests/unit/session/test_client_serializers.py
+  s_b97a9241cc4000::t_9dfae0a88cf891 1-259
+README.md
+  s_b97a9241cc4000::t_8eb4b0658e86dd 62-136
+docs/superpowers/plans/2026-05-22-plan-2-plugin-assembly-and-real-sdk-dispatch.md
+  s_b97a9241cc4000::t_6455ea4dde884f 594-599
+pyproject.toml
+  s_b97a9241cc4000::t_a735d3decb3656 76-78
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "926a3e945400b3cff2c376ba0558d18ba0d7e35c",
+  "prompts": {},
+  "sessions": {
+    "s_b97a9241cc4000": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c221d2fe-009a-4d37-8d4f-3b1e30350cbe",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
