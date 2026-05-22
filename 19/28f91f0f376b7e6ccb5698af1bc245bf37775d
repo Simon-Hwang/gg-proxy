@@ -1,0 +1,35 @@
+src/gg_relay/store/schema.py
+  s_6f0ac3f1a2ed3e::t_1f57b2e8c343ac 1-29,37-60,62-96
+  s_6f0ac3f1a2ed3e::t_ee2ab55a6dbca9 30-36
+  s_6f0ac3f1a2ed3e::t_4ac22020d062d8 61
+tests/unit/store/test_store.py
+  s_6f0ac3f1a2ed3e::t_6effc45e33696e 1-297
+src/gg_relay/store/__init__.py
+  s_6f0ac3f1a2ed3e::t_963447683b0d9e 1-22
+src/gg_relay/store/migrations/env.py
+  s_6f0ac3f1a2ed3e::t_a76587ca1ebef9 1-71
+src/gg_relay/store/migrations/versions/0001_baseline.py
+  s_6f0ac3f1a2ed3e::t_549ec10b6152f6 1-103
+src/gg_relay/store/repository.py
+  s_6f0ac3f1a2ed3e::t_fff8b52fc33c31 1-294
+alembic.ini
+  s_6f0ac3f1a2ed3e::t_8e3d57705a21a3 1-46
+src/gg_relay/store/engine.py
+  s_6f0ac3f1a2ed3e::t_cc3a9ffd34b68a 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "1928f91f0f376b7e6ccb5698af1bc245bf37775d",
+  "prompts": {},
+  "sessions": {
+    "s_6f0ac3f1a2ed3e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "66b0fb54-9a09-41a0-9028-d61647965347",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
