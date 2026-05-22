@@ -24,6 +24,8 @@ dependencies = [
     "python-multipart>=0.0.9",
     "claude-code-sdk>=0.0.14",
     "sse-starlette>=2.0",
+    "aiodocker>=0.21,<1.0",
+    "aiohttp>=3.9",
 ]
 
 [project.optional-dependencies]
@@ -80,4 +82,6 @@ testpaths = ["tests"]
 markers = [
     "requires_sdk: tests that exercise claude-code-sdk integration (no API call)",
     "requires_api_key: tests that hit the real Anthropic API (skipped without key)",
+    "requires_docker: tests that need a reachable Docker daemon (Plan 3)",
+    "requires_curl: integration tests that need `curl` on PATH (Plan 3 proxy smoke)",
 ]

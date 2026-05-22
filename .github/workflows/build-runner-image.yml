@@ -1,0 +1,102 @@
+name: Build runner image
+
+# Plan 3 §6 Task 8 — build & push the per-session gg-relay-runner image to
+# GHCR.
+#
+# Triggers:
+#   - workflow_dispatch: human-initiated rebuild (e.g. bumping the claude
+#     CLI pin without a gg-plugins release).
+#   - repository_dispatch[gg_plugins_release]: gg-plugins CI fires this on
+#     a release tag (see README for the curl payload).
+
+on:
+  workflow_dispatch:
+    inputs:
+      gg_plugins_version:
+        description: "gg-plugins git tag (e.g. v0.4.2)"
+        required: true
+        type: string
+      claude_cli_version:
+        description: "@anthropic-ai/claude-code npm version pin"
+        required: true
+        type: string
+        default: "2.1.133"
+      gg_plugins_profile:
+        description: "install.sh --profile (D3.14: full)"
+        required: false
+        type: string
+        default: "full"
+  repository_dispatch:
+    types: [gg_plugins_release]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version inputs
+        id: ver
+        env:
+          DISPATCH_GG: ${{ inputs.gg_plugins_version }}
+          PAYLOAD_GG: ${{ github.event.client_payload.tag }}
+          DISPATCH_CLI: ${{ inputs.claude_cli_version }}
+          PAYLOAD_CLI: ${{ github.event.client_payload.claude_cli_version }}
+          DISPATCH_PROFILE: ${{ inputs.gg_plugins_profile }}
+        run: |
+          set -euo pipefail
+          GG_VER="${DISPATCH_GG:-${PAYLOAD_GG:-}}"
+          if [ -z "${GG_VER}" ]; then
+            echo "ERROR: no gg-plugins version supplied (inputs or client_payload.tag)" >&2
+            exit 1
+          fi
+          CLI_VER="${DISPATCH_CLI:-${PAYLOAD_CLI:-2.1.133}}"
+          PROFILE="${DISPATCH_PROFILE:-full}"
+          echo "gg_plugins_version=${GG_VER}" >> "$GITHUB_OUTPUT"
+          echo "claude_cli_version=${CLI_VER}" >> "$GITHUB_OUTPUT"
+          echo "gg_plugins_profile=${PROFILE}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: images/gg-relay-runner/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            GG_PLUGINS_VERSION=${{ steps.ver.outputs.gg_plugins_version }}
+            CLAUDE_CLI_VERSION=${{ steps.ver.outputs.claude_cli_version }}
+            GG_PLUGINS_PROFILE=${{ steps.ver.outputs.gg_plugins_profile }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/gg-relay-runner:gg-plugins-${{ steps.ver.outputs.gg_plugins_version }}
+            ghcr.io/${{ github.repository_owner }}/gg-relay-runner:latest
+          cache-from: type=gha,scope=gg-relay-runner
+          cache-to: type=gha,mode=max,scope=gg-relay-runner
+
+      - name: Summary
+        run: |
+          {
+            echo "### gg-relay-runner image built"
+            echo
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| gg-plugins version | ${{ steps.ver.outputs.gg_plugins_version }} |"
+            echo "| claude CLI version | ${{ steps.ver.outputs.claude_cli_version }} |"
+            echo "| profile | ${{ steps.ver.outputs.gg_plugins_profile }} |"
+            echo "| tag | ghcr.io/${{ github.repository_owner }}/gg-relay-runner:gg-plugins-${{ steps.ver.outputs.gg_plugins_version }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

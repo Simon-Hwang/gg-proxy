@@ -381,6 +381,86 @@ class PluginAssembler(Protocol):
 `validate` 在容器外预先调 `install.sh --json --dry-run` 校验 module ID 是否合法（提交期校验，
 而不是等容器起来才报错）。
 
+### 5.4 `DockerExecutor`（Plan 3 §6 Task 4 实装）
+
+`ExecutorBackend` 在 Plan 3 终于被第二个真实后端落地。与 `InProcessExecutor`
+不同的是，它要管的不只是协程，而是一整个 Linux 容器生命周期：
+
+```python
+class DockerExecutor:
+    DEFAULT_IMAGE       = "ghcr.io/gg-org/gg-relay-runner:latest"
+    DEFAULT_SOCKET_ROOT = Path("/var/run/gg-relay")
+
+    def __init__(
+        self,
+        *,
+        image: str = DEFAULT_IMAGE,
+        socket_root: Path = DEFAULT_SOCKET_ROOT,
+        proxy_url: str | None = None,        # http://host.docker.internal:8888
+        docker_client: aiodocker.Docker | None = None,
+        default_mem: str = "2g",             # D3.7 resource quotas
+        default_cpus: float = 2.0,
+        default_pids_limit: int = 512,
+        accept_timeout: float = 30.0,
+        shutdown_grace_s: float = 5.0,
+        extra_hosts: Mapping[str, str] | None = None,  # D3.15 host-gateway
+    ) -> None: ...
+
+    async def start(
+        self, spec: SessionSpec, *, runtime_ctx: SessionRuntimeContext = ...
+    ) -> RuntimeHandle: ...
+    async def stop (self, handle: RuntimeHandle) -> None: ...
+    async def health(self, handle: RuntimeHandle) -> bool: ...
+    async def close(self) -> None: ...
+```
+
+**`start()` 三段式**（每段失败都干净回滚）：
+
+1. **bind 宿主 socket**：`UnixSocketServer.listen(socket_root / f"{runtime_id}.sock")`，
+   chmod 0666 + 删除过期 socket 文件
+2. **`docker run`**：`HostConfig` 严格落实 D3.6/D3.7/D3.16 —— `NetworkMode=bridge`、
+   `AutoRemove=True`、`Memory`、`NanoCpus`、`PidsLimit`、`Binds=[".../<runtime_id>.sock:/run/relay.sock:rw,z"]`、
+   `ExtraHosts={"host.docker.internal":"host-gateway"}`（spike addendum, D3.15 之后追加）；
+   env 包含 `GG_RELAY_SPEC_JSON`、`GG_RELAY_SOCKET`、`HTTPS_PROXY`、`runtime_ctx.credentials.*`
+3. **`server.accept(timeout=accept_timeout)`**：等容器侧 wire_runner 主动连过来；
+   超时则 `kill` 容器、释放 socket、抛 `TimeoutError`
+
+**`stop()` 是 graceful**：先发 `shutdown` 控制帧；等 `shutdown_grace_s` 让 wire_runner
+干净 flush；超时再 `container.kill()` 兜底。最终 `server.close()` 解除 AF_UNIX 占用。
+
+**`health()`**：`container.show().State.Status == "running"` ∧ `transport.is_alive`。
+
+**aiodocker 选型**：异步、`HostConfig` 直接 dict 注入、零依赖（仅 aiohttp）；
+docker-py 是同步的，会卡事件循环。pin 在 `aiodocker>=0.21,<1.0`（plan §8 R7）。
+
+### 5.5 `WireBridge` & `WireCoordinatorProxy`（Plan 3 §6 Task 2/3）
+
+`InProcessExecutor` 的 runner 直接持有宿主侧 `HITLCoordinator`，所以
+HITL request 是函数调用；`DockerExecutor` 的 runner 在容器内，必须把
+request/decision 序列化过 socket。Plan 3 引入两个对偶组件：
+
+| | 容器侧（runner 内） | 宿主侧（executor 旁边） |
+|---|---|---|
+| 类 | `WireCoordinatorProxy` | `WireBridge` |
+| 收什么 | `tool.decision` / `ping` / `shutdown` 控制帧 | `tool.request` / `tool.result` / `msg.chunk` / `pong` / `session.end` 事件帧 |
+| 发什么 | `tool.request` / `pong` / `session.end` 等事件帧 | `tool.decision` / `ping` / `shutdown` 控制帧 |
+| 接口 | 鸭子兼容 `HITLCoordinator.request(name, args) → Decision` | `frames` 累积 + `shutdown()` 优雅退出 + heartbeat 监控 |
+
+`WireCoordinatorProxy`：发 `tool.request(req_id=…)` → 在 `_pending[req_id]`
+挂 Future → `consume_loop()` 在收到对应 `tool.decision` 时 `set_result`。
+收到 `ping` 自动回 `pong`（D3.10 容器侧反应式语义）。收到 `shutdown` 把
+所有 pending future 都 resolve 成 `deny`，让 SDK 退出。
+
+`WireBridge`：`run()` 是 read loop，把 EventFrame 缓冲到 `frames`；
+看到 `tool.request` 起一个 task 调本地 `HITLCoordinator.request(...)`，
+拿到 `Decision` 后回写 `tool.decision`。心跳由 `_heartbeat_loop` 每
+`heartbeat_interval_s` 发一帧 `ping`，连续 `heartbeat_misses_before_unhealthy=3`
+次未收 `pong` → 标记 `heartbeat_unhealthy=True` + 触发用户 callback +
+buffer 一条 `error code=heartbeat_timeout` 帧。
+
+`shutdown()`：发 `shutdown` 控制帧，等 `session.end` 到达或超时；
+取消所有 in-flight tool task；最后 transport.close()。
+
 ---
 
 ## 6. 长连接协议（JSONL over Unix socket）
@@ -498,6 +578,67 @@ emit tool.result frame with req_id
    → `pending_perms` 里那条记录残留至 session 结束。一次 session 最多
    `max_turns` 条，可接受；leak 可观察后再优化。
 
+### 6.6 `UnixSocketTransport` 实装细节（Plan 3 §6 Task 1）
+
+JSONL-over-AF_UNIX 的具体落地：
+
+```python
+class UnixSocketTransport:
+    """NDJSON 双向流。每帧 = 一行 JSON + LF；reader 限制 16 MiB / 帧。"""
+    @classmethod
+    async def connect(
+        cls, path: Path, *, retries: int = 50, retry_delay_s: float = 0.1
+    ) -> Self: ...
+
+    async def send(self, frame: ControlFrame | EventFrame) -> None: ...
+    async def recv(self) -> ControlFrame | EventFrame: ...
+    async def close(self) -> None: ...
+    @property
+    def is_alive(self) -> bool: ...
+
+class UnixSocketServer:
+    @classmethod
+    async def listen(cls, path: Path) -> Self: ...
+    async def accept(self, *, timeout: float | None = None) -> UnixSocketTransport: ...
+    async def close(self) -> None: ...  # close 所有 accepted transport + unlink socket
+```
+
+**关键不变量**：
+
+| 行为 | 说明 |
+|---|---|
+| `connect()` 自带 50×100ms 重试 | 给 server 端 chmod / mkdir 一点窗口；首次 ENOENT 不立即抛 |
+| `listen()` chmod 0666 + 删除过期 socket | 容器内 non-root user 也能连；崩溃后启动不报 `EADDRINUSE` |
+| `server.close()` 显式遍历 `_accepted_set` 关连接 | py3.12+ `Server.wait_closed()` 会等所有 accepted connection 退出，不主动关会 hang |
+| reader limit = 16 MiB / 帧 | InstallReport / tool result 大 payload 容错；超过则 `LimitOverrunError` |
+| `send()` after `close()` → `TransportClosed` | 与 §6.4 close semantics 一致（POSIX EPIPE 语义） |
+| `recv()` after peer close 先 drain 缓冲 | §6.4 第二行；buffered frame 优先于 sentinel |
+| malformed JSON 行 → `TransportClosed` | 解析失败时主动关连接而非吞错，避免帧错位扩散 |
+
+**为什么不是 length-prefix framing**：JSONL 调试友好（`socat … \| jq`
+直接读），帧大小天然有上界（StreamReader limit），双端实现成本极低
+（一个 `await reader.readline()` + 一个 `writer.write(line + b"\n")`）。
+代价是 payload 必须不含裸 LF；JSON 序列化天然保证。
+
+### 6.7 帧补全（Plan 3 §6 Task 9 heartbeat）
+
+§6.2 已列 `ping/pong/shutdown`，这里补全语义：
+
+| 帧 | 方向 | 字段 | 语义 |
+|---|---|---|---|
+| `ping` | host→runner（**控制帧**） | `{"seq":N}` | host 每 `heartbeat_interval_s` 发一次；runner 收到后立即回对应 `pong` |
+| `pong` | runner→host（**事件帧**） | `{"seq":N}` | 反应式回包；host 用 seq 匹配，清零 miss 计数 |
+| `shutdown` | host→runner（**控制帧**） | — | runner 收到后取消所有 pending HITL future（resolve `deny`），让 SDK loop 自然退出 |
+
+**协议拓扑修正**：早期设计说"双向 ping/pong"是对称的，Plan 3 实施期发现
+应该明确为单向心跳——host 主动探测，runner 被动应答。原因：
+(a) host 才是 session 状态机的所有者，runner 单纯被驱动；
+(b) 单向心跳让超时逻辑只在 host 维护，简化故障归因。
+
+`heartbeat_misses_before_unhealthy = 3` 是 D3.10 默认。触发不健康时
+host buffer 一条 `error code=heartbeat_timeout` 帧（让 store 留痕）并
+调用用户 callback（让 SessionManager 决定 CRASHED + `docker rm -f`）。
+
 ---
 
 ## 7. HITL 实时流程
@@ -610,6 +751,46 @@ jobs:
           push: true
 ```
 
+### 8.4 宿主 Minimal Proxy（Plan 3 §6 Task 12 实装）
+
+为什么需要它：D3.13 锁定容器**默认禁网**，只允许出向流量走宿主侧的
+forward proxy。这把 egress 决策从"容器内每个进程的 hosts 文件 / TLS
+trust store"集中到"宿主一个 allow-list"，方便审计 + 必要时即时关停。
+
+```python
+# src/gg_relay/proxy/{__init__.py, server.py, audit.py}
+ALLOWED_HOSTS_DEFAULT = frozenset({"api.anthropic.com"})   # D3.13
+
+class MinimalProxy:
+    def __init__(self, *, audit: AuditLog,
+                 allowed_hosts: Iterable[str] = ALLOWED_HOSTS_DEFAULT,
+                 host: str = "0.0.0.0", port: int = 8888) -> None: ...
+    async def start(self) -> None: ...
+    async def close(self) -> None: ...
+
+class AuditLog:
+    """Thread-safe JSONL append: {event, ts, session_id, host, port[, reason]}."""
+    async def allow(self, *, session_id, host, port): ...
+    async def deny (self, *, session_id, host, reason, port=None): ...
+```
+
+**关键决策**：
+
+| | 说明 |
+|---|---|
+| **`raw asyncio` 不是 `aiohttp.web`** | `aiohttp.web` 不原生支持 HTTP `CONNECT`（HTTPS 隧道必走）；`asyncio.start_server` 直接拿 `StreamReader/Writer`，CONNECT 后双向 `_pump()` 字节即可 |
+| **CONNECT 路径**（HTTPS） | 解析 `CONNECT host:port HTTP/1.1` → 校验 `host in allowed_hosts` → 拒：`HTTP/1.1 403 Forbidden` + audit deny；准：`open_connection(host,port)` + `HTTP/1.1 200 Connection Established` + 双向 pipe |
+| **plain HTTP 路径** | 仅作防御（claude CLI 全 HTTPS）；同样走 allow-list，准则一次性转发请求 |
+| **`X-Relay-Session-Id` 头** | 容器侧 wire_runner 在 `proxy_url` 上加这个头；audit 关联到 session；缺失记 `"unknown"` |
+| **audit JSONL** | `threading.RLock` + `asyncio.to_thread`，文件 I/O 不卡事件循环；ISO-8601 `Z` 时间戳；append-only 便于 store / dashboard 反向索引 |
+| **失败语义** | 上游连不上 → `HTTP/1.1 502 Bad Gateway` + audit deny `reason=upstream_unreachable:<exc>`；端口非法 → 400 + deny `reason=bad_port` |
+| **不做**（v1） | 限速、配额、mTLS、动态 allow-list reload；Plan 5 之后的事 |
+
+**默认端口** = 8888。`DockerExecutor(proxy_url="http://host.docker.internal:8888")`
+把该 URL 以 `HTTPS_PROXY` env 注入容器；spike `docs/docker-runner-spike.md` 确认
+Linux Docker `--add-host=host.docker.internal:host-gateway` 后 claude CLI 能正常
+走代理。
+
 ---
 
 ## 9. 对 PLAN.md 的修订
@@ -625,6 +806,7 @@ jobs:
 | §6 P1 | 新增 **P1-10**：`UnixSocketTransport` + 心跳 + 帧 v1 协议 |
 | §6 P1 | 新增 **P1-11**：`InstallShAssembler` + `install.sh --dry-run` 预校验 |
 | §6 P1 | 新增 **P1-12**：`ToolPolicy` + `HITLCoordinator` + 与 §11 IM 的对接复用 |
+| §6 P1 | 新增 **P1-13**（Plan 3 §6 Task 12）：`MinimalProxy` 宿主 forward proxy + `AuditLog` JSONL allow/deny 审计；容器默认禁网走 `HTTPS_PROXY=host.docker.internal:8888` |
 | §8 数据模型 | 新增 `SessionSpec` / `PluginManifest` / `ToolPolicy` / `Decision` / `RuntimeHandle` |
 | §14 SDK 契约 | 增补：runner 内 `ClaudeSDKClient` 实例归 runner.bridge 独占；宿主侧 `client.py` 不再直接实例化 SDK |
 | §15 风险登记 | 见下表追加 R12–R17 |

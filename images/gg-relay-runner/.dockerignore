@@ -1,0 +1,54 @@
+# Build context exclusions for gg-relay-runner.
+#
+# Keeps the COPY . /opt/gg-relay step lean — only ship what the runtime
+# image needs (source + pyproject + py.typed marker). Tests, docs, CI,
+# venvs, and tooling caches are kept out so the layer is reproducible and
+# the image rebuilds quickly when those (frequently-edited) files change.
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Python virtualenvs
+.venv/
+.venv-*/
+venv/
+
+# Python build / cache
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Project docs & ops
+docs/
+scripts/
+images/
+.github/
+
+# Tests and example apps (the runtime image doesn't need them)
+tests/
+examples/
+e2e/
+
+# Tooling configs that don't belong in the image
+Makefile
+*.md

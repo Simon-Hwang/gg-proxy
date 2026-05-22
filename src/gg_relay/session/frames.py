@@ -18,7 +18,11 @@ from gg_relay.session.transport.protocol import (
     InstallDoneFrame,
     InstallErrorFrame,
     MsgChunkFrame,
+    PingFrame,
+    PongFrame,
     SessionEndFrame,
+    ShutdownFrame,
+    ToolDecisionFrame,
     ToolRequestFrame,
     ToolResultFrame,
 )
@@ -113,3 +117,34 @@ def make_install_error(
             stderr_tail=stderr_tail[-_STDERR_TAIL_MAX:],
         ),
     )
+
+
+def make_tool_decision(
+    seq: int,
+    req_id: str,
+    decision: Literal["accept", "deny"],
+    *,
+    reason: str | None = None,
+) -> ToolDecisionFrame:
+    """Host → runner ControlFrame. Reason is dropped if None to keep wire
+    payload small."""
+    payload: dict[str, Any] = {"req_id": req_id, "decision": decision}
+    if reason is not None:
+        payload["reason"] = reason
+    return cast(ToolDecisionFrame, _envelope(seq, "tool.decision", **payload))
+
+
+def make_ping(seq: int) -> PingFrame:
+    """Host → runner heartbeat probe (D3.10)."""
+    return cast(PingFrame, _envelope(seq, "ping"))
+
+
+def make_pong(seq: int) -> PongFrame:
+    """Runner → host heartbeat reply (D3.10)."""
+    return cast(PongFrame, _envelope(seq, "pong"))
+
+
+def make_shutdown(seq: int) -> ShutdownFrame:
+    """Host → runner graceful-stop signal (D3.12). seq=-1 by convention when
+    the bridge is racing teardown and has no monotonic counter handy."""
+    return cast(ShutdownFrame, _envelope(seq, "shutdown"))

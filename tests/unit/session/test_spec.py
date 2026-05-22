@@ -10,6 +10,7 @@ from gg_relay.session.spec import (
     Decision,
     PluginManifest,
     RuntimeHandle,
+    SessionRuntimeContext,
     SessionSpec,
 )
 
@@ -66,6 +67,49 @@ class TestSessionSpec:
         )
         assert spec.executor == "inprocess"
 
+    def test_to_json_round_trip_minimal(self, tmp_path: Path):
+        spec = SessionSpec(
+            prompt="hi",
+            cwd=tmp_path,
+            plugins=PluginManifest(profile="minimal"),
+        )
+        restored = SessionSpec.from_json(spec.to_json())
+        assert restored == spec
+
+    def test_to_json_round_trip_complex(self, tmp_path: Path):
+        spec = SessionSpec(
+            prompt="run unit tests",
+            cwd=tmp_path,
+            plugins=PluginManifest(
+                profile="python",
+                modules=("rules-python", "skills-security"),
+                skills=("brainstorming",),
+                with_components=("lang:go",),
+                without_components=("capability:learning",),
+                extra_env=(("RELAY_TRACE_ID", "abc"), ("RELAY_X", "y")),
+            ),
+            executor="docker",
+            timeout_s=900,
+            metadata=(("user", "alice"), ("priority", "high")),
+        )
+        round_tripped = SessionSpec.from_json(spec.to_json())
+        assert round_tripped == spec
+        # cwd is rehydrated as Path, not str
+        assert isinstance(round_tripped.cwd, Path)
+
+    def test_to_json_excludes_runtime_secrets(self, tmp_path: Path):
+        spec = SessionSpec(
+            prompt="hi",
+            cwd=tmp_path,
+            plugins=PluginManifest(profile="minimal"),
+        )
+        payload = spec.to_json()
+        # Defense-in-depth: spec serialisation NEVER carries credentials.
+        # SessionRuntimeContext is injected via separate env keys
+        # (ANTHROPIC_API_KEY=...), not encoded into spec_json.
+        for forbidden in ("ANTHROPIC_API_KEY", "credentials"):
+            assert forbidden not in payload
+
 
 class TestDecision:
     def test_string_values(self):
@@ -86,3 +130,44 @@ class TestRuntimeHandle:
         )
         with pytest.raises(FrozenInstanceError):
             h.backend = "docker"  # type: ignore[misc]
+
+
+class TestSessionRuntimeContext:
+    def test_default_empty(self):
+        ctx = SessionRuntimeContext()
+        assert dict(ctx.credentials) == {}
+        assert ctx.trace_id == ""
+        assert ctx.public_callback_base == ""
+
+    def test_explicit_values(self):
+        ctx = SessionRuntimeContext(
+            credentials={"ANTHROPIC_API_KEY": "sk-xxx"},
+            trace_id="trace-42",
+            public_callback_base="https://relay.example.com",
+        )
+        assert ctx.credentials["ANTHROPIC_API_KEY"] == "sk-xxx"
+        assert ctx.trace_id == "trace-42"
+        assert ctx.public_callback_base == "https://relay.example.com"
+
+    def test_frozen(self):
+        from dataclasses import FrozenInstanceError
+
+        ctx = SessionRuntimeContext()
+        with pytest.raises(FrozenInstanceError):
+            ctx.trace_id = "x"  # type: ignore[misc]
+
+    def test_slots(self):
+        # frozen+slots → no __dict__ → cannot set new attrs
+        ctx = SessionRuntimeContext()
+        with pytest.raises((AttributeError, TypeError)):
+            ctx.brand_new = 1  # type: ignore[attr-defined]
+
+    def test_default_credentials_shared_immutable(self):
+        # Defending against the "mutable default" footgun: two instances
+        # constructed without arguments must NOT share a mutable container that
+        # leaks state between them.
+        a = SessionRuntimeContext()
+        b = SessionRuntimeContext()
+        with pytest.raises(TypeError):
+            a.credentials["k"] = "v"  # type: ignore[index]
+        assert "k" not in b.credentials

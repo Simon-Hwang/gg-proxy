@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import Protocol, runtime_checkable
 
-from gg_relay.session.spec import RuntimeHandle, SessionSpec
+from gg_relay.session.spec import RuntimeHandle, SessionRuntimeContext, SessionSpec
 from gg_relay.session.transport.inmemory import InMemoryTransport
 
 RunnerFn = Callable[[InMemoryTransport, SessionSpec], Awaitable[None]]
@@ -36,6 +36,11 @@ class ExecutorBackend(Protocol):
     runtime (container/coroutine/pod) and the transport handle.
     """
 
-    async def start(self, spec: SessionSpec) -> RuntimeHandle: ...
+    async def start(
+        self,
+        spec: SessionSpec,
+        *,
+        runtime_ctx: SessionRuntimeContext = ...,
+    ) -> RuntimeHandle: ...
     async def stop(self, handle: RuntimeHandle) -> None: ...
     async def health(self, handle: RuntimeHandle) -> bool: ...

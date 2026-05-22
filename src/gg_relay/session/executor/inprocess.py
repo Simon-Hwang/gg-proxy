@@ -12,12 +12,17 @@ import uuid
 from datetime import UTC, datetime
 
 from gg_relay.session.executor.protocol import RunnerFn
-from gg_relay.session.spec import RuntimeHandle, SessionSpec
+from gg_relay.session.spec import RuntimeHandle, SessionRuntimeContext, SessionSpec
 from gg_relay.session.transport.inmemory import make_pair
 
 # Re-exported so existing `from gg_relay.session.executor.inprocess import RunnerFn`
 # call sites keep working. Canonical definition lives in executor/protocol.py.
 __all__ = ["InProcessExecutor", "RunnerFn"]
+
+# Module-level sentinel so the default argument is a single frozen instance
+# (avoids ruff B008 and matches the "frozen+slots is safe to share" promise of
+# SessionRuntimeContext).
+_DEFAULT_RUNTIME_CTX = SessionRuntimeContext()
 
 
 class InProcessExecutor:
@@ -27,7 +32,18 @@ class InProcessExecutor:
         self._runner = runner
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
-    async def start(self, spec: SessionSpec) -> RuntimeHandle:
+    async def start(
+        self,
+        spec: SessionSpec,
+        *,
+        runtime_ctx: SessionRuntimeContext = _DEFAULT_RUNTIME_CTX,
+    ) -> RuntimeHandle:
+        # runtime_ctx is accepted for ExecutorBackend Protocol parity with
+        # DockerExecutor (Plan 3 D3.16). The in-process backend ignores
+        # credentials/trace_id because the runner shares the host process and
+        # already inherits all env / OTel context. Tests can construct
+        # InProcessExecutor without ever passing runtime_ctx.
+        del runtime_ctx
         host_side, runner_side = make_pair()
         runtime_id = uuid.uuid4().hex
 
