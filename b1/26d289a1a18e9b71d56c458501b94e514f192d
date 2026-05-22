@@ -1,0 +1,34 @@
+src/gg_relay/store/migrations/versions/0002_add_session_aggregates.py
+  s_d9e2a754ff0cf8::t_c5ea48a71fd09a 1-85
+src/gg_relay/store/repository.py
+  s_d9e2a754ff0cf8::t_0689458ad66fa8 136-274
+  s_d9e2a754ff0cf8::t_2633134aa913ca 17
+src/gg_relay/store/schema.py
+  s_d9e2a754ff0cf8::t_7d5cde4ce20c16 54-91,95
+  s_d9e2a754ff0cf8::t_16195ec7a1c1a6 21
+tests/integration/test_session_aggregates_migration.py
+  s_d9e2a754ff0cf8::t_009d331456be67 14-15,28-30,32-33,35-43,45-49,53,57
+  s_d9e2a754ff0cf8::t_47eac047aff9a6 64,66
+  s_d9e2a754ff0cf8::t_cae68b9822e835 1-13,16-27,31,34,44,50-52,54-56,58-63,65,67-100,103-205
+  s_d9e2a754ff0cf8::t_d46450167805a2 101-102
+src/gg_relay/session/manager.py
+  s_d9e2a754ff0cf8::t_e4b1d1a69852a9 633-646
+  s_d9e2a754ff0cf8::t_161264fafb5534 91-98,102-105
+  s_d9e2a754ff0cf8::t_eb0f6cde05afa9 872-877,887-903
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "b126d289a1a18e9b71d56c458501b94e514f192d",
+  "prompts": {},
+  "sessions": {
+    "s_d9e2a754ff0cf8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "01ddea3d-c97c-4c10-aa59-848e52eb8d38",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
