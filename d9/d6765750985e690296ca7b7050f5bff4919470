@@ -1,0 +1,65 @@
+README.md
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 42-61
+examples/walking_skeleton_demo.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-147
+src/gg_relay/session/hitl/policy.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-105
+.gitignore
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 27-29
+tests/unit/session/test_hitl_coordinator.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-108
+docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 179-183,443-444,560-561,573,578,600-601,683-724,745-747,752-759,789,794-798,812-813,825,830,833-843,850-852,879-885,897-898,964-965,969,1023,1034,1064,1080-1096,1098,1104-1108,1154-1155,1157,1166,1170-1189,1206-1212,1257,1260,1262,1266,1272-1281,1313,1322,1327-1404,1407-1408,1431,1433,1435,1439-1441,1449,1463-1466,1471-1472,1479-1483,1491-1500,1507,1532,1557,1559,1566,1590,1596,1608,1631,1638,1645,1655,1686,1694-1900,1906-1907,1910-1913,1916,1918,1920,1923,1929-1930,1934,1951,1967,1975,1985,1992-1994,1996-1998,2008,2013,2015-2016,2018-2021,2025,2029-2036,2044,2046-2058,2073-2076,2079,2081,2093-2098,2100,2107,2109-2110,2112-2114,2116,2119,2123-2126,2129,2132-2154,2156-2160,2165-2205,2213,2238-2254,2271,2274,2276,2283,2287-2295,2298-2305,2307,2309,2312,2315-2318,2321-2325,2327,2329-2331,2333-2337,2343,2373-2396
+pyproject.toml
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 58-66,78-81
+src/gg_relay/session/__init__.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-42
+src/gg_relay/session/hitl/__init__.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-5
+src/gg_relay/session/hitl/coordinator.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-89
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 145-151,190-203,211-214,216,222-227,248-280,376-391
+src/gg_relay/session/client.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-183
+tests/unit/session/test_transport_inmemory.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-113
+tests/unit/session/test_executor_inprocess.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-157
+tests/unit/session/test_policy.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-119
+src/gg_relay/session/executor/inprocess.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-67
+src/gg_relay/session/executor/__init__.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-5
+src/gg_relay/session/executor/protocol.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-41
+src/gg_relay/session/transport/__init__.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-13
+src/gg_relay/session/spec.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-87
+src/gg_relay/session/transport/inmemory.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-75
+src/gg_relay/session/transport/protocol.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-113
+tests/unit/session/test_spec.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-88
+tests/integration/test_walking_skeleton.py
+  s_a4f64b7e9d73b1::t_4ad2e51452e598 1-415
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "d9d6765750985e690296ca7b7050f5bff4919470",
+  "prompts": {},
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
