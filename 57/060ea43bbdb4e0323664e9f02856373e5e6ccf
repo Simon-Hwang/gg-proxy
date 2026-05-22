@@ -1,0 +1,23 @@
+CHANGELOG.md
+  s_65c41fbea581d9::t_8c1183c1145719 1-176
+pyproject.toml
+  s_65c41fbea581d9::t_8afffe57afff6b 7
+src/gg_relay/api/sse.py
+  s_65c41fbea581d9::t_6f02fc3004912c 30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "57060ea43bbdb4e0323664e9f02856373e5e6ccf",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
