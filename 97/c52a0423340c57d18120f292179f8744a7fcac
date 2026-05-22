@@ -1,0 +1,34 @@
+pyproject.toml
+  s_bcc9af754accd4::t_477ccfa674dc2e 85-86
+  s_bcc9af754accd4::t_36874783e399fe 27-28
+tests/unit/session/test_spec.py
+  s_bcc9af754accd4::t_462402eb692cff 13
+  s_bcc9af754accd4::t_8596ca32f17a2e 90-130
+src/gg_relay/session/executor/protocol.py
+  s_bcc9af754accd4::t_5e7860217102e5 39-44
+  s_bcc9af754accd4::t_d41c135299bb11 7
+src/gg_relay/session/spec.py
+  s_bcc9af754accd4::t_d7372024ac7195 7-8,12,19
+  s_bcc9af754accd4::t_7cd0d74bd6b461 92-119
+src/gg_relay/session/executor/inprocess.py
+  s_bcc9af754accd4::t_5626a275c8fc26 39
+  s_bcc9af754accd4::t_6f189d77f8c35b 22-26
+  s_bcc9af754accd4::t_0cffd39a230f3f 35-38,40-46
+  s_bcc9af754accd4::t_4960d5a1c4aeae 15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "97c52a0423340c57d18120f292179f8744a7fcac",
+  "prompts": {},
+  "sessions": {
+    "s_bcc9af754accd4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbaf1feb-32ab-447d-99c8-c669aebdf483",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
