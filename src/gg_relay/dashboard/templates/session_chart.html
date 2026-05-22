@@ -1,0 +1,56 @@
+{# Plan 6 Task 10 — per-session chart partial.
+
+   Loaded by the session-detail page via HTMX (`hx-get` on
+   `/dashboard/sessions/{id}/chart`). Renders the four aggregate values
+   (input_tokens / output_tokens / cost_usd×1000 / turn_count) harvested
+   from session.end — see SessionRepository.update_session_aggregates.
+   Sessions whose session.end frame hasn't landed yet (in-flight,
+   crashed, or PAUSED) still render this partial; their totals are all
+   zero so we surface a muted "no aggregates yet" hint instead of a
+   misleading flat chart. #}
+<section class="session-chart" id="session-chart-{{ session_id }}">
+    <h3>Tokens &amp; cost</h3>
+    {% set total = totals|sum %}
+    {% if total == 0 %}
+    <p class="muted session-chart-empty">
+        No aggregates yet — values land once the runner emits
+        <code>session.end</code> (or the session is cancelled with
+        a final frame).
+    </p>
+    {% else %}
+    <canvas
+        id="session-chart-canvas-{{ session_id }}"
+        data-labels="{{ labels|tojson }}"
+        data-totals="{{ totals|tojson }}"
+        width="600"
+        height="180"
+    ></canvas>
+    <script src="{{ chart_js_cdn }}"></script>
+    <script>
+    (function () {
+        var ctx = document.getElementById(
+            'session-chart-canvas-{{ session_id }}'
+        );
+        if (!ctx || typeof Chart === 'undefined') return;
+        var labels = JSON.parse(ctx.dataset.labels);
+        var totals = JSON.parse(ctx.dataset.totals);
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Session totals',
+                    data: totals,
+                    backgroundColor: ['#4fc1ff', '#4ec9b0', '#d7ba7d', '#888'],
+                }],
+            },
+            options: {
+                responsive: false,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+            },
+        });
+    })();
+    </script>
+    {% endif %}
+</section>

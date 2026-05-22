@@ -1,5 +1,11 @@
 """Core primitives (zero external deps)."""
-from gg_relay.core.domain import TERMINAL_STATES, SessionState, SessionSummary
+from gg_relay.core.domain import (
+    LEGAL_TRANSITIONS,
+    TERMINAL_STATES,
+    SessionState,
+    SessionSummary,
+    is_legal_transition,
+)
 from gg_relay.core.event_bus import EventBus
 from gg_relay.core.events import (
     DeliveryTier,
@@ -20,6 +26,7 @@ from gg_relay.core.events import (
 )
 
 __all__ = [
+    "LEGAL_TRANSITIONS",
     "TERMINAL_STATES",
     "DeliveryTier",
     "EventBus",
@@ -39,4 +46,5 @@ __all__ = [
     "ToolRequested",
     "ToolResolved",
     "frame_to_event",
+    "is_legal_transition",
 ]

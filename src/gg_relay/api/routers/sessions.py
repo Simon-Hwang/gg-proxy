@@ -8,14 +8,18 @@ runtime context, never serialised back out.
 """
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
-from gg_relay.api.deps import ManagerDep
+from gg_relay.api.deps import ApiKeyIdDep, ManagerDep
 from gg_relay.api.schemas import (
     CancelRequest,
     FrameOut,
+    PauseRequest,
+    ResumeRequest,
     SessionDetailResponse,
     SessionListResponse,
     SessionResponse,
@@ -23,10 +27,15 @@ from gg_relay.api.schemas import (
 )
 from gg_relay.core import SessionState
 from gg_relay.session.manager import (
+    MaxPausedExceeded,
+    ResumeQueueTimeout,
     SessionDetail,
     SessionManager,
     SessionNotFound,
+    SessionNotPaused,
+    SessionNotRunning,
 )
+from gg_relay.session.runner.bridge import BridgeAckTimeout
 from gg_relay.session.spec import (
     PluginManifest,
     SessionRuntimeContext,
@@ -82,7 +91,9 @@ def _detail_to_response(detail: SessionDetail) -> SessionDetailResponse:
 
 @router.post("", response_model=SessionResponse, status_code=202)
 async def submit_session(
-    request: SessionSubmitRequest, manager: SessionManager = ManagerDep
+    request: SessionSubmitRequest,
+    manager: SessionManager = ManagerDep,
+    api_key_id: str | None = ApiKeyIdDep,
 ) -> SessionResponse:
     spec = _build_spec(request)
     ctx = SessionRuntimeContext(
@@ -90,7 +101,7 @@ async def submit_session(
         trace_id=request.trace_id or "",
     )
     try:
-        sid = await manager.submit(spec, runtime_ctx=ctx)
+        sid = await manager.submit(spec, runtime_ctx=ctx, api_key_id=api_key_id)
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     detail = await manager.get(sid)
@@ -171,3 +182,108 @@ async def cancel_session(
         raise HTTPException(status_code=404, detail="session not found") from exc
     await manager.cancel(session_id, reason=reason)
     return {"status": "cancelled", "session_id": session_id, "reason": reason}
+
+
+# ── pause / resume / DELETE (Plan 6 Task 4 / D6.7 / D6.9 / D6.17) ──
+
+# Retry-After hint when the global / per-key paused cap is reached.
+# A small value (5s) is reasonable: paused sessions either resume
+# quickly (operator click) or hit the paused-timeout (~30 min default).
+_RETRY_AFTER_DEFAULT_S = 5
+
+
+@router.post("/{session_id}/pause", status_code=202)
+async def pause_session(
+    session_id: str,
+    body: PauseRequest | None = None,
+    manager: SessionManager = ManagerDep,
+) -> JSONResponse:
+    """Move a RUNNING session into the PAUSED state (Plan 6 D6.1/D6.2).
+
+    Always returns 202 on success. Error mapping:
+      * 404 — unknown id
+      * 409 — session not in RUNNING (already paused / completed / etc)
+      * 429 — global or per-api-key paused cap exceeded; includes
+              ``Retry-After`` header
+      * 504 — runner didn't ack the pause within the bridge timeout
+    """
+    reason = body.reason if body is not None else None
+    try:
+        await manager.pause(session_id, reason=reason)
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="session not found") from exc
+    except SessionNotRunning as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except MaxPausedExceeded as exc:
+        return JSONResponse(
+            {"detail": str(exc), "code": "max_paused_exceeded"},
+            status_code=429,
+            headers={"Retry-After": str(_RETRY_AFTER_DEFAULT_S)},
+        )
+    except BridgeAckTimeout as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    return JSONResponse(
+        {"status": "paused", "session_id": session_id, "reason": reason or ""},
+        status_code=202,
+    )
+
+
+@router.post("/{session_id}/resume", status_code=202)
+async def resume_session(
+    session_id: str,
+    body: ResumeRequest | None = None,
+    manager: SessionManager = ManagerDep,
+) -> JSONResponse:
+    """Move a PAUSED session back to RUNNING (Plan 6 D6.2/D6.11).
+
+    Error mapping:
+      * 404 — unknown id
+      * 409 — session not in PAUSED
+      * 429 — couldn't re-acquire a semaphore slot within
+              ``resume_timeout_s``; ``Retry-After`` advises when to retry
+      * 504 — runner didn't ack the resume
+    """
+    hint = body.hint if body is not None else None
+    try:
+        await manager.resume(session_id, hint=hint)
+    except SessionNotFound as exc:
+        raise HTTPException(status_code=404, detail="session not found") from exc
+    except SessionNotPaused as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ResumeQueueTimeout as exc:
+        return JSONResponse(
+            {"detail": str(exc), "code": "resume_queue_timeout"},
+            status_code=429,
+            headers={"Retry-After": str(_RETRY_AFTER_DEFAULT_S)},
+        )
+    except BridgeAckTimeout as exc:
+        raise HTTPException(status_code=504, detail=str(exc)) from exc
+    return JSONResponse(
+        {"status": "running", "session_id": session_id, "hint": hint or ""},
+        status_code=202,
+    )
+
+
+@router.delete("/{session_id}", status_code=202)
+async def delete_session(
+    session_id: str,
+    manager: SessionManager = ManagerDep,
+) -> dict[str, str]:
+    """Idempotent cancel (Plan 6 D6.9=A).
+
+    ``DELETE /sessions/{id}`` ≡ ``POST /sessions/{id}/cancel`` with an
+    empty body. Always returns 202 — calling DELETE on an unknown or
+    already-cancelled session is a no-op (we swallow
+    :class:`SessionNotFound` rather than the standard 404 so clients
+    can retry blindly on network flakes without special-casing the
+    response).
+    """
+    # Idempotent — silently absorb the "already gone" case so clients
+    # can retry blindly on network flakes without special-casing 404.
+    with contextlib.suppress(SessionNotFound):
+        await manager.cancel(session_id, reason="delete")
+    return {
+        "status": "cancelled",
+        "session_id": session_id,
+        "reason": "delete",
+    }

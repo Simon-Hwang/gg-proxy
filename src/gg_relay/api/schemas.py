@@ -101,6 +101,27 @@ class CancelRequest(BaseModel):
     reason: str = "user_request"
 
 
+class PauseRequest(BaseModel):
+    """POST /api/v1/sessions/{id}/pause body. Both fields are optional —
+    a plain ``{}`` is the most common case (operator hits the pause
+    button with no annotation). The ``reason`` is propagated into the
+    SessionStateChanged event so dashboards / Feishu can show why."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str | None = None
+
+
+class ResumeRequest(BaseModel):
+    """POST /api/v1/sessions/{id}/resume body. ``hint`` is forwarded to
+    the SDK's ``client.query(hint)`` continuation — typically a free-form
+    instruction nudging the agent in a new direction."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hint: str | None = None
+
+
 class HITLResolveRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

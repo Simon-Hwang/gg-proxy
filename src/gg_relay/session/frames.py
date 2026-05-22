@@ -18,8 +18,12 @@ from gg_relay.session.transport.protocol import (
     InstallDoneFrame,
     InstallErrorFrame,
     MsgChunkFrame,
+    PauseAckFrame,
+    PauseFrame,
     PingFrame,
     PongFrame,
+    ResumeAckFrame,
+    ResumeFrame,
     SessionEndFrame,
     ShutdownFrame,
     ToolDecisionFrame,
@@ -148,3 +152,45 @@ def make_shutdown(seq: int) -> ShutdownFrame:
     """Host → runner graceful-stop signal (D3.12). seq=-1 by convention when
     the bridge is racing teardown and has no monotonic counter handy."""
     return cast(ShutdownFrame, _envelope(seq, "shutdown"))
+
+
+def make_pause(seq: int, req_id: str, *, reason: str | None = None) -> PauseFrame:
+    """Host → runner pause directive (Plan 6 D6.11).
+
+    ``req_id`` MUST be unique per outstanding pause/resume request so the
+    runner's ack carries an unambiguous correlation key. ``reason`` is
+    persisted into the resulting ``SessionStateChanged.reason`` upstream.
+    """
+    payload: dict[str, Any] = {"req_id": req_id}
+    if reason is not None:
+        payload["reason"] = reason
+    return cast(PauseFrame, _envelope(seq, "pause", **payload))
+
+
+def make_resume(seq: int, req_id: str, *, hint: str | None = None) -> ResumeFrame:
+    """Host → runner resume directive (Plan 6 D6.11)."""
+    payload: dict[str, Any] = {"req_id": req_id}
+    if hint is not None:
+        payload["hint"] = hint
+    return cast(ResumeFrame, _envelope(seq, "resume", **payload))
+
+
+def make_pause_ack(
+    seq: int, req_id: str, *, ok: bool, error: str | None = None
+) -> PauseAckFrame:
+    """Runner → host pause ack (Plan 6 D6.11). ``error`` populated iff
+    ``ok=False`` (e.g. SDK rejected ``interrupt()``)."""
+    payload: dict[str, Any] = {"req_id": req_id, "ok": ok}
+    if error is not None:
+        payload["error"] = error
+    return cast(PauseAckFrame, _envelope(seq, "pause.ack", **payload))
+
+
+def make_resume_ack(
+    seq: int, req_id: str, *, ok: bool, error: str | None = None
+) -> ResumeAckFrame:
+    """Runner → host resume ack (Plan 6 D6.11)."""
+    payload: dict[str, Any] = {"req_id": req_id, "ok": ok}
+    if error is not None:
+        payload["error"] = error
+    return cast(ResumeAckFrame, _envelope(seq, "resume.ack", **payload))

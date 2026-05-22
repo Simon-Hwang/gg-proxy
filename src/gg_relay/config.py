@@ -75,6 +75,29 @@ class Config(BaseSettings):
     max_concurrent: int = 10
     grace_period_s: int = 30
 
+    # ── pause/resume (Plan 6) ──────────────────────────────────────────
+    paused_timeout_s: int = 1800
+    """How long a session may stay PAUSED before the watchdog cancels it
+    with ``end_reason='paused_timeout'`` (Plan 6 D6.2 / §10 risk row).
+    30 minutes by default — same as :attr:`default_timeout_s`."""
+
+    max_paused: int = 50
+    """Global cap on simultaneously-PAUSED sessions (Plan 6 D6.17).
+    Exceeding it raises :class:`MaxPausedExceeded` (HTTP 429)."""
+
+    max_paused_per_api_key: int = 20
+    """Per-X-API-Key cap on simultaneously-PAUSED sessions (D6.17)."""
+
+    resume_timeout_s: float = 60.0
+    """How long :meth:`SessionManager.resume` waits to re-acquire the
+    semaphore slot before raising :class:`ResumeQueueTimeout` (D6.2 /
+    §10 risk row). Routes map this to HTTP 429 + Retry-After."""
+
+    max_concurrent_sessions: int | None = None
+    """Plan-6-only alias for :attr:`max_concurrent`; preserved so the
+    config can be tuned independently for tests that need to drive
+    pause/resume contention without forcing the production default."""
+
     # ── OTel ────────────────────────────────────────────────────────────
     otel_endpoint: str | None = None
     otel_exporter: Literal["grpc", "http", "console"] = "grpc"
@@ -103,6 +126,40 @@ class Config(BaseSettings):
     # ── dashboard ──────────────────────────────────────────────────────
     dashboard_admin_password: SecretStr | None = None
     dashboard_session_secret: SecretStr | None = None
+
+    # ── dashboard (Plan 6) ─────────────────────────────────────────────
+    chart_js_cdn: str = (
+        "https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"
+    )
+    """D6.5=A: CDN URL for Chart.js. jsdelivr by default. Override to
+    point at any other CDN (unpkg, etc.) or a locally vendored path
+    when ``chart_js_offline=True``."""
+
+    chart_js_offline: bool = False
+    """When True the Kanban / detail templates load Chart.js from
+    ``chart_js_cdn`` only if it resolves to a path under
+    ``/dashboard/static/``. Operators serving the dashboard from an
+    air-gapped network set ``chart_js_offline=True`` AND vendor the
+    js file under ``src/gg_relay/dashboard/static/vendor/chart.umd.min.js``
+    (or wherever ``chart_js_cdn`` points)."""
+
+    kanban_default_page_size: int = 50
+    """D6.16: how many cards a single kanban-board page renders before
+    HTMX's ``hx-trigger='revealed'`` fires the next-page load."""
+
+    jaeger_ui_url: str | None = None
+    """D6.6=A + D6.14: external Jaeger UI base URL used by the
+    per-session ``span_tree.html`` partial. Two recommended values:
+
+      * Production: ``"/jaeger"`` (same-origin via the nginx reverse
+        proxy in ``deploy/nginx/jaeger-proxy.conf`` — keeps the iframe
+        free of ``X-Frame-Options`` denials).
+      * Development: ``"http://localhost:16686"`` direct to the local
+        Jaeger UI container.
+
+    Leave unset to disable the iframe entirely; the template falls
+    back to a plain trace-id readout with a disabled ``Open in Jaeger``
+    button (D6.6 fallback)."""
 
     # ── integrations ───────────────────────────────────────────────────
     task_trace_path: Path | None = Path("~/.claude/metrics/gg-task-trace.jsonl")

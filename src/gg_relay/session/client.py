@@ -52,6 +52,12 @@ from claude_code_sdk import (
 )
 from claude_code_sdk.types import StreamEvent
 
+from gg_relay.session.control import (
+    AckSender,
+    ControlChannel,
+    ControlLoop,
+    cancel_control_task,
+)
 from gg_relay.session.frames import (
     make_error,
     make_install_done,
@@ -199,6 +205,8 @@ async def _make_runner_core(
     sdk_factory: SdkFactory,
     install_report: InstallReport | None,
     session_id: str = "",
+    control_channel: ControlChannel | None = None,
+    control_ack: AckSender | None = None,
 ) -> None:
     """Shared dispatch loop for the in-process and wire runners.
 
@@ -295,10 +303,25 @@ async def _make_runner_core(
     )
 
     client: Any = None
+    control_task: asyncio.Task[None] | None = None
     try:
         client = sdk_factory(options)
         await client.connect()
         await client.query(spec.prompt)
+        if control_channel is not None:
+            # Plan 6 D6.11: spawn a dedicated control task that owns the
+            # SDK handle and drains pause/resume directives. The runner
+            # core just hands the task its inputs — the dispatch loop
+            # below stays untouched.
+            ack: AckSender = control_ack or control_channel.runner_ack
+            loop = ControlLoop(
+                client=client,
+                recv=control_channel.runner_recv,
+                ack=ack,
+            )
+            control_task = asyncio.create_task(
+                loop.run(), name=f"runner-control-{session_id or 'inproc'}"
+            )
         async for msg in client.receive_messages():
             seq += 1
             match msg:
@@ -383,6 +406,7 @@ async def _make_runner_core(
             )
         raise
     finally:
+        await cancel_control_task(control_task)
         if client is not None:
             with contextlib.suppress(Exception):
                 await client.disconnect()
@@ -395,6 +419,7 @@ def make_sdk_runner(
     sdk_factory: SdkFactory = ClaudeSDKClient,
     install_report: InstallReport | None = None,
     session_id: str = "",
+    control_channel: ControlChannel | None = None,
 ) -> RunnerCallable:
     """In-process runner factory.
 
@@ -405,6 +430,11 @@ def make_sdk_runner(
     ``session_id``, when supplied, is used to namespace generated req_ids
     so that :meth:`HITLCoordinator.cancel_all(session_id=...)` can scope a
     bulk cancel to a single session.
+
+    Plan 6 D6.11: an optional ``control_channel`` enables the same
+    pause/resume control-loop the wire runner uses. SessionManager
+    builds the channel and stashes it on the inprocess bridge so it can
+    push pause/resume directly without crossing a transport.
     """
 
     async def runner(transport: SessionTransport, spec: SessionSpec) -> None:
@@ -416,6 +446,8 @@ def make_sdk_runner(
             sdk_factory=sdk_factory,
             install_report=install_report,
             session_id=session_id,
+            control_channel=control_channel,
+            control_ack=(control_channel.runner_ack if control_channel else None),
         )
 
     return runner
@@ -436,6 +468,10 @@ def make_wire_runner(
     (received from the host). ``install_report`` is intentionally not
     accepted: the install happened at image build-time so the host emits the
     ``install.done`` frame separately (Plan 3 §6 Task 4).
+
+    Plan 6 D6.11: the proxy also owns a :class:`ControlChannel`; the
+    runner core spawns a :class:`ControlLoop` that drains pause/resume
+    directives and ships acks back as frames via the proxy.
     """
 
     async def runner(transport: SessionTransport, spec: SessionSpec) -> None:
@@ -447,6 +483,8 @@ def make_wire_runner(
             sdk_factory=sdk_factory,
             install_report=None,
             session_id=session_id,
+            control_channel=coordinator.control_channel,
+            control_ack=coordinator.send_ack,
         )
 
     return runner

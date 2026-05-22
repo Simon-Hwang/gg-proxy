@@ -56,8 +56,9 @@ def _factory_override() -> Callable[..., ExecutorBackend]:
         policy: ToolPolicy,
         coordinator: HITLCoordinator,
         session_id: str,
+        **kwargs: object,
     ) -> ExecutorBackend:
-        del kind, policy, coordinator, session_id
+        del kind, policy, coordinator, session_id, kwargs
         return InProcessExecutor(runner=_trivial_runner)
 
     return _factory

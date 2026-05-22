@@ -1,0 +1,23 @@
+<li class="kanban-card kanban-card-{{ s.status.value }}" data-session-id="{{ s.id }}">
+    <a href="/dashboard/sessions/{{ s.id }}" class="kanban-card-link">
+        <div class="kanban-card-id">{{ s.id }}</div>
+        <div class="kanban-card-meta">
+            <span class="badge badge-{{ s.status.value }}">{{ s.status.value }}</span>
+            <span class="kanban-card-backend">{{ s.backend }}</span>
+        </div>
+        <div class="kanban-card-times muted">
+            <time datetime="{{ s.submitted_at.isoformat() }}">{{ s.submitted_at.isoformat() }}</time>
+            {% if s.ended_at %}
+                → <time datetime="{{ s.ended_at.isoformat() }}">{{ s.ended_at.isoformat() }}</time>
+            {% endif %}
+        </div>
+        {% if s.tags %}
+        <div class="kanban-card-tags">
+            {% for t in s.tags %}<span class="kanban-tag">{{ t }}</span>{% endfor %}
+        </div>
+        {% endif %}
+        {% if s.end_reason %}
+        <div class="kanban-card-reason muted">{{ s.end_reason }}</div>
+        {% endif %}
+    </a>
+</li>

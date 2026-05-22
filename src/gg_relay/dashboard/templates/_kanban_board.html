@@ -1,0 +1,34 @@
+<div class="kanban-board" id="kanban-board">
+    {% for col_name, label in [
+        ("queued", "Queued"),
+        ("running", "Running"),
+        ("paused", "Paused"),
+        ("terminal", "Done"),
+    ] %}
+    <section class="kanban-column kanban-column-{{ col_name }}" data-column="{{ col_name }}">
+        <header>
+            <h3>{{ label }}</h3>
+            <span class="kanban-count">{{ columns[col_name]|length }}</span>
+        </header>
+        <ol class="kanban-cards">
+            {% for s in columns[col_name] %}
+                {% include "_kanban_card.html" %}
+            {% else %}
+                <li class="kanban-empty muted">No sessions</li>
+            {% endfor %}
+        </ol>
+    </section>
+    {% endfor %}
+
+    {% if next_offset is not none %}
+    <div
+        class="kanban-next-page"
+        hx-get="/dashboard/kanban/board?offset={{ next_offset }}"
+        hx-trigger="revealed"
+        hx-target="#kanban-board"
+        hx-swap="outerHTML"
+    >
+        <span class="muted">Loading next {{ page_size }}…</span>
+    </div>
+    {% endif %}
+</div>

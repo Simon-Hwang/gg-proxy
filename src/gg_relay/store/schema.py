@@ -18,6 +18,7 @@ from sqlalchemy import (
     BigInteger,
     Column,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -50,9 +51,48 @@ sessions = Table(
     Column("trace_id", String(32), nullable=True),
     Column("backend", String(16), nullable=False),
     Column("runtime_id", String(64), nullable=True),
+    # ── Plan 6 D6.12: per-session aggregates ─────────────────────────
+    # Populated by SessionManager._record_session_end (see Task 8).
+    # Defaults to 0 so existing rows (Plan 4/5) and any rows written
+    # before the SessionManager hook upgrade still satisfy NOT NULL.
+    Column(
+        "input_tokens",
+        BigInteger,
+        nullable=False,
+        server_default="0",
+        default=0,
+    ),
+    Column(
+        "output_tokens",
+        BigInteger,
+        nullable=False,
+        server_default="0",
+        default=0,
+    ),
+    Column(
+        "cost_usd",
+        Float,
+        nullable=False,
+        server_default="0",
+        default=0.0,
+    ),
+    Column(
+        "turn_count",
+        Integer,
+        nullable=False,
+        server_default="0",
+        default=0,
+    ),
+    # ── Plan 6 D6.12: completed_at index for time-bucketed chart queries.
+    # Reuses the existing ``ended_at`` column — every terminal-state
+    # transition writes both ``ended_at`` AND ``status`` so the new
+    # global-chart aggregator can filter on ``ended_at >= cutoff`` and
+    # group by bucket without a separate "completed_at" column. The
+    # index name follows Plan 6 §6.12 wording.
     Index("ix_sessions_status", "status"),
     Index("ix_sessions_trace_id", "trace_id"),
     Index("ix_sessions_submitted_at", "submitted_at"),
+    Index("ix_sessions_completed_at", "ended_at"),
 )
 
 frames = Table(

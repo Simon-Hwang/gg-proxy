@@ -29,9 +29,12 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
+from gg_relay.session.control import ControlAck
 from gg_relay.session.frames import (
     make_error,
+    make_pause,
     make_ping,
+    make_resume,
     make_shutdown,
     make_tool_decision,
 )
@@ -43,6 +46,13 @@ from gg_relay.session.transport.protocol import (
 )
 
 logger = logging.getLogger("gg_relay.bridge")
+
+
+class BridgeAckTimeout(Exception):
+    """Raised when :meth:`WireBridge.pause` / :meth:`WireBridge.resume`
+    don't receive the matching ack within the configured timeout (default
+    5s). The route layer maps this to HTTP 504.
+    """
 
 
 class WireBridge:
@@ -62,6 +72,7 @@ class WireBridge:
         heartbeat_interval_s: float = 5.0,
         heartbeat_misses_before_unhealthy: int = 3,
         on_heartbeat_timeout: Callable[[], Awaitable[None]] | None = None,
+        ack_timeout_s: float = 5.0,
     ) -> None:
         self._transport = transport
         self._coordinator = coordinator
@@ -80,6 +91,10 @@ class WireBridge:
         self._last_pong_seq: int = -1
         self._heartbeat_unhealthy = False
         self._heartbeat_task: asyncio.Task[None] | None = None
+        # Plan 6 D6.11 pause/resume state.
+        self._ack_timeout_s = ack_timeout_s
+        self._ack_futs: dict[str, asyncio.Future[ControlAck]] = {}
+        self._pause_seq = 0
 
     @property
     def frames(self) -> list[EventFrame]:
@@ -136,6 +151,14 @@ class WireBridge:
                     # Runner is alive; reset the miss counter.
                     self._heartbeat_misses = 0
                     self._last_pong_seq = int(frame.get("seq", -1))
+                elif ftype in ("pause.ack", "resume.ack"):
+                    # Plan 6 D6.11: route the ack back to the pending
+                    # :meth:`pause` / :meth:`resume` caller. Buffer the
+                    # frame for persistence too so the SessionManager can
+                    # publish a SessionStateChanged after a successful
+                    # ack — keeps the wire-frame audit log complete.
+                    self._frames.append(frame)
+                    self._handle_pause_ack(frame)
                 else:
                     self._frames.append(frame)
                     if ftype == "session.end":
@@ -219,6 +242,76 @@ class WireBridge:
         if self._on_heartbeat_timeout is not None:
             with contextlib.suppress(Exception):
                 await self._on_heartbeat_timeout()
+
+    async def pause(self, *, reason: str | None = None) -> ControlAck:
+        """Send a :class:`PauseFrame` and await its ack (Plan 6 D6.11).
+
+        Raises :class:`BridgeAckTimeout` after ``ack_timeout_s`` so the
+        SessionManager can map the failure onto a 504 Gateway Timeout
+        rather than blocking the API request indefinitely. Returns the
+        :class:`ControlAck` payload on success (caller inspects ``ok`` to
+        decide between 202 and 409).
+        """
+        self._pause_seq += 1
+        req_id = f"pause-{self._pause_seq}"
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[ControlAck] = loop.create_future()
+        self._ack_futs[req_id] = fut
+        try:
+            with contextlib.suppress(TransportClosed):
+                await self._transport.send(
+                    make_pause(self._next_seq(), req_id, reason=reason)
+                )
+            try:
+                return await asyncio.wait_for(fut, timeout=self._ack_timeout_s)
+            except TimeoutError as exc:
+                raise BridgeAckTimeout(
+                    f"pause ack timeout after {self._ack_timeout_s:.1f}s req_id={req_id}"
+                ) from exc
+        finally:
+            self._ack_futs.pop(req_id, None)
+
+    async def resume(self, *, hint: str | None = None) -> ControlAck:
+        """Send a :class:`ResumeFrame` and await its ack (Plan 6 D6.11)."""
+        self._pause_seq += 1
+        req_id = f"resume-{self._pause_seq}"
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[ControlAck] = loop.create_future()
+        self._ack_futs[req_id] = fut
+        try:
+            with contextlib.suppress(TransportClosed):
+                await self._transport.send(
+                    make_resume(self._next_seq(), req_id, hint=hint)
+                )
+            try:
+                return await asyncio.wait_for(fut, timeout=self._ack_timeout_s)
+            except TimeoutError as exc:
+                raise BridgeAckTimeout(
+                    f"resume ack timeout after {self._ack_timeout_s:.1f}s req_id={req_id}"
+                ) from exc
+        finally:
+            self._ack_futs.pop(req_id, None)
+
+    def _handle_pause_ack(self, frame: EventFrame) -> None:
+        req_id_raw = frame.get("req_id", "")
+        req_id = req_id_raw if isinstance(req_id_raw, str) else ""
+        if not req_id:
+            return
+        fut = self._ack_futs.get(req_id)
+        if fut is None or fut.done():
+            return
+        ftype = frame.get("type", "")
+        err_raw = frame.get("error")
+        err = err_raw if isinstance(err_raw, str) else None
+        # ControlOp Literal accepts "pause" / "resume" only; ftype is
+        # validated by the elif branch above.
+        ack = ControlAck(
+            op="pause" if ftype == "pause.ack" else "resume",
+            req_id=req_id,
+            ok=bool(frame.get("ok", False)),
+            error=err,
+        )
+        fut.set_result(ack)
 
     async def shutdown(self, *, grace: float = 5.0) -> None:
         """Politely tell the runner to exit, wait up to ``grace`` for

@@ -13,6 +13,7 @@ from pydantic import SecretStr
 
 from gg_relay.config import Config
 from gg_relay.im.backends.feishu import FeishuBackend
+from gg_relay.im.card import RenderedCard
 
 
 def _cfg() -> Config:
@@ -133,5 +134,89 @@ class TestTokenCacheAndNotify:
             )
             with pytest.raises(RuntimeError, match="feishu token error"):
                 await backend._tenant_token()
+        finally:
+            await backend.aclose()
+
+
+class TestSendCard:
+    """Plan 6 Task 7 — the new IMBackend.send_card primary path."""
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_send_card_posts_interactive(self):
+        backend = FeishuBackend(config=_cfg())
+        try:
+            respx.post(
+                "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+            ).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "code": 0,
+                        "tenant_access_token": "t-abc",
+                        "expire": 7200,
+                    },
+                )
+            )
+            send_route = respx.post(
+                "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+            ).mock(return_value=httpx.Response(200, json={"code": 0}))
+            card = RenderedCard(
+                payload={"header": {"title": {"content": "x"}}},
+                metadata={"msg_type": "interactive"},
+            )
+            await backend.send_card(card)
+            assert send_route.called
+            request = send_route.calls.last.request
+            body = json.loads(request.content)
+            assert body["msg_type"] == "interactive"
+            assert body["receive_id"] == "oc_xxx"
+            inner = json.loads(body["content"])
+            assert inner["header"]["title"]["content"] == "x"
+        finally:
+            await backend.aclose()
+
+    @respx.mock
+    @pytest.mark.asyncio
+    async def test_send_card_uses_card_channel_id_when_set(self):
+        backend = FeishuBackend(config=_cfg())
+        try:
+            respx.post(
+                "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
+            ).mock(
+                return_value=httpx.Response(
+                    200,
+                    json={
+                        "code": 0,
+                        "tenant_access_token": "t-abc",
+                        "expire": 7200,
+                    },
+                )
+            )
+            send_route = respx.post(
+                "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id"
+            ).mock(return_value=httpx.Response(200, json={"code": 0}))
+            card = RenderedCard(
+                payload={"text": "hi"},
+                channel_id="oc_override",
+                metadata={"msg_type": "text"},
+            )
+            await backend.send_card(card)
+            body = json.loads(send_route.calls.last.request.content)
+            # Per-card channel takes precedence over config.feishu_target_chat_id.
+            assert body["receive_id"] == "oc_override"
+            assert body["msg_type"] == "text"
+        finally:
+            await backend.aclose()
+
+    @pytest.mark.asyncio
+    async def test_backend_exposes_builder(self):
+        backend = FeishuBackend(config=_cfg())
+        try:
+            from gg_relay.im.backends.feishu import FeishuCardBuilder
+
+            assert isinstance(backend.builder, FeishuCardBuilder)
+            # IMBackend Protocol guard — send_card MUST exist.
+            assert hasattr(backend, "send_card")
         finally:
             await backend.aclose()

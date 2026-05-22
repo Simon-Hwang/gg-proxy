@@ -10,6 +10,108 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 Unreleased changes land on the active feature branch and are promoted to
 the next-versioned section at merge time.
 
+## [0.6.0] - 2026-05-23
+
+Plan 6 — *Pause / Resume, Dashboard UX, and IM Decoupling*. Builds on
+the Plan 5 foundation to ship a real pausable session lifecycle, a
+live HTMX/SSE Kanban board with per-session + global charts, an
+embedded Jaeger span tree, and a clean rendering-vs-transport split
+for IM backends.
+
+### Added
+
+- **`SessionState.PAUSED`** plus an explicit `LEGAL_TRANSITIONS`
+  table in `gg_relay.core.domain`. Pause/resume is now a true
+  first-class state transition rather than a sentinel value. (D6.1=A)
+- **Wire control flow for pause/resume** (D6.11) — four new wire
+  frames (`PauseFrame`, `ResumeFrame`, `PauseAckFrame`,
+  `ResumeAckFrame`), a shared `ControlChannel` + `ControlLoop` in
+  `gg_relay.session.control`, host-side `WireBridge.pause()` /
+  `resume()` with ack correlation, and an in-process `InProcessBridge`
+  exposing the same interface so the two executor backends behave
+  identically. Bridge ack timeouts surface as `BridgeAckTimeout` and
+  map to HTTP 504.
+- **`SessionManager.pause()` / `resume()`** — releases the semaphore
+  slot on pause (D6.2=(b)), enforces `max_paused` (50 global) and
+  `max_paused_per_api_key` (20 default) soft caps (D6.17),
+  arms a paused-timeout watchdog (`Config.paused_timeout_s` = 1800s)
+  that auto-cancels stuck paused sessions, and re-acquires the
+  semaphore slot on resume with `Config.resume_timeout_s` (default
+  60s) before raising `ResumeQueueTimeout`. Shutdown coordinates
+  paused sessions via `shutdown(paused_action="cancel"|"wait")`
+  (D6.15).
+- **API endpoints** for the new lifecycle — `POST
+  /api/v1/sessions/{id}/pause`, `POST /api/v1/sessions/{id}/resume`,
+  and an idempotent `DELETE /api/v1/sessions/{id}` that always
+  returns 202 even when the id is unknown (D6.9=A). New 429
+  responses for `MaxPausedExceeded` carry a `Retry-After` header.
+- **Session aggregates persistence** (D6.12) — Alembic 0002 adds
+  `input_tokens BIGINT`, `output_tokens BIGINT`, `cost_usd FLOAT`,
+  and `turn_count INTEGER` columns (all NOT NULL DEFAULT 0) plus an
+  `ix_sessions_completed_at` index on the `sessions` table.
+  `SessionRepository.update_session_aggregates()` writes the values
+  harvested from the `session.end` frame; the dialect-aware
+  `aggregate_tokens_by_bucket()` powers the dashboard's time-series
+  chart (SQLite uses `strftime`, Postgres uses `date_bin`).
+- **Dashboard Kanban** (D6.3=A', D6.13=(a), D6.16) — `GET
+  /dashboard/kanban` with four columns (Queued / Running / Paused /
+  Done), `GET /dashboard/kanban/board?offset=N` HTMX partial used
+  for both the 5s polling fallback AND lazy-page revealed loader,
+  and `GET /dashboard/kanban/stream` SSE feed pushing
+  `kanban-update` events on `SessionCreated`,
+  `SessionStateChanged`, and `SessionCompleted`. Pagination defaults
+  to 50 cards via `Config.kanban_default_page_size`.
+- **Global + per-session tokens/cost charts** (D6.4 + D6.5=A) —
+  `GET /dashboard/kanban/chart` returns Chart.js v4 JSON for the
+  global view; `GET /dashboard/sessions/{id}/chart` returns an HTMX
+  partial with a bar canvas + zero-aggregate empty state. Chart.js
+  loads from `Config.chart_js_cdn` (jsdelivr default) with an
+  `chart_js_offline` toggle for air-gapped deploys.
+- **Span tree iframe** (D6.6=A + D6.14) — `GET
+  /dashboard/sessions/{id}/trace` returns a sandbox-iframe partial
+  pointing at `{Config.jaeger_ui_url}/trace/{trace_id}` (defaults
+  to `/jaeger` for the in-cluster nginx reverse proxy). Falls back
+  to a disabled "Open in Jaeger" button when either piece is
+  missing.
+- **nginx Jaeger reverse-proxy snippet**
+  (`deploy/nginx/jaeger-proxy.conf`) — strips Jaeger's
+  `X-Frame-Options` and `Content-Security-Policy` headers so the
+  iframe embed works under the dashboard origin, plus SSE-friendly
+  buffering disables for the Kanban stream and per-session events.
+  Wired into `deploy/docker-compose.prod.yml` alongside a
+  Jaeger all-in-one service.
+- **IM decoupling** (D6.7=(C), D6.8=A) — new `CardBuilder` Protocol
+  (`build_hitl_card`, `build_session_end_card`,
+  `build_session_state_card`, `build_other`) and
+  `RenderedCard` / `CardAction` dataclasses in `gg_relay.im.card`.
+  `IMSubscriber` glues the EventBus to a `(CardBuilder, IMBackend)`
+  pair with an optional `ChannelResolver` hook for future per-team
+  routing. `IMBackend` narrowed to `send_card(RenderedCard)`.
+- **`FeishuCardBuilder`** — pure renderer split out of the old
+  `FeishuBackend` so HITL / session-end / session-state cards now
+  emit consistent platform-native payloads; the backend itself
+  becomes a thin transport wrapper.
+
+### Changed
+
+- **`SessionManager.submit()`** accepts a new `api_key_id` kwarg
+  used by the per-key paused cap accounting.
+- **`SessionManager.shutdown()`** grew a `paused_action` parameter
+  (`"cancel"` | `"wait"`) so operators can choose the policy for
+  in-flight paused sessions during graceful shutdown.
+- **`api/main.py` lifespan** wires the new `IMSubscriber` when
+  Feishu config is present; `SessionManager` no longer imports any
+  IM backend directly.
+
+### Migration
+
+Run `alembic upgrade head` to apply Alembic 0002. The migration is
+SQLite + Postgres safe — `op.batch_alter_table` rebuilds the
+SQLite table; Postgres ALTERs in place. `server_default='0'`
+backfills existing rows so the NOT NULL constraint is satisfied
+without a manual data migration. Downgrade (`alembic downgrade -1`)
+drops the new index and the four columns in reverse order.
+
 ## [0.5.0] - 2026-05-22
 
 Plan 5 — *Foundation Hardening & Developer Experience*. Locks in the
@@ -168,7 +270,8 @@ yet.
 - Frame contract (`session/frames.py`) with the four core frame types
   consumed unchanged by Plans 2–5.
 
-[Unreleased]: https://github.com/gg-org/gg-relay/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/gg-org/gg-relay/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/gg-org/gg-relay/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gg-org/gg-relay/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gg-org/gg-relay/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/gg-org/gg-relay/compare/v0.2.0...v0.3.0

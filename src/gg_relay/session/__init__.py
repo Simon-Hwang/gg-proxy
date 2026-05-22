@@ -11,9 +11,13 @@ from gg_relay.session.hitl.coordinator import HITLCoordinator, HITLNotPending
 from gg_relay.session.hitl.policy import DEFAULT_POLICY, ToolPolicy
 from gg_relay.session.manager import (
     ExecutorFactory,
+    MaxPausedExceeded,
+    ResumeQueueTimeout,
     SessionDetail,
     SessionManager,
     SessionNotFound,
+    SessionNotPaused,
+    SessionNotRunning,
     make_inprocess_factory,
 )
 from gg_relay.session.spec import (
@@ -40,12 +44,16 @@ __all__ = [
     "HITLCoordinator",
     "HITLNotPending",
     "InProcessExecutor",
+    "MaxPausedExceeded",
     "PluginManifest",
+    "ResumeQueueTimeout",
     "RunnerFn",
     "RuntimeHandle",
     "SessionDetail",
     "SessionManager",
     "SessionNotFound",
+    "SessionNotPaused",
+    "SessionNotRunning",
     "SessionRuntimeContext",
     "SessionSpec",
     "SessionTransport",

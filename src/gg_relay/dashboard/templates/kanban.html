@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Kanban · gg-relay{% endblock %}
+{% block content %}
+<h2>Kanban</h2>
+<p class="muted">
+    Live SSE updates with 5s polling fallback. Cards link to session detail
+    (read-only — drag-to-reassign is intentionally not implemented).
+</p>
+
+<section id="kanban-chart-wrap">
+    <h3>Tokens &amp; cost — last hour</h3>
+    <canvas id="kanban-chart" width="800" height="220"></canvas>
+</section>
+
+<div
+    id="kanban-board-outer"
+    hx-get="/dashboard/kanban/board"
+    hx-trigger="every 5s"
+    hx-target="#kanban-board-outer"
+    hx-swap="outerHTML"
+    sse-connect="/dashboard/kanban/stream"
+>
+    {% include "_kanban_board.html" %}
+</div>
+
+<script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
+{% if chart_js_offline %}
+{# Air-gapped: caller MUST vendor chart.umd.min.js under
+   src/gg_relay/dashboard/static/vendor/ and configure
+   chart_js_cdn=/dashboard/static/vendor/chart.umd.min.js so this
+   script tag resolves locally. #}
+<script src="{{ chart_js_cdn }}"></script>
+{% else %}
+<script src="{{ chart_js_cdn }}"></script>
+{% endif %}
+<script>
+// Plan 6 D6.5=A: Chart.js bootstrap. Re-renders the chart every time
+// the kanban-board partial swaps so totals stay fresh without a
+// dedicated chart refresh trigger.
+(function () {
+    const ctx = document.getElementById('kanban-chart');
+    if (!ctx || typeof Chart === 'undefined') return;
+    let chart = null;
+    async function refresh() {
+        try {
+            const res = await fetch('/dashboard/kanban/chart?window_s=3600&bucket_s=60', {
+                credentials: 'same-origin',
+            });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (chart) {
+                chart.data = data;
+                chart.update('none');
+                return;
+            }
+            chart = new Chart(ctx, {type: 'line', data, options: {responsive: false}});
+        } catch (e) { /* swallow — chart is non-critical */ }
+    }
+    refresh();
+    document.body.addEventListener('htmx:afterSwap', refresh);
+    document.body.addEventListener('sse:kanban-update', refresh);
+})();
+</script>
+{% endblock %}

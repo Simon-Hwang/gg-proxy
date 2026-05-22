@@ -73,8 +73,9 @@ async def main() -> None:
             policy: ToolPolicy,
             coordinator: HITLCoordinator,
             session_id: str,
+            **kwargs: object,
         ):
-            del kind, policy, coordinator, session_id
+            del kind, policy, coordinator, session_id, kwargs
             return InProcessExecutor(runner=_scripted)
 
         app.state.executor_factory_override = _factory

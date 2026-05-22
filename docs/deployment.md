@@ -205,3 +205,77 @@ The full event-type catalogue (`session.created`, `session.state.<X>`,
 `session.completed`, `hitl.{requested,resolved}`,
 `tool.{requested,resolved}`, `error`) is documented inline in
 `src/gg_relay/tracing/task_trace.py::TaskTraceSubscriber.render`.
+
+## §9 — Plan 6 Pause/Resume operational levers
+
+Plan 6 adds three Config knobs that operators usually want to tune
+per environment. All three default to safe values for a single-node
+deployment and only need explicit overrides at scale.
+
+| Env var | Default | Purpose |
+|---|---|---|
+| `RELAY_PAUSED_TIMEOUT_S` | `1800` | Watchdog: how long a session may stay in `PAUSED` before the manager auto-cancels it with `end_reason='paused_timeout'`. Keep in sync with operator SLAs. |
+| `RELAY_MAX_PAUSED` | `50` | Global soft cap on simultaneously-PAUSED sessions; exceeding it returns 429. |
+| `RELAY_MAX_PAUSED_PER_API_KEY` | `20` | Per-X-API-Key soft cap; same 429 mapping. Set lower than `MAX_PAUSED` so a single tenant can't starve the global slot pool. |
+| `RELAY_RESUME_TIMEOUT_S` | `60` | How long `resume()` waits to re-acquire the active-semaphore slot. Longer values trade client latency for more queue forgiveness. |
+
+**Shutdown × PAUSED** — `SessionManager.shutdown(paused_action=...)`
+defaults to `"cancel"` so paused sessions land terminally with
+`end_reason='shutdown_during_pause'` before the K8s preStop hook
+expires. Set `paused_action="wait"` only in dev/debug; production
+preStop budgets are too short to wait out the user.
+
+## §10 — Plan 6 Dashboard + Jaeger reverse proxy
+
+The per-session span-tree iframe (`/dashboard/sessions/{id}/trace`)
+embeds the Jaeger UI in an iframe. Jaeger's default response headers
+(`X-Frame-Options`, `Content-Security-Policy`) deny the embed unless
+both origins match — which means **production must front gg-relay
+and Jaeger with a same-origin reverse proxy**.
+
+`deploy/nginx/jaeger-proxy.conf` is the drop-in nginx config:
+
+* `/jaeger/*` → Jaeger UI on `:16686` with `X-Frame-Options` and
+  `Content-Security-Policy[-Report-Only]` stripped via
+  `proxy_hide_header`.
+* `/dashboard/kanban/stream` and `/api/v1/sessions/*/events` →
+  gg-relay with `proxy_buffering off` so SSE chunks flush promptly.
+* Everything else → gg-relay default upstream.
+
+`deploy/docker-compose.prod.yml` wires this together:
+
+```yaml
+services:
+  gg-relay:    # the FastAPI app
+    expose: ["8000"]
+  jaeger:      # all-in-one, expose 16686 only on the gg-relay network
+  nginx:       # mounts ./nginx/jaeger-proxy.conf as conf.d/default.conf
+    ports: ["80:80"]
+```
+
+Set `RELAY_JAEGER_UI_URL=/jaeger` in the gg-relay env so the iframe
+`src` becomes `/jaeger/trace/{trace_id}` — same origin as the
+dashboard, no `X-Frame-Options` issues. Leave the var unset (or
+empty) to disable the iframe entirely; the partial falls back to a
+disabled "Open in Jaeger" CTA + plain trace-id readout.
+
+For TLS, terminate at the nginx layer (mount your certs at
+`/etc/nginx/certs/`) and keep gg-relay HTTP-only on the internal
+network; the service intentionally doesn't speak TLS itself
+(see `docs/security.md` → "TLS termination").
+
+## §11 — Plan 6 IM decoupling (operator notes)
+
+`SessionManager` no longer constructs or imports any IM backend. The
+lifespan in `api/main.py` instantiates `IMSubscriber` only when both
+`feishu_app_id` AND `feishu_app_secret` are set, then attaches it as
+a background task on the EventBus.
+
+If you mix in a custom `CardBuilder` (e.g. for DingTalk / Slack /
+企微 in Plan 7+), drop it under
+`gg_relay.im.backends.<name>` and wire the new `IMSubscriber` via
+the same lifespan hook. The signature is intentionally compatible
+across builders — `IMSubscriber(bus=..., builder=..., backend=...,
+default_channel=..., public_callback_base=..., channel_resolver=...)`
+— so future multi-team routing only needs to fill in the
+`channel_resolver` closure (D6.8 / Plan 7+).

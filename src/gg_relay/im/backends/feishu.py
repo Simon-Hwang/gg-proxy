@@ -1,11 +1,14 @@
-"""Feishu (Lark) IM backend.
+"""Feishu (Lark) IM backend — split into :class:`FeishuCardBuilder`
+(pure rendering) and :class:`FeishuBackend` (transport) per Plan 6
+D6.7=C / Task 7.
 
-Sends interactive messages via ``open-apis/im/v1/messages`` and caches
-``tenant_access_token`` for its TTL. The actionable card carries two
-buttons; the ``value`` payload is round-tripped to our webhook router so
-the resolver dispatch is signed and idempotent.
-
-This backend is intentionally lean — only HTTPX is required (no SDK).
+Builder is a :class:`gg_relay.im.card.CardBuilder` implementation
+producing Feishu interactive-card JSON. Backend implements
+:class:`gg_relay.im.protocol.IMBackend`'s ``send_card`` only — the
+legacy ``notify_hitl_pending`` / ``notify_session_end`` shims are kept
+as thin wrappers around the builder + send_card for any callers that
+haven't migrated yet (production calls now go through
+:class:`gg_relay.im.subscriber.IMSubscriber`).
 """
 from __future__ import annotations
 
@@ -17,6 +20,157 @@ from typing import Any
 import httpx
 
 from gg_relay.config import Config
+from gg_relay.core import (
+    HITLRequested,
+    RelayEvent,
+    SessionCompleted,
+    SessionStateChanged,
+)
+from gg_relay.im.card import CardAction, RenderedCard
+
+_FEISHU_BASE_URL = "https://open.feishu.cn"
+
+
+class FeishuCardBuilder:
+    """Pure synchronous renderer for Feishu interactive cards.
+
+    All four ``build_*`` methods produce dict payloads matching the
+    Feishu *open.message.interactive* schema. Tests snapshot the output
+    directly so any schema drift surfaces immediately.
+    """
+
+    def build_hitl_card(
+        self, event: HITLRequested, *, callback_base: str
+    ) -> RenderedCard:
+        """Render an actionable HITL card with Approve / Deny buttons.
+
+        ``callback_base`` is included for forward-compat with callback
+        modes where the button value would carry a one-shot URL; the
+        current Feishu impl encodes session_id+req_id+decision inline,
+        which the existing webhook router already understands.
+        """
+        del callback_base
+        args_summary = _summarise_args(event.args_redacted)
+        body = args_summary[:512]
+        payload: dict[str, Any] = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": f"HITL: {event.tool}"},
+                "template": "yellow",
+            },
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": (
+                        f"**Session**: `{event.session_id}`\n"
+                        f"**req_id**: `{event.req_id}`\n"
+                        f"**Args**:\n```\n{body}\n```"
+                    ),
+                },
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {
+                                "tag": "plain_text",
+                                "content": "Approve",
+                            },
+                            "type": "primary",
+                            "value": {
+                                "session_id": event.session_id,
+                                "req_id": event.req_id,
+                                "decision": "accept",
+                            },
+                        },
+                        {
+                            "tag": "button",
+                            "text": {
+                                "tag": "plain_text",
+                                "content": "Deny",
+                            },
+                            "type": "danger",
+                            "value": {
+                                "session_id": event.session_id,
+                                "req_id": event.req_id,
+                                "decision": "deny",
+                            },
+                        },
+                    ],
+                },
+            ],
+        }
+        return RenderedCard(
+            payload=payload,
+            actions=(
+                CardAction(
+                    label="Approve",
+                    payload={
+                        "session_id": event.session_id,
+                        "req_id": event.req_id,
+                        "decision": "accept",
+                    },
+                    style="primary",
+                ),
+                CardAction(
+                    label="Deny",
+                    payload={
+                        "session_id": event.session_id,
+                        "req_id": event.req_id,
+                        "decision": "deny",
+                    },
+                    style="danger",
+                ),
+            ),
+            metadata={"msg_type": "interactive"},
+        )
+
+    def build_session_end_card(self, event: SessionCompleted) -> RenderedCard:
+        """Render the informational text message for a session terminal
+        transition. Uses ``msg_type=text`` rather than an interactive
+        card — there's nothing actionable to do at this point.
+        """
+        cost_part = (
+            f" (${event.cost_usd:.4f})" if event.cost_usd else ""
+        )
+        text = f"[{event.status}] {event.session_id}{cost_part}"
+        return RenderedCard(
+            payload={"text": text},
+            metadata={"msg_type": "text"},
+        )
+
+    def build_session_state_card(
+        self, event: SessionStateChanged
+    ) -> RenderedCard:
+        """Render a state-transition notification — Plan 6 surfaces
+        RUNNING ↔ PAUSED moves so operators see pause/resume in chat
+        without polling the dashboard. We deliberately keep it lean
+        (plain text) so the channel doesn't get spammed with rich cards
+        on every transition.
+        """
+        reason_part = f" ({event.reason})" if event.reason else ""
+        text = (
+            f"`{event.session_id}` → {event.to_state} "
+            f"(from {event.from_state}){reason_part}"
+        )
+        return RenderedCard(
+            payload={"text": text},
+            metadata={"msg_type": "text"},
+        )
+
+    def build_other(self, event: RelayEvent) -> RenderedCard | None:
+        del event
+        return None
+
+
+def _summarise_args(args: dict[str, Any]) -> str:
+    """Compact one-line representation of redacted args. JSON is the
+    canonical form so the operator can copy-paste it into a debugger.
+    Truncation happens in the caller."""
+    try:
+        return json.dumps(args, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        return repr(args)
 
 
 @dataclass
@@ -27,17 +181,22 @@ class _TokenCache:
 
 @dataclass
 class FeishuBackend:
-    """Backend for Feishu interactive cards.
+    """Transport-only Feishu backend (Plan 6 Task 7).
 
-    The constructor takes a :class:`Config` rather than individual fields
-    so test fixtures can pass a fully-formed config; HTTP timeouts are
-    intentionally short (Plan §6 Task 10 uses 30s).
+    Provides ``send_card`` for the new :class:`IMSubscriber` path plus
+    legacy ``notify_*`` wrappers that build a card on the fly for any
+    direct callers (currently none in-tree). Token caching matches the
+    Plan-4 behaviour: a single tenant_access_token is reused until 60s
+    before its expiry, then refreshed.
     """
 
     config: Config
-    base_url: str = "https://open.feishu.cn"
+    base_url: str = _FEISHU_BASE_URL
     http: httpx.AsyncClient = field(init=False)
     name: str = "feishu"
+    _builder: FeishuCardBuilder = field(
+        default_factory=FeishuCardBuilder, repr=False
+    )
     _token: _TokenCache = field(default_factory=_TokenCache, repr=False)
 
     def __post_init__(self) -> None:
@@ -46,8 +205,127 @@ class FeishuBackend:
     async def aclose(self) -> None:
         await self.http.aclose()
 
+    # ── new (Plan 6) primary surface ─────────────────────────────────
+
+    async def send_card(self, card: RenderedCard) -> None:
+        """POST a :class:`RenderedCard` to Feishu.
+
+        Looks up the receive_id from ``card.channel_id`` (falling back
+        to ``config.feishu_target_chat_id`` when unset) and picks
+        ``msg_type`` from the card metadata (``"interactive"`` for
+        actionable cards, ``"text"`` for plain messages).
+        """
+        token = await self._tenant_token()
+        receive_id = card.channel_id or self.config.feishu_target_chat_id or ""
+        msg_type = str(card.metadata.get("msg_type") or "interactive")
+        content_payload: Any = card.payload
+        await self.http.post(
+            "/open-apis/im/v1/messages?receive_id_type=chat_id",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "receive_id": receive_id,
+                "msg_type": msg_type,
+                "content": json.dumps(content_payload),
+            },
+        )
+
+    # ── builder accessor (used by tests + the lifespan wiring) ───────
+
+    @property
+    def builder(self) -> FeishuCardBuilder:
+        return self._builder
+
+    # ── legacy compatibility ─────────────────────────────────────────
+    # Kept so any out-of-tree caller still calling notify_hitl_pending
+    # / notify_session_end keeps working through the v0.6 migration.
+    # IMSubscriber NEVER calls these.
+
+    def build_hitl_card(
+        self,
+        *,
+        session_id: str,
+        req_id: str,
+        tool: str,
+        args_summary: str,
+    ) -> dict[str, Any]:
+        """LEGACY: callers that built cards via the backend directly
+        (Plan 4-era tests) should migrate to
+        :class:`FeishuCardBuilder.build_hitl_card`. Returned shape is
+        identical."""
+        event = HITLRequested(
+            session_id=session_id,
+            req_id=req_id,
+            tool=tool,
+            args_redacted={"_summary": args_summary},
+        )
+        # Build using the canonical builder but unwrap to dict so the
+        # legacy assertion-style ("card['elements']") keeps working.
+        # The args_redacted={"_summary": args_summary} round-trips into
+        # the markdown body; we override that body so the legacy
+        # snapshot test sees the original raw string.
+        rendered = self._builder.build_hitl_card(event, callback_base="")
+        payload = dict(rendered.payload)
+        for el in payload.get("elements", []):
+            if el.get("tag") == "markdown":
+                el["content"] = (
+                    f"**Session**: `{session_id}`\n"
+                    f"**req_id**: `{req_id}`\n"
+                    f"**Args**:\n```\n{args_summary[:512]}\n```"
+                )
+        return payload
+
+    async def notify_hitl_pending(
+        self,
+        *,
+        session_id: str,
+        req_id: str,
+        tool: str,
+        args_summary: str,
+        callback_base: str,
+    ) -> None:
+        del callback_base
+        token = await self._tenant_token()
+        card_payload = self.build_hitl_card(
+            session_id=session_id,
+            req_id=req_id,
+            tool=tool,
+            args_summary=args_summary,
+        )
+        target = self.config.feishu_target_chat_id or ""
+        await self.http.post(
+            "/open-apis/im/v1/messages?receive_id_type=chat_id",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "receive_id": target,
+                "msg_type": "interactive",
+                "content": json.dumps(card_payload),
+            },
+        )
+
+    async def notify_session_end(
+        self,
+        *,
+        session_id: str,
+        status: str,
+        summary: str,
+    ) -> None:
+        token = await self._tenant_token()
+        target = self.config.feishu_target_chat_id or ""
+        await self.http.post(
+            "/open-apis/im/v1/messages?receive_id_type=chat_id",
+            headers={"Authorization": f"Bearer {token}"},
+            json={
+                "receive_id": target,
+                "msg_type": "text",
+                "content": json.dumps(
+                    {"text": f"[{status}] {session_id}\n{summary[:512]}"}
+                ),
+            },
+        )
+
+    # ── auth (unchanged from Plan 4) ─────────────────────────────────
+
     async def _tenant_token(self) -> str:
-        """Fetch + cache the tenant access token (~ 2h TTL)."""
         now = time.time()
         if self._token.token and self._token.expires_at > now + 60:
             return self._token.token
@@ -78,111 +356,3 @@ class FeishuBackend:
             expires_at=now + payload.get("expire", 7200),
         )
         return self._token.token
-
-    def build_hitl_card(
-        self,
-        *,
-        session_id: str,
-        req_id: str,
-        tool: str,
-        args_summary: str,
-    ) -> dict[str, Any]:
-        """Construct the interactive-card payload (no HTTP)."""
-        body = args_summary[:512]
-        return {
-            "config": {"wide_screen_mode": True},
-            "header": {
-                "title": {"tag": "plain_text", "content": f"HITL: {tool}"},
-                "template": "yellow",
-            },
-            "elements": [
-                {
-                    "tag": "markdown",
-                    "content": (
-                        f"**Session**: `{session_id}`\n"
-                        f"**req_id**: `{req_id}`\n"
-                        f"**Args**:\n```\n{body}\n```"
-                    ),
-                },
-                {
-                    "tag": "action",
-                    "actions": [
-                        {
-                            "tag": "button",
-                            "text": {
-                                "tag": "plain_text",
-                                "content": "Approve",
-                            },
-                            "type": "primary",
-                            "value": {
-                                "session_id": session_id,
-                                "req_id": req_id,
-                                "decision": "accept",
-                            },
-                        },
-                        {
-                            "tag": "button",
-                            "text": {
-                                "tag": "plain_text",
-                                "content": "Deny",
-                            },
-                            "type": "danger",
-                            "value": {
-                                "session_id": session_id,
-                                "req_id": req_id,
-                                "decision": "deny",
-                            },
-                        },
-                    ],
-                },
-            ],
-        }
-
-    async def notify_hitl_pending(
-        self,
-        *,
-        session_id: str,
-        req_id: str,
-        tool: str,
-        args_summary: str,
-        callback_base: str,
-    ) -> None:
-        del callback_base  # cards carry the session+req_id in their value
-        token = await self._tenant_token()
-        card = self.build_hitl_card(
-            session_id=session_id,
-            req_id=req_id,
-            tool=tool,
-            args_summary=args_summary,
-        )
-        target = self.config.feishu_target_chat_id or ""
-        await self.http.post(
-            "/open-apis/im/v1/messages?receive_id_type=chat_id",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "receive_id": target,
-                "msg_type": "interactive",
-                "content": json.dumps(card),
-            },
-        )
-
-    async def notify_session_end(
-        self,
-        *,
-        session_id: str,
-        status: str,
-        summary: str,
-    ) -> None:
-        token = await self._tenant_token()
-        target = self.config.feishu_target_chat_id or ""
-        await self.http.post(
-            "/open-apis/im/v1/messages?receive_id_type=chat_id",
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "receive_id": target,
-                "msg_type": "text",
-                "content": json.dumps(
-                    {"text": f"[{status}] {session_id}\n{summary[:512]}"}
-                ),
-            },
-        )

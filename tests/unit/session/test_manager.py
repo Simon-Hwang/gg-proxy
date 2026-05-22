@@ -88,16 +88,15 @@ def make_factory(
         [ToolPolicy, HITLCoordinator, str],
         Callable[[SessionTransport, SessionSpec], Any],
     ],
-) -> Callable[
-    [str, ToolPolicy, HITLCoordinator, str], ExecutorBackend
-]:
+) -> Callable[..., ExecutorBackend]:
     def _factory(
         kind: str,
         policy: ToolPolicy,
         coordinator: HITLCoordinator,
         session_id: str,
+        **kwargs: Any,
     ) -> ExecutorBackend:
-        del kind
+        del kind, kwargs
         return InProcessExecutor(
             runner=runner_factory_callable(policy, coordinator, session_id)
         )

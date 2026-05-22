@@ -1027,4 +1027,270 @@ Browser ──GET /dashboard/sessions─► [sessions_list.html]
 
 ---
 
-*Spec 完。下一步：用户 review → 进入 `writing-plans` 拆实施步骤。*
+## §16 Plan 6 — Pause/Resume + Dashboard UX + IM Decoupling (2026-05-23)
+
+### 16.1 SessionState `PAUSED` (D6.1 / D6.2)
+
+`SessionState` 加一个真实 `PAUSED` state（不是 sentinel）。合法转移表：
+
+```
+QUEUED   → {RUNNING, CANCELLED}
+RUNNING  → {PAUSED, COMPLETED, FAILED, CANCELLED, INTERRUPTED}
+PAUSED   → {RUNNING, CANCELLED}
+COMPLETED / FAILED / CANCELLED / INTERRUPTED → {} (terminal)
+```
+
+Pause 的语义：
+
+* `bridge.pause(reason)` → 通过 wire control loop 调 `client.interrupt()`。
+* `_active_semaphore.release()` 释放槽位 → queued submit 可上线。
+* `_paused_set` + `_paused_at` 维护活跃 PAUSED；`_paused_timers[sid]`
+  起 `_paused_timeout(sid)` watchdog（默认 1800s）。
+* `pause()` 检查 `len(_paused_set) >= max_paused`（全局 50）和
+  `_paused_by_key[api_key_id] >= max_paused_per_api_key`（默认 20）→
+  抛 `MaxPausedExceeded` → route 层映射 429 + `Retry-After`。
+
+Resume 的语义：
+
+* `_active_semaphore.acquire()` 重 acquire（可能要等 active 槽位释放，
+  最多 `Config.resume_timeout_s`，默认 60s → `ResumeQueueTimeout`）。
+* `bridge.resume(hint)` → 通过 wire control loop 调
+  `client.send_message(hint or "continue")`。
+* 取消 `_paused_timers[sid]`，把 sid 移出 `_paused_set`，发
+  `SessionStateChanged(to_state="running")`。
+
+### 16.2 Wire control loop（NEW D6.11）
+
+`runner/protocol.py` 新增 4 frame：
+
+| 名称 | 方向 | 作用 |
+|---|---|---|
+| `PauseFrame` | host → container | 携带 `reason: str \| None` |
+| `ResumeFrame` | host → container | 携带 `hint: str \| None` |
+| `PauseAckFrame` | container → host | `{ok: bool, error: str \| None}` |
+| `ResumeAckFrame` | container → host | 同上 |
+
+`runner/bridge.py` 的 `SessionBridge` 加 `pause(reason)` /
+`resume(hint)` async method：发对应 frame，await `_ack_event[req_id]`，
+默认 5s 等不到 ack → `BridgeAckTimeout` → route 层映射 504。
+
+`runner/proxy_client.py`（容器端）：在 `_handle_frame` 加 `case
+"pause" / "resume"` → `await self._control_q.put(msg)`。控制路径
+专用队列与消息路径完全隔离（避免乱序）。
+
+`runner/core.py`（容器端）：`_make_runner_core` 起一个独立
+`_control_loop` task，持 `ClaudeSDKClient` handle：
+
+```python
+async def _control_loop(client, ctrl_q, proxy):
+    while True:
+        msg = await ctrl_q.get()
+        try:
+            if msg["type"] == "pause":
+                await client.interrupt()
+                await proxy.send_frame({"type": "pause.ack", "ok": True})
+            elif msg["type"] == "resume":
+                await client.send_message(msg.get("hint") or "continue")
+                await proxy.send_frame({"type": "resume.ack", "ok": True})
+        except Exception as e:
+            await proxy.send_frame({
+                "type": f"{msg['type']}.ack",
+                "ok": False,
+                "error": str(e),
+            })
+```
+
+InProcess executor 用同样的 pattern（in-memory `asyncio.Queue` 共享）
+确保两个 backend 的 pause/resume 行为完全一致。
+
+### 16.3 Schema migration（NEW D6.12）
+
+Alembic `0002_add_session_aggregates.py` 在 `sessions` 表加：
+
+| 列 | 类型 | server_default | nullable |
+|---|---|---|---|
+| `input_tokens` | `BIGINT` | `'0'` | `False` |
+| `output_tokens` | `BIGINT` | `'0'` | `False` |
+| `cost_usd` | `FLOAT` | `'0'` | `False` |
+| `turn_count` | `INTEGER` | `'0'` | `False` |
+
+加 `ix_sessions_completed_at` index on `ended_at` 列（重用 ended_at，
+避免引入新 completed_at 列；每次终态转移都同时写 status + ended_at，
+所以 dashboard 的 chart query 只需要 `WHERE ended_at >= cutoff GROUP
+BY bucket`）。
+
+`SessionRepository.update_session_aggregates(sid, **agg)` 单 UPDATE，
+幂等。`SessionManager._record_session_end` 从 `session.end` frame
+scrape 出四个值，`_run` 的 finally block flush 到 store。
+
+`SessionRepository.aggregate_tokens_by_bucket(window_s, bucket_s,
+now=None)` 返回桶聚合的时间序列，按 dialect 分支：
+
+* SQLite — `(CAST(strftime('%s', ended_at) AS INTEGER) / :bucket_s)
+  * :bucket_s` epoch 算术。
+* Postgres — `date_bin('Ns'::interval, ended_at, 'epoch')`。
+
+其他 dialect 抛 `NotImplementedError`（gg-relay 只支持 SQLite +
+Postgres）。
+
+### 16.4 Dashboard Kanban + SSE 增量（D6.3=A' / D6.4 / D6.5 / D6.13 / D6.16）
+
+**4 个新路由**（`dashboard/router.py`）：
+
+| 路由 | 功能 |
+|---|---|
+| `GET /dashboard/kanban` | 主页（chrome + chart canvas + SSE bootstrap） |
+| `GET /dashboard/kanban/board?offset=N` | HTMX partial（5s 轮询 + `revealed` 分页 lazy-load） |
+| `GET /dashboard/kanban/stream` | SSE 端点（订阅 `SessionCreated/StateChanged/Completed`） |
+| `GET /dashboard/kanban/chart?window_s=&bucket_s=` | JSON for Chart.js v4 |
+
+**5 个新 template**：
+
+* `kanban.html` — 主页，SSE bootstrap + 5s polling fallback +
+  Chart.js 初始化（CDN 默认 jsdelivr，可 vendor 到
+  `static/vendor/chart.umd.min.js` 走 air-gapped）。
+* `_kanban_board.html` — 4 列 grid（Queued / Running / Paused /
+  Done）；列底部 `hx-trigger='revealed'` 触发追加。
+* `_kanban_card.html` — 单卡（SSE swap 目标，read-only 链到
+  `/dashboard/sessions/{id}`，D6.13）。
+* `session_chart.html` — 详情页 per-session bar chart partial。
+* `span_tree.html` — 详情页 Jaeger iframe（`Config.jaeger_ui_url`
+  有值时嵌；否则 fallback to disabled-CTA + plain trace_id readout）。
+
+**SSE wire format**：
+
+```
+event: kanban-update
+data: {"class": "SessionStateChanged", "event": {...}}
+
+```
+
+HTMX SSE extension 的 `sse-swap='kanban-update'` 把 data 部分
+swap 到目标 DOM。考虑到第一版只重渲染整 board 比较省事，dashboard
+JS 也订阅 `sse:kanban-update` 事件触发 chart `refresh()`。
+
+### 16.5 IM 解耦（D6.7=C / D6.8=A）
+
+`im/card.py` 定义：
+
+```python
+@dataclass(frozen=True, slots=True)
+class CardAction:
+    label: str
+    decision: str
+    payload: dict[str, Any]
+    style: Literal["primary", "danger", "default"] = "default"
+
+@dataclass(frozen=True, slots=True)
+class RenderedCard:
+    title: str
+    body_markdown: str
+    actions: tuple[CardAction, ...] = ()
+    color: Literal["green", "yellow", "red", "blue"] = "blue"
+
+@runtime_checkable
+class CardBuilder(Protocol):
+    name: str
+    def build_hitl_card(
+        self, event: HITLRequested, *, callback_base: str
+    ) -> RenderedCard | None: ...
+    def build_session_end_card(
+        self, event: SessionCompleted
+    ) -> RenderedCard | None: ...
+    def build_session_state_card(
+        self, event: SessionStateChanged
+    ) -> RenderedCard | None: ...
+    def build_other(
+        self, event: RelayEvent
+    ) -> RenderedCard | None: ...
+```
+
+`im/subscriber.py` 的 `IMSubscriber`：
+
+```python
+class IMSubscriber:
+    def __init__(
+        self, *, bus: EventBus, builder: CardBuilder,
+        backend: IMBackend, default_channel: str,
+        public_callback_base: str,
+        channel_resolver: Callable[[RelayEvent], str | None] | None = None,
+    ) -> None: ...
+
+    async def run(self) -> None:
+        async for event in self._bus.subscribe("*"):
+            card = self._render(event)
+            if card is None:
+                continue
+            channel = (
+                self._resolver(event) if self._resolver else None
+            ) or self._default_channel
+            try:
+                await self._backend.send_card(channel=channel, card=card)
+            except Exception:
+                logger.exception("im_send_failed")
+```
+
+`api/main.py` lifespan 把整个 IM pipeline 接到 EventBus 上：
+
+```python
+if cfg.feishu_app_id and cfg.feishu_app_secret:
+    feishu_backend = FeishuBackend(config=cfg)
+    im_subscriber = IMSubscriber(
+        bus=bus,
+        builder=feishu_backend.builder,
+        backend=feishu_backend,
+        default_channel=cfg.feishu_target_chat_id,
+        public_callback_base=cfg.public_base_url,
+        channel_resolver=None,  # Plan 7+ multi-team router
+    )
+    bg_tasks.append(asyncio.create_task(im_subscriber.run()))
+```
+
+`SessionManager` 不再 import 任何 IM backend。Webhook 入口（HITL
+回调）保留 `backend.verify_webhook(...)` 路径，HITL 决议经路由 →
+`HITLCoordinator.resolve()` → 现有逻辑不变。
+
+### 16.6 Jaeger reverse proxy（NEW D6.14）
+
+`deploy/nginx/jaeger-proxy.conf` 是同源反代：
+
+* `/jaeger/*` → Jaeger UI `:16686`，剥 `X-Frame-Options` + CSP。
+* `/dashboard/kanban/stream`、`/api/v1/sessions/*/events` →
+  gg-relay，`proxy_buffering off` + 长 read timeout 让 SSE 通畅。
+* 其他 → gg-relay default。
+
+`deploy/docker-compose.prod.yml` 加 `nginx` + `jaeger` service 接到
+`gg-relay` 网络上；nginx 把 conf 挂为 `conf.d/default.conf` 替换
+镜像自带的 welcome page。
+
+Operator 配 `RELAY_JAEGER_UI_URL=/jaeger` 让 `span_tree.html` 的
+iframe `src` 走 nginx，`X-Frame-Options` 不会拦截。
+
+### 16.7 API endpoints（D6.9 + D6.17）
+
+`api/routers/sessions.py` 新增：
+
+| Method | Path | Status | Body | 说明 |
+|---|---|---|---|---|
+| POST | `/sessions/{id}/pause` | 202 | `{"reason": "..."}` (optional) | `MaxPausedExceeded` → 429 |
+| POST | `/sessions/{id}/resume` | 202 | `{"hint": "..."}` (optional) | `NotPaused` → 409 |
+| DELETE | `/sessions/{id}` | 202 | empty | idempotent alias for cancel；二次调仍 202 |
+
+`DELETE` 的幂等性是显式设计：捕获 `SessionNotFound` 仍返 202。这
+偏离 RESTful "404 on missing" 约定，trade-off 是 client retry 友好
+（避免 race 时 503/404 噪音）。文档化在 `docs/api.md` 备忘录里。
+
+### 16.8 Shutdown × PAUSED（NEW D6.15）
+
+`SessionManager.shutdown(*, grace_period_s, paused_action="cancel")`
+入参支持：
+
+* `"cancel"`（默认）— grace 内 PAUSED 自动 cancel，
+  `end_reason='shutdown_during_pause'`，发 `SessionStateChanged`。
+* `"wait"` — 不主动 cancel；保留 PAUSED 状态等 grace 结束（仅
+  dev/debug 用，生产 K8s preStop hook 等不动）。
+
+---
+
+*Plan 6 spec 同步完。Plan 7+ roadmap 见 §9 of plan
+`docs/superpowers/plans/2026-05-22-plan-6-*.md`。*

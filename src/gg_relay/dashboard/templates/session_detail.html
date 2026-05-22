@@ -6,12 +6,31 @@
     <dt>Status</dt><dd><span class="badge badge-{{ detail.status.value }}">{{ detail.status.value }}</span></dd>
     <dt>Backend</dt><dd>{{ detail.backend }}</dd>
     <dt>Runtime ID</dt><dd>{{ detail.runtime_id or "—" }}</dd>
+    <dt>Trace ID</dt><dd>{% if detail.trace_id %}<code>{{ detail.trace_id }}</code>{% else %}—{% endif %}</dd>
     <dt>Submitted</dt><dd>{{ detail.submitted_at.isoformat() }}</dd>
     {% if detail.started_at %}<dt>Started</dt><dd>{{ detail.started_at.isoformat() }}</dd>{% endif %}
     {% if detail.ended_at %}<dt>Ended</dt><dd>{{ detail.ended_at.isoformat() }}</dd>{% endif %}
     {% if detail.end_reason %}<dt>End reason</dt><dd>{{ detail.end_reason }}</dd>{% endif %}
     <dt>Tags</dt><dd>{{ detail.tags|join(", ") or "—" }}</dd>
 </dl>
+
+{# Plan 6 Task 10 — chart + span-tree partials lazy-loaded via HTMX. The
+   ``revealed`` trigger only fires when the operator scrolls each
+   section into view, so the Chart.js bundle + the Jaeger iframe are
+   pulled lazily and never download on a quick triage glance. #}
+<div
+    class="session-chart-wrap"
+    hx-get="/dashboard/sessions/{{ detail.id }}/chart"
+    hx-trigger="revealed"
+    hx-swap="innerHTML"
+></div>
+
+<div
+    class="span-tree-wrap"
+    hx-get="/dashboard/sessions/{{ detail.id }}/trace"
+    hx-trigger="revealed"
+    hx-swap="innerHTML"
+></div>
 
 <section>
     <h3>Spec (redacted)</h3>

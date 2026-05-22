@@ -130,3 +130,66 @@ Re-run::
   "notes": []
 }
 ```
+
+## Plan 6 Task 0 deep-verify
+
+- Generated: `2026-05-22T16:02:06.531562+00:00`
+- claude-code-sdk: `0.0.25`
+- Mode: **mock**
+- Pause window: **2.0s** (real) / **2.0s** (mock)
+- Summary: **DV-INCONCLUSIVE**
+
+### Outcomes
+
+| Outcome | Meaning |
+|---|---|
+| `DV-OK` | (c) and (d) both pass against the real SDK. PAUSED + | HITL-via-coordinator design is safe as written. |
+| `DV-PARTIAL` | Only one of (c)/(d) passes. Note which one and add fallback to Plan 6 §10 risk table. |
+| `DV-FAIL` | Neither (c) nor (d) passes. Plan 6 §10 must add a long-pause-via-disconnect/reconnect mitigation. |
+| `DV-INCONCLUSIVE` | Ran in mock fallback. Re-run with real key before relying on (c)(d) guarantees. |
+
+### Trials
+
+| # | Label | Mode | OK | Duration (s) | Notes / Error |
+|---|---|---|---|---|---|
+| 1 | (c) long_pause | mock | yes | 2.22 | interrupt issued after 2 chunks; slept 2.00s |
+| 2 | (d) self_interrupt | mock | yes | 0.01 | callback fired=True interrupts=1 |
+
+### Notes
+
+- Ran in mock mode (no ANTHROPIC_API_KEY or running as root). Real-API re-run required from a non-root shell with the key exported to upgrade DV-INCONCLUSIVE → DV-OK/PARTIAL/FAIL.
+
+### Raw JSON
+
+```json
+{
+  "sdk_version": "0.0.25",
+  "mode": "mock",
+  "started_at": "2026-05-22T16:02:04.305312+00:00",
+  "finished_at": "2026-05-22T16:02:06.531562+00:00",
+  "pause_s": 2.0,
+  "trials": [
+    {
+      "label": "(c) long_pause",
+      "mode": "mock",
+      "ok": true,
+      "duration_s": 2.2158812284469604,
+      "notes": "interrupt issued after 2 chunks; slept 2.00s",
+      "error": null
+    },
+    {
+      "label": "(d) self_interrupt",
+      "mode": "mock",
+      "ok": true,
+      "duration_s": 0.010311082005500793,
+      "notes": "callback fired=True interrupts=1",
+      "error": null
+    }
+  ],
+  "summary": "DV-INCONCLUSIVE",
+  "notes": [
+    "Ran in mock mode (no ANTHROPIC_API_KEY or running as root). Real-API re-run required from a non-root shell with the key exported to upgrade DV-INCONCLUSIVE \u2192 DV-OK/PARTIAL/FAIL."
+  ]
+}
+```
+

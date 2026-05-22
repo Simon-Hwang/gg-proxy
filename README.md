@@ -17,13 +17,14 @@ Claude Code session at runtime.
 
 | Surface | Path / module | What it does |
 |---|---|---|
-| HTTP API | `/api/v1/sessions` | submit / list / get / cancel / HITL resolve |
-| Dashboard | `/dashboard/*` | HTMX UI for sessions + HITL approval |
+| HTTP API | `/api/v1/sessions` | submit / list / get / cancel / **pause / resume / DELETE** / HITL resolve |
+| Dashboard | `/dashboard/*` | HTMX UI for sessions, **Kanban board + SSE deltas + Chart.js token chart + Jaeger span-tree iframe**, HITL approval |
 | Feishu webhook | `/im/feishu/callback` | interactive-card button → HITL resolution |
 | Health | `/healthz`, `/readyz` | k8s liveness / readiness |
 | CLI | `gg-relay <cmd>` | `serve`, `migrate`, `check-secrets`, `status`, `prune`, `recover` |
-| Executors | `session/executor/{inprocess,docker}.py` | host-process or Docker container |
-| Storage | `store/` (SQLAlchemy Core + Alembic) | sessions, frames, hitl_requests |
+| Executors | `session/executor/{inprocess,docker}.py` | host-process or Docker container; **both honour the same wire control loop for pause/resume** |
+| Storage | `store/` (SQLAlchemy Core + Alembic) | sessions (incl. **per-session token / cost / turn aggregates** as of Alembic 0002), frames, hitl_requests |
+| IM | `im/{card,subscriber,backends/feishu}.py` | **`CardBuilder` Protocol + `IMSubscriber` EventBus consumer**; `SessionManager` no longer imports any IM backend |
 | Tracing | `tracing/` | OTel TracerProvider + EventBus subscriber |
 | Redaction | `redaction/` | regex + key-based masking before every DB write |
 
@@ -106,14 +107,37 @@ exercises submit → list → get without needing Docker or the real SDK.
 ```
 
 Detailed design: `docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md`
-(Plan 4 additions in §14).
+(Plan 4 additions in §14, Plan 5 hardening in §15, Plan 6
+pause/resume + Kanban + IM decoupling in §16).
+
+### Plan 6 highlights
+
+* **Real `PAUSED` state** — `POST /api/v1/sessions/{id}/pause` releases
+  the active-semaphore slot so queued submits proceed; `resume` re-
+  acquires the slot and sends an optional hint to the model.
+* **Wire control loop** — four new frames
+  (`PauseFrame`/`ResumeFrame`/`PauseAckFrame`/`ResumeAckFrame`)
+  bridged via a dedicated control task that holds the
+  `ClaudeSDKClient` handle on the runner side. The in-process
+  executor uses an in-memory queue with the exact same shape so the
+  two backends behave identically.
+* **Soft caps** — `max_paused` (50) global + `max_paused_per_api_key`
+  (20) per-tenant; exceeding either returns `429` with `Retry-After`.
+* **Kanban dashboard** — HTMX `every 5s` polling fallback +
+  `sse-swap='kanban-update'` for incremental card replacement,
+  paginated at 50 cards/page (`hx-trigger='revealed'` lazy loader).
+* **IM decoupling** — `CardBuilder` Protocol + `IMSubscriber`
+  EventBus consumer; the lifespan in `api/main.py` owns the wiring,
+  `SessionManager` is unaware of any IM backend.
 
 ---
 
 ## Operations
 
 - **Deployment**: see [`docs/deployment.md`](docs/deployment.md) for a
-  docker-compose recipe, Feishu app wiring, TLS, and backup posture.
+  docker-compose recipe, Feishu app wiring, TLS, backup posture, and
+  the Plan 6 nginx + Jaeger reverse-proxy setup that powers the
+  per-session span-tree iframe.
 - **Security**: see [`docs/security.md`](docs/security.md) for the P0
   invariants, key rotation, redaction config, and crash-recovery
   semantics.

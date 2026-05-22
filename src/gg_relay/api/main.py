@@ -34,8 +34,10 @@ from gg_relay.config import Config
 from gg_relay.core import EventBus
 from gg_relay.dashboard import STATIC_DIR as DASHBOARD_STATIC_DIR
 from gg_relay.dashboard import router as dashboard_router
-from gg_relay.im import feishu_router
+from gg_relay.im import IMSubscriber, feishu_router
+from gg_relay.im.backends.feishu import FeishuBackend
 from gg_relay.redaction import RedactionEngine
+from gg_relay.session.control import ControlChannel
 from gg_relay.session.executor.docker import DockerExecutor
 from gg_relay.session.executor.inprocess import InProcessExecutor
 from gg_relay.session.hitl.coordinator import HITLCoordinator
@@ -92,6 +94,8 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
         policy: ToolPolicy,
         coordinator: HITLCoordinator,
         session_id: str,
+        *,
+        control_channel: ControlChannel | None = None,
     ) -> Any:
         if kind == "docker":
             return DockerExecutor(
@@ -102,9 +106,12 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
         from gg_relay.session.client import make_sdk_runner
 
         runner = make_sdk_runner(
-            policy=policy, coordinator=coordinator, session_id=session_id
+            policy=policy,
+            coordinator=coordinator,
+            session_id=session_id,
+            control_channel=control_channel,
         )
-        return InProcessExecutor(runner=runner)
+        return InProcessExecutor(runner=runner, control_channel=control_channel)
 
     return _factory
 
@@ -176,8 +183,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         default_policy=ToolPolicy(),
         install_dir_root=cfg.install_dir_root,
         default_timeout_s=cfg.default_timeout_s,
-        max_concurrent=cfg.max_concurrent,
+        max_concurrent=cfg.max_concurrent_sessions or cfg.max_concurrent,
         grace_period_s=cfg.grace_period_s,
+        paused_timeout_s=cfg.paused_timeout_s,
+        max_paused=cfg.max_paused,
+        max_paused_per_api_key=cfg.max_paused_per_api_key,
+        resume_timeout_s=cfg.resume_timeout_s,
     )
 
     app.state.engine = engine
@@ -202,12 +213,38 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     bg_tasks.append(
         asyncio.create_task(metrics_subscriber.run(bus), name="metrics")
     )
+    # ── Plan 6 Task 7: IM dispatcher ───────────────────────────────
+    # Wires the typed EventBus → FeishuCardBuilder → FeishuBackend
+    # pipeline. SessionManager no longer touches the Feishu backend
+    # directly (D6.7=C / D6.8=A).
+    feishu_backend: FeishuBackend | None = None
+    im_subscriber: IMSubscriber | None = None
+    if cfg.feishu_app_id and cfg.feishu_app_secret:
+        feishu_backend = FeishuBackend(config=cfg)
+        im_subscriber = IMSubscriber(
+            bus=bus,
+            builder=feishu_backend.builder,
+            backend=feishu_backend,
+            default_channel=cfg.feishu_target_chat_id,
+            public_callback_base=cfg.public_base_url,
+            channel_resolver=None,  # Plan 7+ multi-team router
+        )
+        app.state.im_backend = feishu_backend
+        app.state.im_subscriber = im_subscriber
+        bg_tasks.append(
+            asyncio.create_task(im_subscriber.run(), name="im-subscriber")
+        )
     app.state.bg_tasks = bg_tasks
     try:
         yield
     finally:
         # Stop accepting new submits, give in-flight sessions grace, then cancel.
         await manager.shutdown(grace_period_s=cfg.grace_period_s)
+        if im_subscriber is not None:
+            await im_subscriber.stop()
+        if feishu_backend is not None:
+            with contextlib.suppress(Exception):
+                await feishu_backend.aclose()
         if otel_subscriber is not None:
             await otel_subscriber.stop()
         for task in bg_tasks:

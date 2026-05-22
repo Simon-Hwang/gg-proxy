@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+import sqlalchemy as sa
 from sqlalchemy import RowMapping, and_, delete, insert, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -131,6 +132,145 @@ class SessionRepository:
         """Delete a session row. ``frames`` + ``hitl_requests`` cascade."""
         async with self._engine.begin() as conn:
             await conn.execute(delete(sessions).where(sessions.c.id == session_id))
+
+    async def update_session_aggregates(
+        self,
+        session_id: str,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cost_usd: float = 0.0,
+        turn_count: int = 0,
+    ) -> None:
+        """Plan 6 D6.12 — write the four per-session aggregates.
+
+        Called from :meth:`SessionManager._record_session_end` once a
+        session reaches a terminal state. All four values are kept
+        non-null at the schema level (default 0) so the dashboard's
+        chart query can sum / group without coalescing.
+
+        Idempotent — calling twice for the same id overwrites with
+        whatever the caller passes, so partial retries are safe.
+        """
+        async with self._engine.begin() as conn:
+            await conn.execute(
+                update(sessions)
+                .where(sessions.c.id == session_id)
+                .values(
+                    input_tokens=int(input_tokens),
+                    output_tokens=int(output_tokens),
+                    cost_usd=float(cost_usd),
+                    turn_count=int(turn_count),
+                )
+            )
+
+    async def aggregate_tokens_by_bucket(
+        self,
+        *,
+        window_s: int,
+        bucket_s: int,
+        now: datetime | None = None,
+    ) -> list[dict[str, Any]]:
+        """Plan 6 D6.12 — bucketed token / cost time-series for the
+        dashboard's global chart.
+
+        Returns a list of dicts shaped like::
+
+            [
+                {"bucket_start": dt, "input_tokens": 12000,
+                 "output_tokens": 8000, "cost_usd": 0.42, "sessions": 7},
+                ...
+            ]
+
+        sorted by ``bucket_start`` ascending. Sessions whose
+        ``ended_at`` is NULL or older than ``now - window_s`` are
+        excluded. The query path branches on dialect because SQLite and
+        Postgres compute time buckets very differently:
+          * **SQLite** — converts ``ended_at`` to a unix epoch via
+            ``strftime('%s')``, integer-divides by ``bucket_s``, then
+            multiplies back. Coarse but dependency-free.
+          * **Postgres** — uses ``date_bin(interval, ts, anchor)``
+            which is the canonical bucketing primitive (PG 14+).
+
+        Other dialects raise ``NotImplementedError`` — gg-relay only
+        supports SQLite (dev/test) + Postgres (prod) per Plan 4 §8.
+        """
+        anchor = now or _utcnow()
+        cutoff = anchor.timestamp() - window_s
+        dialect = self._engine.dialect.name
+        async with self._engine.connect() as conn:
+            if dialect == "sqlite":
+                # strftime('%s', ts) returns the unix epoch as a text
+                # string; CAST to integer so the arithmetic is exact.
+                # Bucket label = floor(epoch / bucket_s) * bucket_s.
+                stmt = sa.text(
+                    """
+                    SELECT
+                        (CAST(strftime('%s', ended_at) AS INTEGER) / :bucket_s)
+                            * :bucket_s AS bucket_epoch,
+                        SUM(input_tokens) AS input_tokens,
+                        SUM(output_tokens) AS output_tokens,
+                        SUM(cost_usd) AS cost_usd,
+                        COUNT(id) AS sessions
+                    FROM sessions
+                    WHERE ended_at IS NOT NULL
+                      AND CAST(strftime('%s', ended_at) AS INTEGER) >= :cutoff
+                    GROUP BY bucket_epoch
+                    ORDER BY bucket_epoch ASC
+                    """
+                )
+                params = {"bucket_s": bucket_s, "cutoff": int(cutoff)}
+                rows = (await conn.execute(stmt, params)).mappings().all()
+                out: list[dict[str, Any]] = []
+                for r in rows:
+                    bucket_start = datetime.fromtimestamp(
+                        int(r["bucket_epoch"]), tz=UTC
+                    )
+                    out.append(
+                        {
+                            "bucket_start": bucket_start,
+                            "input_tokens": int(r["input_tokens"] or 0),
+                            "output_tokens": int(r["output_tokens"] or 0),
+                            "cost_usd": float(r["cost_usd"] or 0.0),
+                            "sessions": int(r["sessions"] or 0),
+                        }
+                    )
+                return out
+            if dialect in {"postgresql", "postgres"}:
+                stmt = sa.text(
+                    """
+                    SELECT
+                        date_bin(
+                            (:bucket_s || ' seconds')::interval,
+                            ended_at,
+                            timestamptz 'epoch'
+                        ) AS bucket_start,
+                        SUM(input_tokens) AS input_tokens,
+                        SUM(output_tokens) AS output_tokens,
+                        SUM(cost_usd) AS cost_usd,
+                        COUNT(id) AS sessions
+                    FROM sessions
+                    WHERE ended_at IS NOT NULL
+                      AND ended_at >= NOW() - (:window_s || ' seconds')::interval
+                    GROUP BY bucket_start
+                    ORDER BY bucket_start ASC
+                    """
+                )
+                params = {"bucket_s": bucket_s, "window_s": window_s}
+                rows = (await conn.execute(stmt, params)).mappings().all()
+                return [
+                    {
+                        "bucket_start": r["bucket_start"],
+                        "input_tokens": int(r["input_tokens"] or 0),
+                        "output_tokens": int(r["output_tokens"] or 0),
+                        "cost_usd": float(r["cost_usd"] or 0.0),
+                        "sessions": int(r["sessions"] or 0),
+                    }
+                    for r in rows
+                ]
+            raise NotImplementedError(
+                f"aggregate_tokens_by_bucket: unsupported dialect {dialect!r}"
+            )
 
     async def mark_in_flight_as_interrupted(self) -> list[str]:
         """Move every row whose ``status='running'`` to ``interrupted``.

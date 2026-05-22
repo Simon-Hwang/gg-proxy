@@ -1,0 +1,51 @@
+{# Plan 6 Task 10 — span-tree iframe partial (D6.6=A + D6.14).
+
+   Two render modes:
+     * `jaeger_ui_url` configured + non-empty trace_id → embed the
+       Jaeger UI's /trace/{id} view in an iframe. Production must
+       route the iframe URL via the nginx reverse proxy
+       (`deploy/nginx/jaeger-proxy.conf`) so `X-Frame-Options` /
+       `Content-Security-Policy` don't kill the embed.
+     * Either piece missing → plain trace-id readout with a disabled
+       "Open in Jaeger" button (D6.6 fallback wording). #}
+<section class="span-tree" id="span-tree-{{ session_id }}">
+    <h3>Span tree</h3>
+    {% if trace_id %}
+        {% if jaeger_ui_url %}
+        <iframe
+            class="jaeger-iframe"
+            src="{{ jaeger_ui_url }}/trace/{{ trace_id }}"
+            width="100%"
+            height="600"
+            loading="lazy"
+            referrerpolicy="no-referrer"
+            sandbox="allow-scripts allow-same-origin allow-popups"
+        ></iframe>
+        <p class="muted">
+            Embedded via nginx reverse proxy
+            (<code>{{ jaeger_ui_url }}</code>) — see
+            <code>deploy/nginx/jaeger-proxy.conf</code>.
+        </p>
+        {% else %}
+        <p>
+            Trace: <code>{{ trace_id }}</code>
+        </p>
+        <button
+            type="button"
+            disabled
+            title="Set Config.jaeger_ui_url to enable the iframe embed"
+        >
+            Open in Jaeger
+        </button>
+        <p class="muted span-tree-fallback">
+            Span-tree iframe is disabled because
+            <code>RELAY_JAEGER_UI_URL</code> isn't configured.
+        </p>
+        {% endif %}
+    {% else %}
+    <p class="muted">
+        No trace_id recorded for this session — the OTel exporter is
+        either disabled or the session ended before opening a span.
+    </p>
+    {% endif %}
+</section>

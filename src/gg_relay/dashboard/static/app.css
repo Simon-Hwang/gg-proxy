@@ -43,6 +43,51 @@ pre.spec-json, pre.frame-payload, pre.hitl-args { background: var(--panel); padd
 .btn-deny { background: var(--danger); color: var(--bg); }
 .hitl-resolved { padding: 12px; background: var(--panel); border-left: 4px solid var(--success); }
 
+/* Plan 6 — Kanban board */
+.kanban-board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 16px; }
+.kanban-column { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; min-height: 200px; }
+.kanban-column header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+.kanban-column header h3 { margin: 0; font-size: 1em; }
+.kanban-count { color: var(--muted); font-size: 0.85em; }
+.kanban-column-queued header { color: var(--muted); }
+.kanban-column-running header { color: var(--accent); }
+.kanban-column-paused header { color: var(--warn); }
+.kanban-column-terminal header { color: var(--success); }
+.kanban-cards { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.kanban-card { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; transition: border-color 0.15s; }
+.kanban-card:hover { border-color: var(--accent); }
+.kanban-card-link { color: var(--text); text-decoration: none; display: block; }
+.kanban-card-id { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.85em; margin-bottom: 4px; word-break: break-all; }
+.kanban-card-meta { display: flex; gap: 8px; align-items: center; font-size: 0.8em; margin-bottom: 4px; }
+.kanban-card-times { font-size: 0.75em; }
+.kanban-card-tags { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
+.kanban-tag { background: var(--panel); color: var(--muted); padding: 1px 6px; border-radius: 3px; font-size: 0.75em; }
+.kanban-card-reason { font-size: 0.75em; margin-top: 4px; font-style: italic; }
+.kanban-empty { padding: 12px; text-align: center; }
+.kanban-next-page { grid-column: 1 / -1; padding: 16px; text-align: center; }
+#kanban-chart-wrap { background: var(--panel); border-radius: 8px; padding: 12px; margin: 16px 0; }
+.badge-paused { background: #55402a; color: var(--warn); }
+.kanban-card-paused { border-left: 3px solid var(--warn); }
+.kanban-card-running { border-left: 3px solid var(--accent); }
+.kanban-card-queued { border-left: 3px solid var(--muted); }
+.kanban-card-completed, .kanban-card-failed, .kanban-card-cancelled, .kanban-card-interrupted { border-left: 3px solid var(--success); }
+.kanban-card-failed, .kanban-card-cancelled { border-left-color: var(--danger); }
+
+/* Plan 6 — per-session chart + span tree */
+#session-chart-wrap { background: var(--panel); border-radius: 8px; padding: 12px; margin: 16px 0; }
+#span-tree-section { margin: 16px 0; }
+.span-tree-iframe { width: 100%; min-height: 480px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+.span-tree-controls { margin-bottom: 8px; }
+.span-tree-external { display: inline-block; padding: 6px 12px; background: var(--accent); color: var(--bg); border-radius: 4px; text-decoration: none; font-weight: 600; }
+.span-tree-external:hover { opacity: 0.9; }
+.span-tree-disabled { padding: 6px 12px; background: var(--border); color: var(--muted); border: none; border-radius: 4px; cursor: not-allowed; }
+
+/* Plan 6 Task 10 — per-session chart + span tree partials */
+.session-chart-wrap, .span-tree-wrap { margin-top: 16px; }
+.session-chart, .span-tree { background: var(--panel); border-radius: 8px; padding: 12px; }
+.session-chart-empty, .span-tree-fallback { font-size: 0.9em; }
+.jaeger-iframe { border: 1px solid var(--border); border-radius: 6px; background: white; }
+
 /* login */
 .login-page { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 .login-card { background: var(--panel); padding: 32px; border-radius: 8px; min-width: 320px; }
