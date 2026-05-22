@@ -1,0 +1,180 @@
+images/gg-relay-runner/.dockerignore
+  s_bcc9af754accd4::t_ab86682c47de5c 1-54
+docs/docker-runner-spike.md
+  s_bcc9af754accd4::t_671e938466633d 1-77
+src/gg_relay/session/runner/__init__.py
+  s_bcc9af754accd4::t_c23147609b1be0 1-8
+docs/superpowers/plans/2026-05-22-plan-3-docker-backend-and-wire-transport.md
+  s_bcc9af754accd4::t_15c53890097254 918
+  s_1b021bd4efa697::t_88ca0401998764 926
+  s_bcc9af754accd4::t_5a54efa398d59a 919
+  s_bcc9af754accd4::t_e6c6ac7181869b 922
+  s_bcc9af754accd4::t_de3427b73818ac 916
+  s_bcc9af754accd4::t_884ad6d9921f53 923
+  s_bcc9af754accd4::t_388fef38d262c3 917
+  s_bcc9af754accd4::t_ddde4adb43779a 920
+  s_bcc9af754accd4::t_fad8b466ee15ad 921
+  s_bcc9af754accd4::t_7d5aabdb6da2d8 924-925,927-933
+  s_1b021bd4efa697::t_09257df9ceb658 934-937
+  s_bcc9af754accd4::t_0bab53c69718ac 913
+  s_bcc9af754accd4::t_a286c51c8fbff7 914-915
+src/gg_relay/session/spec.py
+  s_bcc9af754accd4::t_7cd0d74bd6b461 142-168
+  s_bcc9af754accd4::t_b76adf4b8698d5 7,14
+  s_bcc9af754accd4::t_d7372024ac7195 8-9,13,20
+  s_bcc9af754accd4::t_e451703b15fbac 91-139
+pyproject.toml
+  s_bcc9af754accd4::t_36874783e399fe 27-28
+  s_bcc9af754accd4::t_477ccfa674dc2e 85-86
+tests/unit/session/test_docker_executor_mock.py
+  s_bcc9af754accd4::t_04e995ba8d6c33 59
+  s_bcc9af754accd4::t_a191925429bad3 60-74
+  s_bcc9af754accd4::t_8bdc3d5678dd7f 99-100,105
+  s_bcc9af754accd4::t_9a67583e2c1655 255-263,276
+  s_bcc9af754accd4::t_43ee4e1d99e836 1-23,25-58,75-98,101-104,106-254,264-275,277-326
+  s_bcc9af754accd4::t_4204e721a98f8c 24
+examples/docker_executor_demo.py
+  s_bcc9af754accd4::t_3ef6f41635bc7c 4,26-29,31-32,48,68,144,156,176,193-214,216,218,221-222,224-269,271,273-276,290-292,317-319,332-334
+  s_bcc9af754accd4::t_11a9cd4b094e8c 167
+  s_bcc9af754accd4::t_5af91d22788642 1-3,5-25,30,33-47,49-67,69-143,145-155,157-166,168-175,177-192,215,217,219-220,223,270,272,277-289,293-316,320-331,335-350
+src/gg_relay/proxy/server.py
+  s_bcc9af754accd4::t_05ea3787867444 1-67,69-337
+  s_bcc9af754accd4::t_178ea0e9d02fa1 68
+src/gg_relay/session/executor/docker.py
+  s_bcc9af754accd4::t_f5b2ac77775eb2 1-30,32-296
+  s_bcc9af754accd4::t_0f26e068088457 31
+src/gg_relay/session/runner/bridge.py
+  s_bcc9af754accd4::t_b77d4353901fd6 1-28,30-31,38-61,65-72,83-106,114-115,122-134,139-143,149-169,222-249
+  s_bcc9af754accd4::t_68175ecf0fbbb3 170-221
+  s_bcc9af754accd4::t_d1b6dbcd203c07 62-64,73-82
+  s_bcc9af754accd4::t_8ff0a520c7b531 107-113,116-121,135-138,144-148
+  s_bcc9af754accd4::t_c44cd913010481 29,32-37
+src/gg_relay/session/executor/protocol.py
+  s_bcc9af754accd4::t_d41c135299bb11 7
+  s_bcc9af754accd4::t_5e7860217102e5 39-44
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_bcc9af754accd4::t_c2ad24a7940272 581-641
+  s_bcc9af754accd4::t_bc6e367c1d004e 384-463
+  s_bcc9af754accd4::t_6f1f08d7974a67 809
+  s_bcc9af754accd4::t_b9b691341b2c91 754-793
+tests/integration/test_unixsocket_transport.py
+  s_bcc9af754accd4::t_eff33857301126 1-303
+src/gg_relay/session/runner/wire_runner.py
+  s_bcc9af754accd4::t_4e575a35a536e4 137,140-145
+  s_bcc9af754accd4::t_1aa65c441df90a 102-105,107
+  s_bcc9af754accd4::t_bf6f762ca37c27 25
+  s_bcc9af754accd4::t_84943e74c01869 92,96-101,106,108,110,113-114
+  s_bcc9af754accd4::t_6f359c8500c7ad 1-24,26-84,88-89,91,93-95,109,111-112,115-119,121-123,125-136,138-139,146-170
+  s_bcc9af754accd4::t_52ac2137d75e1a 85-87,90
+  s_bcc9af754accd4::t_842c0171f57eb8 120,124
+tests/integration/test_proxy_smoke.py
+  s_bcc9af754accd4::t_1dc7b7ec1a0e2f 1-61,63-69,78-89
+  s_bcc9af754accd4::t_590d8b641d3a06 62,70-77
+images/gg-relay-runner/README.md
+  s_bcc9af754accd4::t_fb35f60a2a9280 1-92
+.github/workflows/build-runner-image.yml
+  s_bcc9af754accd4::t_d1ffd9a9051fd5 1-102
+src/gg_relay/proxy/__init__.py
+  s_bcc9af754accd4::t_fe8ac109833d8d 1-27
+tests/unit/session/test_wire_coordinator_proxy.py
+  s_bcc9af754accd4::t_26d10ecee813cf 1-55,58-84,86-91,96-117,120-154,157-162
+  s_bcc9af754accd4::t_18fe5d7d81cb8a 56-57
+  s_bcc9af754accd4::t_051811f4184412 85,92-95
+  s_bcc9af754accd4::t_3d920ec8e50a5e 118-119
+  s_bcc9af754accd4::t_6e60c1f0666e3f 155-156
+README.md
+  s_1b021bd4efa697::t_49494c1573356b 137-246
+tests/integration/test_docker_executor.py
+  s_bcc9af754accd4::t_600db66bcca46b 1-158
+src/gg_relay/proxy/audit.py
+  s_bcc9af754accd4::t_3bea83eea0b38d 1-72
+src/gg_relay/session/frames.py
+  s_bcc9af754accd4::t_0e2d992e24a071 120-150
+  s_bcc9af754accd4::t_bf0442e896b0bc 21-22,24-25
+src/gg_relay/session/transport/__init__.py
+  s_bcc9af754accd4::t_8eb7753621d2d6 3-4,6,13-16,18-27
+src/gg_relay/session/client.py
+  s_bcc9af754accd4::t_736c1504a0f21d 79-102
+  s_bcc9af754accd4::t_cf27399b8b6ffc 189-190,192,198-205,217,219-233,235-240,243-276,278-286,288-305,307-308,310-318,320-332,334-339,341,343,346,349-372,374-431
+  s_bcc9af754accd4::t_4269df4b016148 1,6-7,14-24,34,36,66
+  s_b97a9241cc4000::t_0453fca85e642f 68,188,194-197,208-213,234,241-242,309,345,347
+src/gg_relay/session/executor/__init__.py
+  s_bcc9af754accd4::t_0fb0d29b899fd2 2,6
+src/gg_relay/session/transport/unixsocket.py
+  s_bcc9af754accd4::t_4eb20063c69da5 182-184
+  s_bcc9af754accd4::t_74cdd21d02445c 1-28,30-132,135-152,158-181,185-193,203-204,208
+  s_bcc9af754accd4::t_896e0d1310b960 29
+  s_bcc9af754accd4::t_b9e12f9b83d8b6 194-199,201-202,206
+  s_bcc9af754accd4::t_af5e0bb863ca48 153-157
+  s_bcc9af754accd4::t_8609f98bed02ee 200,205,207
+  s_bcc9af754accd4::t_538595bdf1bf14 133-134
+images/gg-relay-runner/Dockerfile
+  s_bcc9af754accd4::t_6711f3054bb269 1-107
+src/gg_relay/session/executor/inprocess.py
+  s_bcc9af754accd4::t_4960d5a1c4aeae 15
+  s_bcc9af754accd4::t_6f189d77f8c35b 22-26
+  s_bcc9af754accd4::t_5626a275c8fc26 39
+  s_bcc9af754accd4::t_0cffd39a230f3f 35-38,40-46
+src/gg_relay/session/runner/proxy_client.py
+  s_bcc9af754accd4::t_df1dca1d9d8e06 27
+  s_bcc9af754accd4::t_e3460644fceca7 49
+  s_bcc9af754accd4::t_f6888e577491e4 107-116
+  s_bcc9af754accd4::t_218c4719880873 1-23,25-26,28-48,50-106,117-122
+  s_bcc9af754accd4::t_db089d313e5bcd 24
+scripts/spike_docker_round_trip.sh
+  s_bcc9af754accd4::t_2e72a3b8421669 1-84
+tests/unit/session/test_wire_runner.py
+  s_bcc9af754accd4::t_7f016eff0bbf3a 59-60
+  s_bcc9af754accd4::t_c7e1260803db1e 1-58
+tests/unit/proxy/test_minimal_proxy.py
+  s_bcc9af754accd4::t_0df5bb1254a434 10
+  s_bcc9af754accd4::t_baa48f46031557 30,41,44
+  s_bcc9af754accd4::t_8208182047abbe 1-9,11-29,31-40,42-43,45-275
+tests/unit/session/test_spec.py
+  s_bcc9af754accd4::t_8596ca32f17a2e 133-173
+  s_bcc9af754accd4::t_242fd0b78e7282 70-112
+  s_bcc9af754accd4::t_462402eb692cff 13
+tests/unit/session/test_wire_bridge.py
+  s_bcc9af754accd4::t_ef4f8677c372df 1-13,15-23,32-68,70-90,95,99-100,106,108-112,114-138,140-149,151-161,163-171,176-180,182-189,191-209,211-223,225-247,249-250,252-254,257-265
+  s_bcc9af754accd4::t_f60714882c8f62 91-94,96-98,101-105,107,113
+  s_bcc9af754accd4::t_bcfd92c64152bc 210
+  s_bcc9af754accd4::t_dcd23f8143ee0b 224
+  s_bcc9af754accd4::t_4d54be4cc714c4 248,251,255-256,266-387
+  s_bcc9af754accd4::t_b9d5310b5ee176 139,150,162
+  s_bcc9af754accd4::t_dd904bd856dd4b 172-175,181
+  s_bcc9af754accd4::t_fcb7e9b3eccf42 190
+  s_bcc9af754accd4::t_e217f7c3f4fd2f 14,24-29
+  s_bcc9af754accd4::t_f540193410cf58 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "0e52071879c9c02dfd3c2e417d5b709faf53e4b8",
+  "prompts": {},
+  "sessions": {
+    "s_1b021bd4efa697": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "dbd59b45-b502-4321-a9d9-fa9e82f37aab",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_b97a9241cc4000": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c221d2fe-009a-4d37-8d4f-3b1e30350cbe",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_bcc9af754accd4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbaf1feb-32ab-447d-99c8-c669aebdf483",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
