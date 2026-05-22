@@ -1,0 +1,49 @@
+src/gg_relay/session/client.py
+  s_bcc9af754accd4::t_4269df4b016148 1,6-7,14-24,34,36,66,68
+  s_bcc9af754accd4::t_cf27399b8b6ffc 188-190,192,194-205,208-213,217,219-276,278-286,288-305,307-318,320-332,334-339,341,343,345-347,349-372,374-431
+  s_bcc9af754accd4::t_736c1504a0f21d 79-102
+tests/unit/session/test_wire_runner.py
+  s_bcc9af754accd4::t_7f016eff0bbf3a 59-60
+  s_bcc9af754accd4::t_c7e1260803db1e 1-58
+src/gg_relay/session/runner/__init__.py
+  s_bcc9af754accd4::t_c23147609b1be0 1-8
+src/gg_relay/session/runner/proxy_client.py
+  s_bcc9af754accd4::t_218c4719880873 1-115
+src/gg_relay/session/runner/wire_runner.py
+  s_bcc9af754accd4::t_1aa65c441df90a 102-105,107
+  s_bcc9af754accd4::t_842c0171f57eb8 120,124
+  s_bcc9af754accd4::t_52ac2137d75e1a 85-87,90
+  s_bcc9af754accd4::t_bf6f762ca37c27 25
+  s_bcc9af754accd4::t_4e575a35a536e4 137,140-145
+  s_bcc9af754accd4::t_6f359c8500c7ad 1-24,26-84,88-89,91,93-95,109,111-112,115-119,121-123,125-136,138-139,146-170
+  s_bcc9af754accd4::t_84943e74c01869 92,96-101,106,108,110,113-114
+docs/superpowers/plans/2026-05-22-plan-3-docker-backend-and-wire-transport.md
+  s_bcc9af754accd4::t_de3427b73818ac 916
+tests/unit/session/test_wire_coordinator_proxy.py
+  s_bcc9af754accd4::t_051811f4184412 85,92-95
+  s_bcc9af754accd4::t_18fe5d7d81cb8a 56-57
+  s_bcc9af754accd4::t_3d920ec8e50a5e 118-119
+  s_bcc9af754accd4::t_26d10ecee813cf 1-55,58-84,86-91,96-117,120-154,157-162
+  s_bcc9af754accd4::t_6e60c1f0666e3f 155-156
+tests/unit/session/test_spec.py
+  s_bcc9af754accd4::t_242fd0b78e7282 70-112
+src/gg_relay/session/spec.py
+  s_bcc9af754accd4::t_b76adf4b8698d5 7,14
+  s_bcc9af754accd4::t_e451703b15fbac 91-139
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "e031db4dc5dee3542c7affd3e86e60daa1dae632",
+  "prompts": {},
+  "sessions": {
+    "s_bcc9af754accd4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbaf1feb-32ab-447d-99c8-c669aebdf483",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
