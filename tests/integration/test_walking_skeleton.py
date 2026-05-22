@@ -1,6 +1,7 @@
 """End-to-end walking skeleton: SessionSpec → InProcessExecutor → SDK runner → events.
 
-Uses a stub SDK transport (claude_code_sdk.Transport subclass) so no API call is made.
+Uses a stub SDK client yielding real ``claude_code_sdk`` dataclasses
+(Plan 2 — dataclass-only dispatch) so no API call is made.
 """
 from __future__ import annotations
 
@@ -10,6 +11,15 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from claude_code_sdk import (
+    AssistantMessage,
+    ResultMessage,
+    TextBlock,
+    ToolPermissionContext,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
 
 pytestmark = pytest.mark.requires_sdk
 
@@ -237,9 +247,9 @@ async def test_walking_skeleton_error_frame_on_runner_exception(tmp_path: Path) 
     from gg_relay.session.spec import PluginManifest, SessionSpec
 
     class _ExplodingClient(_StubBaseClient):
-        async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
+        async def receive_messages(self) -> AsyncIterator[Any]:
             if False:  # make this an async-generator without yielding
-                yield {}
+                yield None
             raise RuntimeError("simulated SDK failure")
 
     runner = make_sdk_runner(
@@ -314,10 +324,12 @@ async def test_walking_skeleton_cancellation_no_false_error(tmp_path: Path) -> N
     from gg_relay.session.spec import PluginManifest, SessionSpec
 
     class _NeverEndsClient(_StubBaseClient):
-        async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
+        async def receive_messages(self) -> AsyncIterator[Any]:
             while True:
                 await asyncio.sleep(0.05)
-                yield {"type": "AssistantMessage", "content": "still going"}
+                yield AssistantMessage(
+                    content=[TextBlock(text="still going")], model="stub",
+                )
 
     runner = make_sdk_runner(
         policy=DEFAULT_POLICY,
@@ -364,13 +376,26 @@ class _StubBaseClient:
     async def interrupt(self) -> None: ...
 
 
+def _result_msg() -> ResultMessage:
+    return ResultMessage(
+        subtype="success",
+        duration_ms=0,
+        duration_api_ms=0,
+        is_error=False,
+        num_turns=1,
+        session_id="s",
+        total_cost_usd=0.0,
+        usage={},
+    )
+
+
 def _make_stub_sdk_client(options: Any) -> _StubBaseClient:
-    """Minimal stub: just yields one assistant message and ends."""
+    """Minimal stub: yields one assistant message + result."""
 
     class _C(_StubBaseClient):
-        async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
-            yield {"type": "AssistantMessage", "content": "hi"}
-            yield {"type": "ResultMessage", "subtype": "success", "total_cost_usd": 0.0}
+        async def receive_messages(self) -> AsyncIterator[Any]:
+            yield AssistantMessage(content=[TextBlock(text="hi")], model="stub")
+            yield _result_msg()
 
     return _C(options)
 
@@ -382,34 +407,70 @@ class _StubWriteAttemptClient(_StubBaseClient):
         super().__init__(options)
         self._file_path = file_path
 
-    async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
-        from claude_code_sdk import ToolPermissionContext
+    async def receive_messages(self) -> AsyncIterator[Any]:
         ctx = ToolPermissionContext(signal=None, suggestions=[])
         result = await self._options.can_use_tool(
             "Write", {"file_path": self._file_path, "content": "x"}, ctx
         )
         ok = result.behavior == "allow"
-        yield {
-            "type": "ToolResult",
-            "tool_name": "Write",
-            "ok": ok,
-            "result": {"file_path": self._file_path},
-        }
-        yield {"type": "ResultMessage", "subtype": "success", "total_cost_usd": 0.0}
+        if ok:
+            yield AssistantMessage(
+                content=[
+                    ToolUseBlock(
+                        id="tu_write",
+                        name="Write",
+                        input={"file_path": self._file_path, "content": "x"},
+                    )
+                ],
+                model="stub",
+            )
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(
+                        tool_use_id="tu_write",
+                        content=f"wrote {self._file_path}",
+                        is_error=False,
+                    )
+                ],
+            )
+        else:
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(
+                        tool_use_id="tu_write_denied",
+                        content="denied",
+                        is_error=True,
+                    )
+                ],
+            )
+        yield _result_msg()
 
 
 class _StubBashAttemptClient(_StubBaseClient):
-    async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
-        from claude_code_sdk import ToolPermissionContext
+    async def receive_messages(self) -> AsyncIterator[Any]:
         ctx = ToolPermissionContext(signal=None, suggestions=[])
         result = await self._options.can_use_tool(
             "Bash", {"command": "ls"}, ctx
         )
         ok = result.behavior == "allow"
-        yield {
-            "type": "ToolResult",
-            "tool_name": "Bash",
-            "ok": ok,
-            "result": {"stdout": "."},
-        }
-        yield {"type": "ResultMessage", "subtype": "success", "total_cost_usd": 0.0}
+        if ok:
+            yield AssistantMessage(
+                content=[ToolUseBlock(id="tu_bash", name="Bash", input={"command": "ls"})],
+                model="stub",
+            )
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(tool_use_id="tu_bash", content=".", is_error=False)
+                ],
+            )
+        else:
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(
+                        tool_use_id="tu_bash_denied",
+                        content="denied",
+                        is_error=True,
+                    )
+                ],
+            )
+        yield _result_msg()

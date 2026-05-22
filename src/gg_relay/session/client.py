@@ -7,31 +7,56 @@ The runner factory wires together:
 
 The host side of the transport is consumed by the calling handler / SessionManager
 (out of scope for this Plan; will be added in Plan 4).
+
+Plan 2 changes vs Plan 1:
+  - dispatch on real SDK dataclasses (UserMessage / AssistantMessage / SystemMessage /
+    ResultMessage / StreamEvent) via ``match`` — no more dict-stub path
+  - HITL req_id ↔ SDK tool_use_id pairing via bidirectional FIFO over
+    ``(tool_name, canonical(input))`` (see docs/sdk-message-ordering-spike.md)
 """
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import traceback
 import uuid
+from collections import deque
 from collections.abc import Callable
-from datetime import UTC, datetime
-from typing import Any, cast
+from dataclasses import asdict, is_dataclass
+from typing import Any
 
 from claude_code_sdk import (
+    AssistantMessage,
     ClaudeCodeOptions,
     ClaudeSDKClient,
     PermissionResultAllow,
     PermissionResultDeny,
+    ResultMessage,
+    SystemMessage,
+    TextBlock,
+    ThinkingBlock,
     ToolPermissionContext,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
 )
+from claude_code_sdk.types import StreamEvent
 
 from gg_relay.session.executor.protocol import RunnerFn
+from gg_relay.session.frames import (
+    make_error,
+    make_install_done,
+    make_msg_chunk,
+    make_session_end,
+    make_tool_request,
+    make_tool_result,
+)
 from gg_relay.session.hitl.coordinator import HITLCoordinator
 from gg_relay.session.hitl.policy import ToolPolicy
+from gg_relay.session.plugins import InstallReport
 from gg_relay.session.spec import Decision, SessionSpec
 from gg_relay.session.transport.inmemory import InMemoryTransport
-from gg_relay.session.transport.protocol import EventFrame
 
 SdkFactory = Callable[[ClaudeCodeOptions], Any]
 """Factory returning a ClaudeSDKClient-like object.
@@ -42,20 +67,89 @@ the real SDK class.
 """
 
 
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+# ── input canonicalization for FIFO matching ───────────────────────────────
 
 
-def _envelope(seq: int, type_: str, **rest: Any) -> dict[str, Any]:
-    """Build a wire-format frame dict for transport.send.
+_FrozenInput = frozenset[tuple[str, str]]
 
-    Sequence numbering note: `seq` is **monotonic but not gapless**. The
-    ResultMessage branch in the runner increments `seq` twice — once for the
-    assistant message body itself, once for the trailing `session.end` frame —
-    so consumers must not assume contiguous integer ranges. They should only
-    rely on strict ordering (later frame ⇒ strictly larger `seq`).
+
+def _freeze(d: dict[str, Any]) -> _FrozenInput:
+    """Canonical, hashable representation of a tool-call input.
+
+    Nested mutables (dict / list / tuple) are flattened via
+    ``json.dumps(sort_keys=True)`` so ``{"a": 1, "b": [2, 3]}`` and
+    ``{"b": [2, 3], "a": 1}`` hash identically. All tool inputs are JSON-shaped
+    coming from the CLI, so this is round-trip stable.
     """
-    return {"v": 1, "type": type_, "seq": seq, "ts": _now_iso(), **rest}
+    return frozenset(
+        (k, json.dumps(v, sort_keys=True, default=str)) for k, v in d.items()
+    )
+
+
+# ── content-block serialization (for msg.chunk payloads) ───────────────────
+
+
+def _serialize_block(block: Any) -> dict[str, Any]:
+    if isinstance(block, TextBlock):
+        return {"type": "text", "text": block.text}
+    if isinstance(block, ThinkingBlock):
+        return {"type": "thinking", "signature": block.signature}
+    if isinstance(block, ToolUseBlock):
+        return {"type": "tool_use", "id": block.id, "name": block.name, "input": block.input}
+    if isinstance(block, ToolResultBlock):
+        return {
+            "type": "tool_result",
+            "tool_use_id": block.tool_use_id,
+            "is_error": block.is_error,
+        }
+    if is_dataclass(block) and not isinstance(block, type):
+        return {"type": type(block).__name__, **asdict(block)}
+    return {"type": type(block).__name__, "repr": repr(block)}
+
+
+def _serialize_assistant(m: AssistantMessage) -> dict[str, Any]:
+    return {
+        "type": "AssistantMessage",
+        "model": m.model,
+        "parent_tool_use_id": m.parent_tool_use_id,
+        "content": [_serialize_block(b) for b in m.content],
+    }
+
+
+def _serialize_user(m: UserMessage) -> dict[str, Any]:
+    if isinstance(m.content, str):
+        content: str | list[dict[str, Any]] = m.content
+    else:
+        content = [_serialize_block(b) for b in m.content]
+    return {
+        "type": "UserMessage",
+        "parent_tool_use_id": m.parent_tool_use_id,
+        "content": content,
+    }
+
+
+def _serialize_misc(m: Any) -> dict[str, Any]:
+    if isinstance(m, SystemMessage):
+        return {"type": "SystemMessage", "subtype": m.subtype, "data": m.data}
+    if isinstance(m, StreamEvent):
+        return {
+            "type": "StreamEvent",
+            "uuid": m.uuid,
+            "session_id": m.session_id,
+            "event": m.event,
+            "parent_tool_use_id": m.parent_tool_use_id,
+        }
+    if is_dataclass(m) and not isinstance(m, type):
+        return {"type": type(m).__name__, **asdict(m)}
+    return {"type": type(m).__name__, "repr": repr(m)}
+
+
+def _serialize_tool_result(block: ToolResultBlock) -> dict[str, Any]:
+    """Render a ToolResultBlock as the ``result`` payload of a tool.result frame."""
+    return {"content": block.content, "is_error": block.is_error}
+
+
+# ── runner factory ─────────────────────────────────────────────────────────
 
 
 def make_sdk_runner(
@@ -63,23 +157,66 @@ def make_sdk_runner(
     policy: ToolPolicy,
     coordinator: HITLCoordinator,
     sdk_factory: SdkFactory = ClaudeSDKClient,
+    install_report: InstallReport | None = None,
 ) -> RunnerFn:
     """Return a RunnerFn suitable for InProcessExecutor(runner=...).
 
-    **SCOPE — Plan 1, in-process only.** This factory takes the host's
+    **SCOPE — Plan 2, in-process only.** This factory takes the host's
     HITLCoordinator directly; it never consumes ControlFrames from the
-    transport. For cross-process backends (Plan 3 Docker, future K8s),
-    a separate ``make_wire_runner`` will route HITL decisions via
+    transport. For cross-process backends (Plan 3 Docker, future K8s), a
+    separate ``make_wire_runner`` will route HITL decisions via
     ``tool.decision`` ControlFrames instead.
 
     The returned coroutine owns the lifecycle of one SDK conversation:
     connect → query → drain receive_messages → disconnect (in finally).
     Each SDK message becomes a transport EventFrame on the runner side, which
     propagates to the host via the paired InMemoryTransport.
+
+    HITL mapping (bidirectional FIFO, see Task 0 spike report):
+      Two deques are maintained per-runner so either event order is handled:
+
+      * ``pending_perms``:      ``(req_id, name, frozen_input)`` queued by
+                                can_use_tool when no matching ToolUseBlock
+                                has been seen yet.
+      * ``pending_use_blocks``: ``(tool_use_id, name, frozen_input)`` queued
+                                by AssistantMessage processing when no
+                                matching pending_perm exists yet.
+
+      Whichever side arrives second pops its match from the opposing queue
+      and registers the ``tool_use_id → req_id`` mapping. The mapping is
+      consulted when a UserMessage(ToolResultBlock) arrives.
     """
 
     async def runner(transport: InMemoryTransport, spec: SessionSpec) -> None:
         seq = 0
+
+        # Install report (if any) is the very first frame so the host can
+        # render "plugins installed: X" before the SDK starts streaming.
+        # SessionManager / handler runs assembler.prepare() before
+        # executor.start(); the resulting InstallReport is threaded in here.
+        if install_report is not None:
+            await transport.send(make_install_done(seq, install_report))
+
+        # Bidirectional FIFO state — see runner docstring.
+        pending_perms: deque[tuple[str, str, _FrozenInput]] = deque()
+        pending_use_blocks: deque[tuple[str, str, _FrozenInput]] = deque()
+        use_id_to_req_id: dict[str, str] = {}
+
+        def _pair_perm_with_block(name: str, fi: _FrozenInput) -> str | None:
+            """Try to consume one matching ToolUseBlock; return its id or None."""
+            for idx, (uid, n, f) in enumerate(pending_use_blocks):
+                if n == name and f == fi:
+                    del pending_use_blocks[idx]
+                    return uid
+            return None
+
+        def _pair_block_with_perm(name: str, fi: _FrozenInput) -> str | None:
+            """Try to consume one matching pending perm; return its req_id."""
+            for idx, (rid, n, f) in enumerate(pending_perms):
+                if n == name and f == fi:
+                    del pending_perms[idx]
+                    return rid
+            return None
 
         async def can_use_tool(
             tool_name: str,
@@ -95,12 +232,22 @@ def make_sdk_runner(
             # 12 hex chars = 48 bits, birthday-bound ~16M concurrent pending
             # (vs 8 hex / 32 bits → only ~65K before 50% collision).
             req_id = f"r-{uuid.uuid4().hex[:12]}"
+            fi = _freeze(tool_input)
+
+            matched_uid = _pair_perm_with_block(tool_name, fi)
+            if matched_uid is not None:
+                use_id_to_req_id[matched_uid] = req_id
+            else:
+                pending_perms.append((req_id, tool_name, fi))
+
             nonlocal seq
             seq += 1
-            await transport.send(cast(EventFrame, _envelope(
-                seq, "tool.request", req_id=req_id, tool=tool_name, args=tool_input,
-            )))
-            decision = await coordinator.request(req_id, tool=tool_name, args=tool_input)
+            await transport.send(
+                make_tool_request(seq, req_id, tool_name, tool_input)
+            )
+            decision = await coordinator.request(
+                req_id, tool=tool_name, args=tool_input
+            )
             if decision == "accept":
                 return PermissionResultAllow()
             return PermissionResultDeny(message="HITL rejected")
@@ -111,11 +258,6 @@ def make_sdk_runner(
             env=dict(spec.plugins.extra_env),
         )
 
-        # sdk_factory() must be invoked INSIDE the try so a factory that raises
-        # synchronously (bad options, ImportError, etc.) still surfaces as an
-        # `error` event frame per RunnerFn contract (I-1). `client` is bound
-        # to None first so the finally clause can guard against the
-        # never-constructed case.
         client: Any = None
         try:
             client = sdk_factory(options)
@@ -123,34 +265,68 @@ def make_sdk_runner(
             await client.query(spec.prompt)
             async for msg in client.receive_messages():
                 seq += 1
-                msg_type = msg.get("type") if isinstance(msg, dict) else type(msg).__name__
-                if msg_type == "ToolResult" and isinstance(msg, dict):
-                    await transport.send(cast(EventFrame, _envelope(
-                        seq, "tool.result",
-                        # TODO Plan 4: map SDK tool_use_id → host-side req_id; for now
-                        # the dict-stub path passes req_id through verbatim or "".
-                        req_id=msg.get("req_id", ""),
-                        # Fail-safe default: a ToolResult without an "ok" field means
-                        # we don't know if it succeeded, so treat it as failure.
-                        ok=msg.get("ok", False),
-                        result=msg.get("result", {}),
-                    )))
-                elif msg_type == "ResultMessage":
-                    seq += 1
-                    await transport.send(cast(EventFrame, _envelope(
-                        seq, "session.end",
-                        status="completed",
-                        tokens=msg.get("usage", {}) if isinstance(msg, dict) else {},
-                        cost_usd=(
-                            msg.get("total_cost_usd", 0.0) if isinstance(msg, dict) else 0.0
-                        ),
-                    )))
-                    break
-                else:
-                    await transport.send(cast(EventFrame, _envelope(
-                        seq, "msg.chunk",
-                        data=msg if isinstance(msg, dict) else {"repr": repr(msg)},
-                    )))
+                match msg:
+                    case ResultMessage():
+                        seq += 1
+                        await transport.send(
+                            make_session_end(
+                                seq,
+                                "completed",
+                                tokens=(
+                                    dict(msg.usage) if msg.usage is not None else {}
+                                ),
+                                cost_usd=msg.total_cost_usd or 0.0,
+                            )
+                        )
+                        break
+                    case AssistantMessage():
+                        # First, pair any ToolUseBlocks with pending perms.
+                        for block in msg.content:
+                            if isinstance(block, ToolUseBlock):
+                                fi = _freeze(block.input)
+                                matched_rid = _pair_block_with_perm(block.name, fi)
+                                if matched_rid is not None:
+                                    use_id_to_req_id[block.id] = matched_rid
+                                else:
+                                    pending_use_blocks.append(
+                                        (block.id, block.name, fi)
+                                    )
+                        await transport.send(
+                            make_msg_chunk(seq, _serialize_assistant(msg))
+                        )
+                    case UserMessage():
+                        # Emit one tool.result frame per ToolResultBlock; any
+                        # other body content (str, TextBlock from a future
+                        # SDK version) is reflected via msg.chunk.
+                        tool_results = (
+                            [b for b in msg.content if isinstance(b, ToolResultBlock)]
+                            if isinstance(msg.content, list)
+                            else []
+                        )
+                        if tool_results:
+                            for block in tool_results:
+                                req_id = use_id_to_req_id.pop(block.tool_use_id, "")
+                                seq += 1
+                                await transport.send(
+                                    make_tool_result(
+                                        seq,
+                                        req_id=req_id,
+                                        ok=not bool(block.is_error),
+                                        result=_serialize_tool_result(block),
+                                    )
+                                )
+                        else:
+                            await transport.send(
+                                make_msg_chunk(seq, _serialize_user(msg))
+                            )
+                    case SystemMessage() | StreamEvent():
+                        await transport.send(
+                            make_msg_chunk(seq, _serialize_misc(msg))
+                        )
+                    case _:
+                        await transport.send(
+                            make_msg_chunk(seq, _serialize_misc(msg))
+                        )
         except asyncio.CancelledError:
             # Clean cancellation (e.g. executor.stop()) — propagate without
             # publishing a misleading `error` frame. runner_wrapper.finally
@@ -166,12 +342,14 @@ def make_sdk_runner(
             # send failure so the original exception is re-raised intact.
             seq += 1
             with contextlib.suppress(Exception):
-                await transport.send(cast(EventFrame, _envelope(
-                    seq, "error",
-                    code=type(exc).__name__,
-                    message=str(exc),
-                    traceback=traceback.format_exc(),
-                )))
+                await transport.send(
+                    make_error(
+                        seq,
+                        type(exc).__name__,
+                        str(exc),
+                        traceback_=traceback.format_exc(),
+                    )
+                )
             raise
         finally:
             # Disconnect must not mask the original exception if it raises,

@@ -73,7 +73,9 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-addopts = "--cov=gg_relay --cov-report=term-missing --cov-fail-under=80"
+# Plan 2 raised the floor from 80% → 90%. session.* sits near 100%; the
+# threshold guards against regressions when API/store/IM modules land later.
+addopts = "--cov=gg_relay --cov-report=term-missing --cov-fail-under=90"
 testpaths = ["tests"]
 markers = [
     "requires_sdk: tests that exercise claude-code-sdk integration (no API call)",

@@ -315,7 +315,12 @@ EventFrame = (
 
 **Files**: `src/gg_relay/session/client.py`（重写 dispatch loop + can_use_tool）, `tests/unit/session/test_client_dispatch.py`
 
-**Key change**: `can_use_tool` 闭包内维护一个 `deque[(req_id, tool_name, frozen_input)]`；每次 `AssistantMessage` 处理时遍历 `ToolUseBlock` 出队首个 `(name, input)` 匹配的，登记 `tool_use_id → req_id`。
+**Key change (Task 0 spike upgrade — bidirectional FIFO)**: 维护 **两个**
+deque：`pending_perms`（`can_use_tool` 已收到、还没看到 `ToolUseBlock`）和
+`pending_use_blocks`（`ToolUseBlock` 已收到、还没看到 `can_use_tool`）。
+任一事件 fire 时，先尝试在对侧队列里按 `(name, frozen_input)` FIFO 匹配；
+匹配到就登记 `use_id → req_id`，匹配不到就把自己 push 到本侧队列等待。
+spike 报告：`docs/sdk-message-ordering-spike.md`。
 
 **Skeleton**（关键部分）:
 
@@ -577,13 +582,21 @@ async def test_install_minimal_profile_e2e(tmp_path):
 
 ## 10. Self-Review checklist
 
-- [ ] Task 0 spike 完成 + 报告写好
-- [ ] 每 task TDD
-- [ ] `pytest tests/ -m "not requires_api_key"` 在 CI 全绿
-- [ ] `mypy src/` 0 error / `ruff check src/ tests/` 0 warning
-- [ ] `gg_relay.session.*` 覆盖率 ≥ 95%
-- [ ] spec 同步
-- [ ] subagent-driven-development: 每 task implementer → quality review → fix
+- [x] Task 0 spike 完成 + 报告写好 → `docs/sdk-message-ordering-spike.md`（bidirectional FIFO）
+- [x] Task 1 — PluginAssembler + InstallShellAssembler — done (10 unit tests)
+- [x] Task 2 — frames.py 8 builders + protocol.py 联合 — done (13 unit tests)
+- [x] Task 3 — client.py SDK dataclass dispatch + bidirectional FIFO — done (15 unit tests; demo + walking_skeleton upgraded to yield dataclasses)
+- [x] Task 4 — install.done emission — done (3 unit tests)
+- [x] Task 5 — client.py refactor 用 frame builders — done implicitly as part of Task 3 rewrite (no `cast(EventFrame, _envelope(...))` calls remain; all sends go through `make_*` builders)
+- [x] Task 6 — spec sync — done (§4.2 `--json` note + §4.6 PluginAssembler full def + §5.3 摘要 + §6.2 install.done/install.error 修订 + §6.5 FIFO mapping)
+- [x] Task 7 — dataclass-yielding stub + real_api_smoke — done (5 stub tests green + 1 requires_api_key test that skips cleanly without ANTHROPIC_API_KEY)
+- [x] Task 8 — assembler e2e — done (1 @requires_sdk test, skips cleanly when GG_PLUGINS_HOME unset; passes against real /data/workspace/github/gg-plugins)
+- [x] Task 9 — coverage + README + final commit — done (`--cov-fail-under=90`, README adds Plan 2 section)
+- [x] 每 task TDD
+- [x] `pytest tests/ -m "not requires_api_key"` 在 CI 全绿 (128 passed)
+- [x] `mypy src/` 0 error / `ruff check src/ tests/` 0 warning
+- [x] `gg_relay.session.*` 覆盖率 ≥ 95% (99.8% project-wide; `session/client.py` 99%)
+- [x] spec 同步
 
 ---
 

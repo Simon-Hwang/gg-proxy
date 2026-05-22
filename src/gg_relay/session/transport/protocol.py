@@ -17,7 +17,21 @@ class _BaseFrame(TypedDict):
 
 
 class InstallDoneFrame(_BaseFrame):
-    state: dict[str, Any]   # gg-plugins install state JSON
+    """Emitted after PluginAssembler.prepare() succeeds, parsed from
+    install-state.json + assembler timing. Plan 2 §6 / Task 4."""
+
+    profile_id: str | None
+    modules: list[str]
+    duration_ms: int
+    install_root: str
+
+
+class InstallErrorFrame(_BaseFrame):
+    """Emitted if PluginAssembler.prepare() fails (post-handler before SDK)."""
+
+    code: str
+    message: str
+    stderr_tail: NotRequired[str]
 
 
 class MsgChunkFrame(_BaseFrame):
@@ -55,6 +69,7 @@ class PongFrame(_BaseFrame):
 
 EventFrame = (
     InstallDoneFrame
+    | InstallErrorFrame
     | MsgChunkFrame
     | ToolRequestFrame
     | ToolResultFrame

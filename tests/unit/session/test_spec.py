@@ -16,13 +16,14 @@ from gg_relay.session.spec import (
 
 class TestPluginManifest:
     def test_profile_only(self):
+        # Plan 2: --json is intentionally removed (upstream installer ignores it).
         m = PluginManifest(profile="minimal")
-        assert m.to_install_argv() == ["--profile", "minimal", "--home", "/root", "--json"]
+        assert m.to_install_argv() == ["--profile", "minimal", "--home", "/root"]
 
     def test_modules_only(self):
         m = PluginManifest(modules=("rules-python", "skills-security"))
         assert m.to_install_argv() == [
-            "--modules", "rules-python,skills-security", "--home", "/root", "--json"
+            "--modules", "rules-python,skills-security", "--home", "/root",
         ]
 
     def test_skills_with_overrides(self):
@@ -39,7 +40,6 @@ class TestPluginManifest:
             "--with", "lang:go",
             "--without", "capability:learning",
             "--home", "/tmp/t",
-            "--json",
         ]
 
     def test_empty_manifest_rejected(self):

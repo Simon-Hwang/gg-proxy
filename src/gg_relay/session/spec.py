@@ -49,6 +49,13 @@ class PluginManifest:
             )
 
     def to_install_argv(self, home_dir: str = "/root") -> list[str]:
+        """Render install.sh CLI argv.
+
+        Plan 2 decision: ``--json`` is intentionally OMITTED. The gg-plugins
+        install.sh currently does not implement that flag (it ignores it and
+        writes plain logs to stdout), so passing it adds noise without value.
+        Re-add when the upstream installer learns to emit structured output.
+        """
         argv: list[str] = []
         if self.profile:
             argv += ["--profile", self.profile]
@@ -60,7 +67,7 @@ class PluginManifest:
             argv += ["--with", c]
         for c in self.without_components:
             argv += ["--without", c]
-        argv += ["--home", home_dir, "--json"]
+        argv += ["--home", home_dir]
         return argv
 
 

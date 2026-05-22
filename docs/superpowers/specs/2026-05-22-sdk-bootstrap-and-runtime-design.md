@@ -177,13 +177,19 @@ class PluginManifest:
         if self.skills:                 argv += ["--skills",  ",".join(self.skills)]
         for c in self.with_components:    argv += ["--with",    c]
         for c in self.without_components: argv += ["--without", c]
-        argv += ["--home", home_dir, "--json"]
+        argv += ["--home", home_dir]
         return argv
 
     def __post_init__(self) -> None:
         if not (self.profile or self.modules or self.skills):
             raise ValueError("PluginManifest 必须指定 profile / modules / skills 至少一个")
 ```
+
+**Plan 2 修订（2026-05-22）**: `--json` flag **被暂时移除**。当前
+`gg-plugins/install.sh` 不实现该 flag（传入后 silently ignored，且不会改变
+stdout 内容），保留只会增加 noise；待上游 installer 真正实现结构化输出后再恢复。
+`InstallReport` 信息直接从 `<install_dir>/.claude/gg/install-state.json`
+（`gg.install.v1` schema）解析，不依赖 `--json`。
 
 ### 4.3 `ToolPolicy` — HITL 策略
 
@@ -278,6 +284,51 @@ class HITLCoordinator:
 
 **Reason 字段透传 (TODO Task 6+):** 当前 `request()` 只返回 `decision`，`reason` 在内部静默丢弃。接 transport `tool.decision` 控制帧 / IM 卡片之后，返回类型扩展为 `tuple[Literal["accept","deny"], str | None]` 或专属 dataclass，把 reason 透到 caller。
 
+### 4.6 `PluginAssembler` — 真正跑 `install.sh` 的桥接
+
+Plan 2 加入。`PluginAssembler` 是 SessionManager (handler) 与 plugin
+安装策略之间的契约：
+
+```python
+@dataclass(frozen=True, slots=True)
+class InstallReport:
+    """`<install_dir>/.claude/gg/install-state.json` 的解析结果 +
+    assembler 自测的 duration_ms。frozen 让同一 report 可安全送 dashboard /
+    IM 卡片 / install.done 帧。"""
+    schema_version:       str        # "gg.install.v1"
+    profile_id:           str | None # selected profile, may be None
+    selected_modules:     tuple[str, ...]
+    included_components:  tuple[str, ...]
+    excluded_components:  tuple[str, ...]
+    install_root:         Path       # 来自 state 文件的 installRoot
+    installed_at:         str        # ISO 8601 from state file
+    duration_ms:          int        # assembler 自测，install.sh 不返回
+
+class PluginInstallError(RuntimeError):
+    def __init__(self, *, returncode: int, stderr: str, argv: tuple[str, ...]) -> None: ...
+
+@runtime_checkable
+class PluginAssembler(Protocol):
+    async def prepare(self, spec: SessionSpec, *, install_dir: Path) -> InstallReport: ...
+```
+
+**调用契约（D2.1）**: SessionManager / handler 在 `executor.start(spec)`
+**之前**调用 `assembler.prepare(spec, install_dir=...)`，把得到的
+`InstallReport` 通过 `make_sdk_runner(install_report=report)` 透给 runner；
+runner 第 0 帧就是 `install.done`。
+
+**`InstallShellAssembler` 实现要点**:
+1. 构造 argv = `<plugins_home>/install.sh` + `spec.plugins.to_install_argv(home_dir=str(install_dir))`
+2. `asyncio.create_subprocess_exec(*argv, stdout=PIPE, stderr=PIPE, cwd=plugins_home, env=os.environ + spec.plugins.extra_env)`
+   — 必须继承 PATH，否则 install.sh 找不到 node/npm
+3. 非 0 退出 → `PluginInstallError(returncode, stderr, argv)`
+4. 0 退出但 state 文件不存在 → `PluginInstallError(returncode=0, stderr="install-state.json missing")`
+5. 否则解析 state 文件 → 返回 `InstallReport`
+
+**失败传播（D2.5）**: `PluginInstallError` 直接抛给 SessionManager，
+不进 runner（因为还没到 runner 阶段），handler 看到异常后可以选择
+重试 / 发 install.error 帧给用户 / 上报告警。
+
 ---
 
 ## 5. Protocol 接口
@@ -316,12 +367,14 @@ class SessionTransport(Protocol):
 
 ### 5.3 `PluginAssembler`
 
+**Plan 2 修订**: 完整定义已移至 §4.6。这里仅保留 Protocol 摘要——
+唯一方法 `prepare()` 真正调 `install.sh`、解析 state 文件、返回 `InstallReport`：
+
 ```python
 @runtime_checkable
 class PluginAssembler(Protocol):
-    """职责：把 PluginManifest 翻译成 install.sh 调用参数。不碰文件系统。"""
-    def build_install_argv(self, manifest: PluginManifest, home_dir: str) -> list[str]: ...
-    async def validate(self, manifest: PluginManifest) -> ValidationResult: ...
+    """职责：把 PluginManifest 翻译并真正执行 install.sh，产 InstallReport。"""
+    async def prepare(self, spec: SessionSpec, *, install_dir: Path) -> InstallReport: ...
 ```
 
 **实现**：`InstallShAssembler` — `build_install_argv` 直接转发到 `manifest.to_install_argv`；
@@ -346,7 +399,8 @@ class PluginAssembler(Protocol):
 
 | `type` | 字段 | 含义 |
 |---|---|---|
-| `install.done` | `state` | gg-plugins install.sh 完成，附 install-state JSON |
+| `install.done` | `profile_id, modules[], duration_ms, install_root` | gg-plugins install.sh 完成（Plan 2 §4.6 InstallReport 投影） |
+| `install.error` | `code, message, stderr_tail?` | install.sh 失败，stderr 右截到 2 KiB（Plan 2 新增） |
 | `msg.chunk` | `data` | SDK 流式输出片段（文本、tool_use 元数据等） |
 | `tool.request` | `req_id, tool, args` | PreToolUse 阻塞中，等决策 |
 | `tool.result` | `req_id, ok, result` | PostToolUse 结果回报 |
@@ -389,6 +443,60 @@ class PluginAssembler(Protocol):
 - 这条契约同样适用于 `UnixSocketTransport` / `TcpSocketTransport`：peer half-close 后本侧仍可 recv 剩余 buffered data
 
 这条语义在 Task 7 (`InProcessExecutor` + runner) 接入时被显式验证：runner 同步发送多帧后 close runner_side，host 必须能 drain 完所有帧才看到 `TransportClosed`。
+
+### 6.5 Tool use ID ⇄ Req ID 的 FIFO 映射（Plan 2 / Task 0 spike）
+
+claude_code_sdk 的 `ToolPermissionContext`（host 端 `can_use_tool` 回调收到
+的唯一 context）**不带** `tool_use_id` —— 只有 `signal` 和 `suggestions`
+两个字段（spike 验证：`docs/sdk-message-ordering-spike.md`）。因此 host 端
+HITL 自生成的 `req_id` 与 SDK 端 `AssistantMessage(ToolUseBlock(id=X))` 之间
+没有直接通道，需要在 runner 内部维护一张映射表。
+
+**算法（bidirectional defensive FIFO）**：
+
+```python
+# runner-local state:
+pending_perms:      deque[(req_id, name, frozen_input)]   # can_use_tool 已 fire 但还没看到 ToolUseBlock
+pending_use_blocks: deque[(tool_use_id, name, frozen_input)]  # ToolUseBlock 已收到但还没看到 can_use_tool
+use_id_to_req_id:   dict[tool_use_id, req_id]             # 最终映射
+
+# can_use_tool(tool_name, tool_input, ctx) 触发时：
+fi = frozen(tool_input)
+if matched_uid := pop_first_match_from(pending_use_blocks, name=tool_name, fi=fi):
+    use_id_to_req_id[matched_uid] = req_id  # immediate pairing
+else:
+    pending_perms.append((req_id, tool_name, fi))
+
+# AssistantMessage(content=[..., ToolUseBlock(id=X, name=N, input=I), ...]) 触发时：
+fi = frozen(I)
+if matched_rid := pop_first_match_from(pending_perms, name=N, fi=fi):
+    use_id_to_req_id[X] = matched_rid  # immediate pairing
+else:
+    pending_use_blocks.append((X, N, fi))
+
+# UserMessage(content=[..., ToolResultBlock(tool_use_id=X, ...), ...]) 触发时：
+req_id = use_id_to_req_id.pop(X, "")  # "" if unmapped (defensive)
+emit tool.result frame with req_id
+```
+
+**关键细节**：
+
+1. **bidirectional** —— SDK 内 `_read_messages` 把 `control_request` 经
+   `task_group.start_soon` 并发派发，把 regular messages 顺序入流。两路
+   交互的相对顺序由 CLI 决定，**无法保证 can_use_tool 一定先于
+   AssistantMessage(ToolUseBlock) 到达**。spike 报告 §2 详述。
+2. **FIFO** —— 当同一 `(name, input)` 重复出现时（LLM 连续两次同样的
+   tool call），按到达顺序 pair：第一个 perm 配第一个 use block。
+3. **frozen_input** —— `frozenset((k, json.dumps(v, sort_keys=True,
+   default=str)) for k, v in d.items())`；嵌套 dict / list 经 `json.dumps`
+   规范化，保证 `{"a":1,"b":[2,3]}` 和 `{"b":[2,3],"a":1}` 同 key。
+4. **defensive fallback** —— `use_id_to_req_id.pop(X, "")` 永不抛；上游
+   丢帧 / 协议 garble 时 host 看到 `tool.result` 但 `req_id == ""`，能
+   继续渲染但 trace 上挂不上对应的 request。Plan 2 接受这个损失，
+   Plan 4 加埋点告警。
+5. **edge case** — `can_use_tool` 返回 deny → CLI 不会发对应 ToolUseBlock
+   → `pending_perms` 里那条记录残留至 session 结束。一次 session 最多
+   `max_turns` 条，可接受；leak 可观察后再优化。
 
 ---
 

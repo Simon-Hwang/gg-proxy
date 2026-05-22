@@ -20,6 +20,15 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+from claude_code_sdk import (
+    AssistantMessage,
+    ResultMessage,
+    ToolPermissionContext,
+    ToolResultBlock,
+    ToolUseBlock,
+    UserMessage,
+)
+
 from gg_relay.session.client import make_sdk_runner
 from gg_relay.session.executor.inprocess import InProcessExecutor
 from gg_relay.session.hitl.coordinator import HITLCoordinator
@@ -49,39 +58,52 @@ class _DemoSDK:
     async def query(self, prompt: str) -> None:
         return None
 
-    async def receive_messages(self) -> AsyncIterator[dict[str, Any]]:
-        from claude_code_sdk import ToolPermissionContext
-
+    async def receive_messages(self) -> AsyncIterator[Any]:
         ctx = ToolPermissionContext(signal=None, suggestions=[])
 
         # Write under cwd → policy ACCEPT → no HITL round-trip
-        write_result = await self._options.can_use_tool(
-            "Write",
-            {
-                "file_path": str(Path(self._options.cwd) / "demo.txt"),
-                "content": "hello",
-            },
-            ctx,
-        )
-        yield {
-            "type": "ToolResult",
-            "tool_name": "Write",
-            "ok": write_result.behavior == "allow",
-        }
+        write_file = str(Path(self._options.cwd) / "demo.txt")
+        write_input = {"file_path": write_file, "content": "hello"}
+        write_result = await self._options.can_use_tool("Write", write_input, ctx)
+        if write_result.behavior == "allow":
+            yield AssistantMessage(
+                content=[ToolUseBlock(id="tu_write", name="Write", input=write_input)],
+                model="demo-stub",
+            )
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(
+                        tool_use_id="tu_write",
+                        content=f"wrote {write_file}",
+                        is_error=False,
+                    )
+                ],
+            )
 
         # Bash → policy NEEDS_HITL → runner publishes tool.request, awaits coordinator
-        bash_result = await self._options.can_use_tool(
-            "Bash",
-            {"command": "ls /tmp"},
-            ctx,
-        )
-        yield {
-            "type": "ToolResult",
-            "tool_name": "Bash",
-            "ok": bash_result.behavior == "allow",
-        }
+        bash_input = {"command": "ls /tmp"}
+        bash_result = await self._options.can_use_tool("Bash", bash_input, ctx)
+        if bash_result.behavior == "allow":
+            yield AssistantMessage(
+                content=[ToolUseBlock(id="tu_bash", name="Bash", input=bash_input)],
+                model="demo-stub",
+            )
+            yield UserMessage(
+                content=[
+                    ToolResultBlock(tool_use_id="tu_bash", content="ok", is_error=False)
+                ],
+            )
 
-        yield {"type": "ResultMessage", "subtype": "success", "total_cost_usd": 0.0}
+        yield ResultMessage(
+            subtype="success",
+            duration_ms=0,
+            duration_api_ms=0,
+            is_error=False,
+            num_turns=2,
+            session_id="demo-session",
+            total_cost_usd=0.0,
+            usage={"input_tokens": 0, "output_tokens": 0},
+        )
 
 
 async def im_responder(coord: HITLCoordinator) -> None:
