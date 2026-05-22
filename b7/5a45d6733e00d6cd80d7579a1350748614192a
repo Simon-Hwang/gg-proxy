@@ -1,0 +1,23 @@
+docs/im-backends.md
+  s_2bfb0ff47226e2::t_57b2eff8931a62 1-199
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_2bfb0ff47226e2::t_3d8c612a15a81c 1030-1296
+docs/deployment.md
+  s_2bfb0ff47226e2::t_aedcab433a29e7 208-281
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "b75a45d6733e00d6cd80d7579a1350748614192a",
+  "prompts": {},
+  "sessions": {
+    "s_2bfb0ff47226e2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a5df84e2-8efc-4d7d-b341-f46efd3765e0",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
