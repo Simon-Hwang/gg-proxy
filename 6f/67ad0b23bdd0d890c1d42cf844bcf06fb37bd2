@@ -1,0 +1,234 @@
+src/gg_relay/dashboard/static/app.css
+  s_6f0ac3f1a2ed3e::t_d409777f0cd20a 1-51
+tests/integration/test_end_to_end.py
+  s_6f0ac3f1a2ed3e::t_c70051c890ea91 1-145
+tests/integration/test_feishu_webhook.py
+  s_6f0ac3f1a2ed3e::t_869480d784abd6 1-169,171-202
+  s_6f0ac3f1a2ed3e::t_fcd252243e4940 170
+src/gg_relay/dashboard/router.py
+  s_6f0ac3f1a2ed3e::t_65075bf98d1372 145,147
+  s_6f0ac3f1a2ed3e::t_5c04ca691ab815 18
+  s_6f0ac3f1a2ed3e::t_6a7bf7286f5d4b 49-55
+  s_6f0ac3f1a2ed3e::t_ecc55e84d08183 97-98,110-112
+  s_6f0ac3f1a2ed3e::t_f5d5212677d3f7 1-17,19-48,56-96,99-109,113-138,141-144,146,148-154
+  s_6f0ac3f1a2ed3e::t_8877ed18907247 139-140
+src/gg_relay/store/engine.py
+  s_6f0ac3f1a2ed3e::t_cc3a9ffd34b68a 1-5,7-19,27-38
+  s_6f0ac3f1a2ed3e::t_69cb93a159a76b 20
+  s_6f0ac3f1a2ed3e::t_9fc483c5c6cfdb 6,21-26
+README.md
+  s_1b021bd4efa697::t_49494c1573356b 69
+  s_6f0ac3f1a2ed3e::t_01dcafa466043c 3-7,9-12,14,16,18-28,30,32,35,37-41,43-45,48,51-64,67-68,71-73,75,77,80-105,108-109,111,113,115-119,121,123,126-128,131-134,136,138,140-148
+src/gg_relay/dashboard/__init__.py
+  s_6f0ac3f1a2ed3e::t_9268f9b63100c0 1-4
+examples/end_to_end_demo.py
+  s_6f0ac3f1a2ed3e::t_a476994139e954 1-130
+src/gg_relay/api/routers/health.py
+  s_6f0ac3f1a2ed3e::t_dfe042cbe96d4b 1-27
+src/gg_relay/tracing/__init__.py
+  s_6f0ac3f1a2ed3e::t_95babd86706be1 1-5
+alembic.ini
+  s_6f0ac3f1a2ed3e::t_6a2e2d87335aa1 13
+  s_6f0ac3f1a2ed3e::t_8e3d57705a21a3 1-12,14-47
+src/gg_relay/redaction/engine.py
+  s_6f0ac3f1a2ed3e::t_00e1ecfc049603 1-134
+src/gg_relay/api/middleware/api_key_auth.py
+  s_6f0ac3f1a2ed3e::t_069f5ced418eef 1-10,12-16,19-46,48-50,53,56-60
+  s_6f0ac3f1a2ed3e::t_3ff058253ec900 11,17-18
+  s_6f0ac3f1a2ed3e::t_d236ef463a7cf6 47,51-52,54-55,61-62
+src/gg_relay/dashboard/templates/sessions_list.html
+  s_6f0ac3f1a2ed3e::t_69925ef3b7c561 1-32
+src/gg_relay/api/deps.py
+  s_6f0ac3f1a2ed3e::t_234fabc241f962 1-29
+src/gg_relay/core/__init__.py
+  s_6f0ac3f1a2ed3e::t_bd9bbea9374a7d 1-10
+tests/integration/test_api_sessions.py
+  s_6f0ac3f1a2ed3e::t_b684d596c3d9b8 134-138
+  s_6f0ac3f1a2ed3e::t_dba9ec1a45d4fe 1-133,139-302
+src/gg_relay/im/router.py
+  s_6f0ac3f1a2ed3e::t_692c5512f1e989 1-85,87,89-91
+  s_6f0ac3f1a2ed3e::t_562ad89bb1650a 86,88
+tests/unit/im/test_feishu_backend.py
+  s_6f0ac3f1a2ed3e::t_2ed0e1e41bc2c9 1-137
+src/gg_relay/session/client.py
+  s_6f0ac3f1a2ed3e::t_41ded339f4397b 201
+  s_6f0ac3f1a2ed3e::t_0715323a976d05 84-87,96
+  s_6f0ac3f1a2ed3e::t_6feca460d0c2cb 267-269
+  s_6f0ac3f1a2ed3e::t_b7ab9ae47dc852 397,400-407,418,429,449
+  s_bcc9af754accd4::t_cf27399b8b6ffc 270,285,399
+tests/unit/tracing/test_subscriber.py
+  s_6f0ac3f1a2ed3e::t_0aad2ee6b7266c 82
+  s_6f0ac3f1a2ed3e::t_3937b902abdf2b 1-43,45-81,83-122,128-136,138-162
+  s_6f0ac3f1a2ed3e::t_2d45203e094791 123-127,137
+  s_6f0ac3f1a2ed3e::t_b2d241236e7762 44
+docs/deployment.md
+  s_6f0ac3f1a2ed3e::t_c46d9446ebaa82 1-141
+src/gg_relay/store/schema.py
+  s_6f0ac3f1a2ed3e::t_1f57b2e8c343ac 1-29,37-60,62-96
+  s_6f0ac3f1a2ed3e::t_ee2ab55a6dbca9 30-36
+  s_6f0ac3f1a2ed3e::t_4ac22020d062d8 61
+src/gg_relay/tracing/setup.py
+  s_6f0ac3f1a2ed3e::t_446cc0e228ce57 42-43
+  s_6f0ac3f1a2ed3e::t_fb20ee4182078c 1-30,32-33,35,40-41,44-65
+  s_6f0ac3f1a2ed3e::t_6dea3c934ff0c0 31,34,36-39
+src/gg_relay/cli.py
+  s_6f0ac3f1a2ed3e::t_013fbea817287d 216-217
+  s_6f0ac3f1a2ed3e::t_6b327c4d516f29 1-77,82-215,218-240
+  s_6f0ac3f1a2ed3e::t_9b8196e8d37d44 81
+  s_6f0ac3f1a2ed3e::t_fe80b3e0980f91 78-80
+src/gg_relay/im/__init__.py
+  s_6f0ac3f1a2ed3e::t_19a83fb8fbe208 1-6
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_6f0ac3f1a2ed3e::t_8fcfe2fc2c5415 945-1029
+src/gg_relay/dashboard/templates/session_detail.html
+  s_6f0ac3f1a2ed3e::t_d1ae14d538138a 1-48
+src/gg_relay/dashboard/templates/login.html
+  s_6f0ac3f1a2ed3e::t_e2d83ad3271dec 1-23
+src/gg_relay/session/__init__.py
+  s_6f0ac3f1a2ed3e::t_465e243219aa89 7,12-18,23,39,46-49,54,56
+src/gg_relay/api/routers/__init__.py
+  s_6f0ac3f1a2ed3e::t_ffd704675c89c5 1-6
+src/gg_relay/redaction/__init__.py
+  s_6f0ac3f1a2ed3e::t_2ebe99c25d26a3 1-14
+src/gg_relay/config.py
+  s_6f0ac3f1a2ed3e::t_acf4c7d8a47e7b 130,133-144
+  s_6f0ac3f1a2ed3e::t_95ff6085516a6e 114,116-121
+  s_6f0ac3f1a2ed3e::t_1708d5d4a9b0a2 1-12,14,16-18,23-25,29-38,50-88,102-113,115,122-129,131-132
+  s_6f0ac3f1a2ed3e::t_84ed7c80030ed8 89-101
+  s_6f0ac3f1a2ed3e::t_69dabae24027b1 21-22,49
+  s_6f0ac3f1a2ed3e::t_262b645f8224e6 13,15,19-20,26-28,39-48
+tests/unit/session/test_recovery.py
+  s_6f0ac3f1a2ed3e::t_c62e6f0eee48f5 1-65
+tests/unit/store/test_store.py
+  s_6f0ac3f1a2ed3e::t_46a18bf07de080 25-33
+  s_6f0ac3f1a2ed3e::t_6effc45e33696e 1-24,34-303
+tests/integration/test_dashboard.py
+  s_6f0ac3f1a2ed3e::t_e3290c447c0dd5 1-192
+pyproject.toml
+  s_6f0ac3f1a2ed3e::t_1b459e730a8044 90
+  s_6f0ac3f1a2ed3e::t_380d8c4fcb9d6b 35-38,47
+  s_6f0ac3f1a2ed3e::t_fcb7555907c27f 25
+  s_6f0ac3f1a2ed3e::t_7efb2f616224f5 80-83
+src/gg_relay/store/migrations/versions/0001_baseline.py
+  s_6f0ac3f1a2ed3e::t_549ec10b6152f6 1-103
+src/gg_relay/api/schemas.py
+  s_6f0ac3f1a2ed3e::t_56309e702f737a 1-120
+tests/unit/cli/test_cli.py
+  s_6f0ac3f1a2ed3e::t_f1d8c79c5528a9 52,56,58-59,64,72
+  s_6f0ac3f1a2ed3e::t_1b11cdf87dc414 23
+  s_6f0ac3f1a2ed3e::t_b1a4ec5fa121c0 1-22,24-51,53-55,57,60-63,65-71,73-172
+src/gg_relay/session/manager.py
+  s_6f0ac3f1a2ed3e::t_39dd1ea04a8d96 28
+  s_6f0ac3f1a2ed3e::t_f4d0c2021c8014 168
+  s_6f0ac3f1a2ed3e::t_d1eaa7fb0ae70e 146-148
+  s_6f0ac3f1a2ed3e::t_41b2633a00dc6d 503-504,515,524-525
+  s_6f0ac3f1a2ed3e::t_8f5228d15f7742 99-103
+  s_6f0ac3f1a2ed3e::t_d70bb9df7e1dfe 251
+  s_6f0ac3f1a2ed3e::t_52dbc5861ce7d6 1-27,29-98,104-145,149-167,169-250,252-453,455-502,505-514,516-523,526-527
+  s_6f0ac3f1a2ed3e::t_af165593374e18 454
+tests/unit/redaction/test_engine.py
+  s_6f0ac3f1a2ed3e::t_7edfd52ea058a7 1-140
+docs/superpowers/plans/2026-05-22-plan-4-session-manager-api-dashboard-and-ops.md
+  s_6f0ac3f1a2ed3e::t_b5897f9d8fc2fd 976-986
+src/gg_relay/core/event_bus.py
+  s_6f0ac3f1a2ed3e::t_8b31a3362e21b2 1-5,18-22,24,26-30,34,47-50,53-55,57-60,67-72,75,78-81,85,88-89,92-97,99-103,110-113,116-119
+  s_6f0ac3f1a2ed3e::t_9589d3383531f7 6-17,23,25,31-33,35-46,51-52,56,61-66,73-74,76-77,82-84,86-87,90-91,98,104-109,114-115,120-123
+tests/unit/session/test_manager.py
+  s_6f0ac3f1a2ed3e::t_5f25d060b51894 109-110
+  s_6f0ac3f1a2ed3e::t_84fd4056ac61a3 1-108,111-567
+src/gg_relay/api/main.py
+  s_6f0ac3f1a2ed3e::t_51735ecb5ac5a8 229
+  s_6f0ac3f1a2ed3e::t_3c41441d4392b0 55-57
+  s_6f0ac3f1a2ed3e::t_beb44d9876215a 1-20,23-28,32-54,58-141,157-179,182-187,190-204,217-227,235
+  s_6f0ac3f1a2ed3e::t_d3ab21078db4ec 142-156
+  s_6f0ac3f1a2ed3e::t_83d473f0fe5476 21-22,29-30
+  s_6f0ac3f1a2ed3e::t_51cd986dbb7046 180-181,188-189
+  s_6f0ac3f1a2ed3e::t_7bd005a9c6fe33 205-216,228,230-234
+  s_6f0ac3f1a2ed3e::t_610c2b44b41a7c 31
+src/gg_relay/tracing/subscriber.py
+  s_6f0ac3f1a2ed3e::t_8f392f772d7c2e 1-23,26-151
+  s_6f0ac3f1a2ed3e::t_14ea9d7703de84 24-25
+src/gg_relay/session/hitl/coordinator.py
+  s_6f0ac3f1a2ed3e::t_e92ef335f66ab2 3-16,26,34,38-45,57,59-77,83-85,88,92,100-104,111-140,147-151,154
+src/gg_relay/dashboard/templates/base.html
+  s_6f0ac3f1a2ed3e::t_890d1679be04c0 1-23
+tests/unit/session/test_hitl_coordinator.py
+  s_6f0ac3f1a2ed3e::t_5a4b0f08dce67f 109-195
+src/gg_relay/api/__init__.py
+  s_6f0ac3f1a2ed3e::t_1309b851802faf 1,3-8
+  s_6f0ac3f1a2ed3e::t_feaeb89406da56 2
+src/gg_relay/session/recovery.py
+  s_6f0ac3f1a2ed3e::t_d6d791a00cbf3e 1-36
+docs/security.md
+  s_6f0ac3f1a2ed3e::t_0585c33e727acb 1-100
+tests/unit/core/test_event_bus.py
+  s_6f0ac3f1a2ed3e::t_2826d85c100bb1 1-64,68-76,78-86,89-98,101-138,142-177
+  s_6f0ac3f1a2ed3e::t_4062cfbd5defcd 65-67,77
+  s_6f0ac3f1a2ed3e::t_4ddbfe696faeba 87-88,99-100
+  s_6f0ac3f1a2ed3e::t_c8e43fda684482 139-141
+src/gg_relay/session/runner/proxy_client.py
+  s_6f0ac3f1a2ed3e::t_6cf33d2594da50 64,72-73
+  s_bcc9af754accd4::t_218c4719880873 70-71,80
+tests/unit/session/test_spec.py
+  s_6f0ac3f1a2ed3e::t_5ec0a3d8c8fea6 113-156
+src/gg_relay/api/routers/hitl.py
+  s_6f0ac3f1a2ed3e::t_bab4cab484a935 1-8,10-49,53,55-59,63-73
+  s_6f0ac3f1a2ed3e::t_70f0d471f7dfba 50-52,54
+  s_6f0ac3f1a2ed3e::t_c9057b978292ac 9
+  s_6f0ac3f1a2ed3e::t_e1fd0015000241 60-62
+src/gg_relay/session/spec.py
+  s_6f0ac3f1a2ed3e::t_b27689b00d2674 82-88,96-102,111-128,130,144,149,169
+src/gg_relay/core/domain.py
+  s_6f0ac3f1a2ed3e::t_0bc1d1dc1ea847 1-59
+src/gg_relay/im/protocol.py
+  s_6f0ac3f1a2ed3e::t_1fa41c74eb5247 1-33
+src/gg_relay/api/routers/sessions.py
+  s_6f0ac3f1a2ed3e::t_b2141fe55722c3 1-173
+src/gg_relay/store/__init__.py
+  s_6f0ac3f1a2ed3e::t_963447683b0d9e 1-22
+src/gg_relay/im/backends/__init__.py
+  s_6f0ac3f1a2ed3e::t_e3317f4f23e264 1-4
+src/gg_relay/im/backends/feishu.py
+  s_6f0ac3f1a2ed3e::t_08e609d38c32dd 1-188
+src/gg_relay/dashboard/templates/hitl_form.html
+  s_6f0ac3f1a2ed3e::t_e1ccb7e0fd7c89 1-14
+src/gg_relay/store/migrations/env.py
+  s_6f0ac3f1a2ed3e::t_a76587ca1ebef9 1-71
+src/gg_relay/api/middleware/logging.py
+  s_6f0ac3f1a2ed3e::t_416f34a27d02d6 13,22,24,34
+  s_6f0ac3f1a2ed3e::t_8234ddf6e9a33c 1-12,14-21,23,25-33,35-60
+src/gg_relay/store/repository.py
+  s_6f0ac3f1a2ed3e::t_fff8b52fc33c31 1-294
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "6f67ad0b23bdd0d890c1d42cf844bcf06fb37bd2",
+  "prompts": {},
+  "sessions": {
+    "s_1b021bd4efa697": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "dbd59b45-b502-4321-a9d9-fa9e82f37aab",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_6f0ac3f1a2ed3e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "66b0fb54-9a09-41a0-9028-d61647965347",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_bcc9af754accd4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbaf1feb-32ab-447d-99c8-c669aebdf483",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
