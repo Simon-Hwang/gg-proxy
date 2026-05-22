@@ -1,0 +1,21 @@
+src/gg_relay/session/recovery.py
+  s_6f0ac3f1a2ed3e::t_d6d791a00cbf3e 1-36
+tests/unit/session/test_recovery.py
+  s_6f0ac3f1a2ed3e::t_c62e6f0eee48f5 1-65
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "a1b9de67eb7b0c2671bf1170873eac85eca49ed2",
+  "prompts": {},
+  "sessions": {
+    "s_6f0ac3f1a2ed3e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "66b0fb54-9a09-41a0-9028-d61647965347",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
