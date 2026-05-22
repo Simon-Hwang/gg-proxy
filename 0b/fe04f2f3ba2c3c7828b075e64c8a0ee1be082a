@@ -1,0 +1,28 @@
+deploy/docker-compose.dev.yml
+  s_65c41fbea581d9::t_756843b09efc01 1-77
+deploy/docker/Dockerfile.service
+  s_65c41fbea581d9::t_92f5c06aaa72a7 1-55
+deploy/docker-compose.prod.yml
+  s_65c41fbea581d9::t_96c878f8a1d4f8 1-69
+deploy/docker/README.md
+  s_65c41fbea581d9::t_7640f75e84f12c 1-92
+tests/unit/test_deploy_artifacts.py
+  s_65c41fbea581d9::t_0700e273bbd569 42-48,52
+  s_65c41fbea581d9::t_43e75a6f71ee10 1-41,49-51,53-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "0bfe04f2f3ba2c3c7828b075e64c8a0ee1be082a",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
