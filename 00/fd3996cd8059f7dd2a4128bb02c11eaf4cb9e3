@@ -1,0 +1,33 @@
+docs/sdk-interrupt-resume-spike.md
+  s_65c41fbea581d9::t_4f55f88975e0a8 7,33-37,41,74,80,83-86,90,93-100,102-110,112-120,122-126,130
+  s_65c41fbea581d9::t_9976b73f6ef3ca 5,75-76,81,91,101,111,121
+  s_65c41fbea581d9::t_229748bb324b50 43-68
+  s_65c41fbea581d9::t_d7a1882abf1d6f 1-4,6,8-32,38-40,42,69-73,77-79,82,87-89,92,127-129,131-132
+scripts/spike_sdk_interrupt_resume.py
+  s_65c41fbea581d9::t_c8c570ef3d5d03 154
+  s_65c41fbea581d9::t_cbba55487e25d8 358-363,365-386
+  s_65c41fbea581d9::t_e723715859e75a 1-36,38-41,43-71,73-74,76-80,82-107,114-153,155-171,173-253,255-327,330,333-357,387-431,434-435,448-513
+  s_65c41fbea581d9::t_f45bf1bcc146a7 432-433,436-447
+  s_65c41fbea581d9::t_39160a047c997a 172
+  s_65c41fbea581d9::t_1f4b65b616a03f 254
+  s_65c41fbea581d9::t_93b76c2912a45d 37,72,75,81,364
+  s_65c41fbea581d9::t_3b9b9f06dfbba6 42
+  s_65c41fbea581d9::t_5e830e94e96c94 328-329,331-332
+  s_65c41fbea581d9::t_b446840a354fdc 108-113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "00fd3996cd8059f7dd2a4128bb02c11eaf4cb9e3",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
