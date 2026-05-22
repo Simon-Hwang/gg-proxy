@@ -1,0 +1,24 @@
+tests/unit/session/test_transport_inmemory.py
+  s_a2c6f58729c1b8::t_67ae4b1550afc1 87-95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "29d797083eb901c742d373a090117250069cf844",
+  "prompts": {},
+  "humans": {
+    "h_2781cf4fccc75f": {
+      "author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  },
+  "sessions": {
+    "s_a2c6f58729c1b8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b95d714b-ebea-49e9-8924-4bf8ba10713b",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
