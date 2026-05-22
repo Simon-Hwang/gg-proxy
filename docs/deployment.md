@@ -41,6 +41,7 @@ Set the following before `gg-relay serve`. The full list lives in
 | `RELAY_DEFAULT_TIMEOUT_S` | optional | per-session timeout (default 1800) |
 | `RELAY_MAX_CONCURRENT` | optional | concurrent running sessions cap (default 10) |
 | `RELAY_GRACE_PERIOD_S` | optional | shutdown grace seconds (default 30) |
+| `RELAY_TASK_TRACE_PATH` | optional | gg.task-trace.v1 JSONL output path (set per-host or `none` in multi-instance deployments — see §8) |
 
 Validate with::
 
@@ -139,3 +140,68 @@ graceful shutdown; the reverse proxy supplies HSTS, OCSP stapling, etc.
 - Postgres: nightly `pg_dump`. The schema is owned by Alembic; restore
   with `gg-relay migrate` after restoring the dump.
 - Audit log: ship to your SIEM (the file is append-only JSONL).
+
+## 8. Task-trace JSONL (multi-instance warning)
+
+`gg-relay` ships a `TaskTraceSubscriber` (D5.7=A) that writes one JSON-
+Lines record per session lifecycle event to `RELAY_TASK_TRACE_PATH`
+(default `~/.claude/metrics/gg-task-trace.jsonl`). The file is the same
+path consumed by gg-plugins' `/gg:task-trace latest` command, so
+operators co-locating gg-relay and the gg-plugins user environment can
+inspect traces without extra configuration.
+
+**Multi-instance hazard.** The writer is *per-process*: writes are
+serialised by an `asyncio.Lock` inside one process, but **nothing
+coordinates writes across multiple gg-relay processes pointing at the
+same file**. Concurrent appends from two replicas can interleave bytes
+mid-line, producing JSONL that fails to parse.
+
+### Mitigations (pick one)
+
+1. **Disable the writer per replica**, ship lifecycle events via OTel
+   instead (recommended for high-replica HA deployments):
+
+   ```yaml
+   environment:
+     RELAY_TASK_TRACE_PATH: "none"
+   ```
+
+2. **Host-unique path** — the production compose recipe interpolates
+   `${HOSTNAME}` into the path so each container writes to its own file:
+
+   ```yaml
+   environment:
+     RELAY_TASK_TRACE_PATH: "/var/log/gg-relay/${HOSTNAME}-task-trace.jsonl"
+   ```
+
+   Aggregate with a log shipper (Vector / Fluent Bit / Promtail) that
+   handles per-source ordering. Do NOT tail-merge the files into a
+   single sink that downstream JSONL parsers will read line-by-line —
+   the records are timestamped, but the per-replica ordering is only
+   monotonic *within* a file.
+
+3. **Single-writer cluster** — pin task-trace duties to one replica via
+   a leader-election sidecar (etcd / Kubernetes lease). Leaves the
+   other replicas with `RELAY_TASK_TRACE_PATH=none`. Best when you want
+   a single chronological file but already run a leader-aware control
+   plane.
+
+### Schema
+
+```json
+{
+  "schemaVersion": "gg.task-trace.v1",
+  "eventType": "session.completed",
+  "traceId": "<session_id>",
+  "timestamp": "2026-05-22T11:01:23.456+00:00",
+  "source": "gg-relay",
+  "status": "completed",
+  "tokens": {"in": 1342, "out": 88},
+  "cost_usd": 0.0125
+}
+```
+
+The full event-type catalogue (`session.created`, `session.state.<X>`,
+`session.completed`, `hitl.{requested,resolved}`,
+`tool.{requested,resolved}`, `error`) is documented inline in
+`src/gg_relay/tracing/task_trace.py::TaskTraceSubscriber.render`.

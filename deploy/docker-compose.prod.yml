@@ -1,0 +1,69 @@
+# Production compose (Plan 5 D5.6=A).
+#
+# IMPORTANT: This file does NOT mount the host Docker socket. In
+# production we treat the daemon as a sysadmin-managed resource. There
+# are three supported topologies:
+#
+#  1. Co-located: the service container talks to the host docker daemon
+#     via a per-session rootless docker-in-docker, set up out-of-band by
+#     the sysadmin (e.g. via systemd) and exposed to the container as a
+#     unix-socket file under ``/var/run/gg-relay``. This is the default
+#     deployment recipe in docs/deployment.md.
+#  2. Split: gg-relay-service runs on host A; runners are spawned on
+#     host B via the docker remote API over TLS (set ``DOCKER_HOST=tcp://
+#     dockerd-b.internal:2376`` + TLS env vars).
+#  3. Kubernetes: see deploy/k8s/ (Plan 6+).
+#
+# In every topology the production posture is the same:
+#   - the container runs unprivileged
+#   - no /var/run/docker.sock bind mount
+#   - the dashboard, metrics, and SSE endpoints are reverse-proxied
+#     (TLS termination + auth handled by the reverse proxy)
+#
+# See docs/security.md → "Docker socket exposure" for the threat model.
+
+services:
+  gg-relay:
+    image: ghcr.io/gg-org/gg-relay-service:${GG_RELAY_VERSION:-0.5.0}
+    container_name: gg-relay
+    restart: unless-stopped
+    env_file:
+      - /etc/gg-relay/relay.env
+    environment:
+      RELAY_DATABASE_URL: "${RELAY_DATABASE_URL:?database_url required in prod}"
+      RELAY_INSTALL_DIR_ROOT: "/var/lib/gg-relay/installs"
+      RELAY_DOCKER_SOCKET_ROOT: "/var/run/gg-relay"
+      # Production task-trace path MUST be host-unique (the JSONL writer
+      # is per-process; concurrent appends from multiple service replicas
+      # to the same file interleave lines). Default below interpolates
+      # the hostname; set RELAY_TASK_TRACE_PATH=none to disable entirely.
+      RELAY_TASK_TRACE_PATH: "/var/log/gg-relay/${HOSTNAME:-svc}-task-trace.jsonl"
+    expose:
+      - "8000"
+    volumes:
+      # Per-session socket directory — provisioned by the host sysadmin.
+      # The runner containers (managed out-of-band) mount the SAME
+      # directory so wire frames can flow between them and the service.
+      - /var/run/gg-relay:/var/run/gg-relay:rw
+      - /var/lib/gg-relay/installs:/var/lib/gg-relay/installs:rw
+      - /var/log/gg-relay:/var/log/gg-relay:rw
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    # No ports — production deployments put a reverse proxy (Nginx /
+    # Traefik / Caddy) in front of the service for TLS + auth.
+    networks:
+      - gg-relay
+    # ── deliberately omitted ──
+    # - /var/run/docker.sock bind mount
+    # - privileged: true
+    # - cap_add: [...]
+    # Production reaches dockerd via DOCKER_HOST (out-of-band TLS or
+    # per-session rootless docker), never via a bind-mounted socket.
+
+networks:
+  gg-relay:
+    driver: bridge

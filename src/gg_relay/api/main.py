@@ -23,7 +23,13 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from gg_relay.api.middleware.api_key_auth import APIKeyAuthMiddleware
 from gg_relay.api.middleware.logging import StructuredLoggingMiddleware
-from gg_relay.api.routers import health_router, hitl_router, sessions_router
+from gg_relay.api.routers import (
+    events_router,
+    health_router,
+    hitl_router,
+    metrics_router,
+    sessions_router,
+)
 from gg_relay.config import Config
 from gg_relay.core import EventBus
 from gg_relay.dashboard import STATIC_DIR as DASHBOARD_STATIC_DIR
@@ -40,6 +46,9 @@ from gg_relay.session.plugins.protocol import PluginAssembler
 from gg_relay.session.recovery import recover_on_startup
 from gg_relay.session.runner.bridge import WireBridge  # noqa: F401  (re-export for plugins)
 from gg_relay.store import SessionRepository, make_async_engine
+from gg_relay.tracing.metrics import BUS_DROPS, BUS_DURABLE_DROPS
+from gg_relay.tracing.metrics_subscriber import MetricsSubscriber
+from gg_relay.tracing.task_trace import TaskTraceSubscriber
 
 logger = logging.getLogger("gg_relay.api")
 
@@ -118,7 +127,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     engine = make_async_engine(cfg.database_url)
     store = SessionRepository(engine)
-    bus = EventBus()
+    bus = EventBus(
+        on_drop=lambda _topic: BUS_DROPS.inc(),
+        on_durable_drop=lambda _topic: BUS_DURABLE_DROPS.inc(),
+    )
     coordinator = HITLCoordinator()
     redactor = RedactionEngine(
         sensitive_keys=(
@@ -179,6 +191,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     bg_tasks: list[asyncio.Task[Any]] = getattr(app.state, "bg_tasks", [])
     if otel_subscriber is not None:
         bg_tasks.append(asyncio.create_task(otel_subscriber.run(), name="otel"))
+    task_trace = TaskTraceSubscriber(path=cfg.task_trace_path_resolved)
+    app.state.task_trace = task_trace
+    if not task_trace.disabled:
+        bg_tasks.append(
+            asyncio.create_task(task_trace.consume(bus), name="task-trace")
+        )
+    metrics_subscriber = MetricsSubscriber()
+    app.state.metrics_subscriber = metrics_subscriber
+    bg_tasks.append(
+        asyncio.create_task(metrics_subscriber.run(bus), name="metrics")
+    )
     app.state.bg_tasks = bg_tasks
     try:
         yield
@@ -223,8 +246,10 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.add_middleware(StructuredLoggingMiddleware)
     # Routers.
     app.include_router(sessions_router, prefix="/api/v1")
+    app.include_router(events_router, prefix="/api/v1")
     app.include_router(hitl_router, prefix="/api/v1")
     app.include_router(health_router)
+    app.include_router(metrics_router)
     app.include_router(dashboard_router)
     app.include_router(feishu_router)
     app.mount(

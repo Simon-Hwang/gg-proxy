@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1.7
+#
+# gg-relay-service — the long-lived FastAPI/uvicorn process (D5.13).
+#
+# This image is **not** the per-session runner. It contains:
+#   - Python 3.12 + the gg-relay wheel (installed from /opt/gg-relay)
+#   - aiodocker + the matching ``docker`` CLI (copied from docker:24.0-cli)
+#   - tini as PID 1 for clean signal handling
+#
+# It **deliberately does not** ship Node, the Claude CLI, or gg-plugins.
+# Per-session runtime lives in ``gg-relay-runner`` (see images/gg-relay-runner/);
+# the service image only needs enough to talk to the Docker socket and serve
+# the REST/SSE/metrics surface.
+#
+# See deploy/docker/README.md for the runner/service relationship.
+
+# ---- Stage 1: docker CLI ---------------------------------------------------
+FROM docker:24.0-cli AS docker-cli
+
+# ---- Stage 2: runtime ------------------------------------------------------
+FROM python:3.12-slim AS runtime
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        tini ca-certificates curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# Pull the Docker CLI binary (matched to the daemon installed on the host).
+COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
+
+# Install gg-relay (no Node / claude-cli / gg-plugins — those belong to the
+# runner image so the service can stay small).
+COPY pyproject.toml /opt/gg-relay/
+COPY src/ /opt/gg-relay/src/
+WORKDIR /opt/gg-relay
+RUN pip install --no-cache-dir ".[postgres,otel-http]"
+
+# Run as non-root so the socket mount (group ``docker``) is still reachable
+# via the ``--group-add`` flag on the host compose file.
+RUN useradd --create-home --uid 1000 --shell /bin/bash --groups staff ggrelay \
+ && chown -R ggrelay:ggrelay /opt/gg-relay
+USER ggrelay
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
+    CMD curl -fsS http://localhost:8000/healthz >/dev/null || exit 1
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["uvicorn", "gg_relay.api.main:create_app", "--factory", \
+     "--host", "0.0.0.0", "--port", "8000"]

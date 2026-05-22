@@ -1,0 +1,77 @@
+# Development compose (Plan 5 D5.6=A).
+#
+# DEV ONLY: this file mounts the host Docker socket into the service
+# container so DockerExecutor can spawn per-session runner containers.
+# That is a high-trust posture (see docs/security.md → "Docker socket
+# exposure"). Production deployments MUST use
+# docker-compose.prod.yml, which leaves socket management to the host
+# sysadmin and does NOT bind-mount the socket.
+#
+# Usage:
+#     docker compose -f deploy/docker-compose.dev.yml up --build
+#
+# Optional: expose Postgres / OTel collector by uncommenting their blocks
+# below.
+
+services:
+  gg-relay:
+    build:
+      context: ..
+      dockerfile: deploy/docker/Dockerfile.service
+    image: gg-relay-service:dev
+    container_name: gg-relay
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      RELAY_DATABASE_URL: "sqlite+aiosqlite:///./data/relay.db"
+      RELAY_INSTALL_DIR_ROOT: "/var/lib/gg-relay/installs"
+      RELAY_DOCKER_SOCKET_ROOT: "/var/run/gg-relay"
+      RELAY_TASK_TRACE_PATH: "/var/log/gg-relay/gg-task-trace.jsonl"
+    ports:
+      - "8000:8000"
+    volumes:
+      # DEV ONLY: mounting the host docker socket grants the container
+      # root-equivalent control of the daemon. NEVER do this in prod —
+      # see docs/security.md.
+      - /var/run/docker.sock:/var/run/docker.sock:rw
+      - gg-relay-data:/opt/gg-relay/data
+      - gg-relay-installs:/var/lib/gg-relay/installs
+      - gg-relay-logs:/var/log/gg-relay
+      - gg-relay-sockets:/var/run/gg-relay
+    # Allow the non-root ``ggrelay`` user to talk to the host docker
+    # socket without weakening permissions on the socket itself.
+    group_add:
+      - "${DOCKER_GID:-999}"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # Uncomment for Postgres in dev:
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: gg
+  #     POSTGRES_PASSWORD: gg
+  #     POSTGRES_DB: gg_relay
+  #   ports: ["5432:5432"]
+  #   volumes:
+  #     - gg-relay-postgres:/var/lib/postgresql/data
+
+  # Uncomment for OTel collector in dev (see deploy/docker/otel-collector.yml):
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib:0.97.0
+  #   command: ["--config=/etc/otelcol/config.yml"]
+  #   ports: ["4317:4317", "4318:4318"]
+  #   volumes:
+  #     - ./otel-collector.yml:/etc/otelcol/config.yml:ro
+
+volumes:
+  gg-relay-data:
+  gg-relay-installs:
+  gg-relay-logs:
+  gg-relay-sockets:
+  # gg-relay-postgres:

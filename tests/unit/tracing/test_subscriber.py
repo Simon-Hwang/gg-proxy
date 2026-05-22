@@ -1,7 +1,11 @@
 """Unit tests for :class:`OtelSubscriber` and :func:`setup_tracer`.
 
-Uses :class:`InMemorySpanExporter` so spans can be asserted on directly
-without external OTel collectors.
+Plan 5 D5.2=A3 migration: publishes typed events (SessionStateChanged,
+ToolRequested, ToolResolved, InstallError) instead of the legacy dict
+"session_state" / "frame" topics; the str-topic forward-compat path is
+exercised by ``test_error_frame_legacy_path`` below.
+
+Uses :class:`InMemorySpanExporter` so spans can be asserted directly.
 """
 from __future__ import annotations
 
@@ -14,7 +18,13 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
     InMemorySpanExporter,
 )
 
-from gg_relay.core import EventBus
+from gg_relay.core import (
+    EventBus,
+    InstallError,
+    SessionStateChanged,
+    ToolRequested,
+    ToolResolved,
+)
 from gg_relay.tracing.setup import setup_tracer
 from gg_relay.tracing.subscriber import OtelSubscriber
 
@@ -59,12 +69,17 @@ class TestSubscriberSpans:
     async def test_session_start_then_end_emits_session_span(self, harness):
         bus, _sub, exporter = harness
         await bus.publish(
-            "session_state", {"session_id": "s1", "status": "running"}
+            SessionStateChanged(
+                session_id="s1", from_state="queued", to_state="running"
+            )
         )
         await asyncio.sleep(0.05)
         await bus.publish(
-            "session_state",
-            {"session_id": "s1", "status": "completed", "reason": None},
+            SessionStateChanged(
+                session_id="s1",
+                from_state="running",
+                to_state="completed",
+            )
         )
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())
@@ -77,31 +92,35 @@ class TestSubscriberSpans:
     async def test_tool_request_creates_child_span_under_session(self, harness):
         bus, _sub, exporter = harness
         await bus.publish(
-            "session_state", {"session_id": "s2", "status": "running"}
+            SessionStateChanged(
+                session_id="s2", from_state="queued", to_state="running"
+            )
         )
         await asyncio.sleep(0.05)
         await bus.publish(
-            "frame",
-            {
-                "session_id": "s2",
-                "type": "tool.request",
-                "req_id": "s2:r0",
-                "tool": "WriteFile",
-            },
+            ToolRequested(
+                session_id="s2",
+                seq=1,
+                req_id="s2:r0",
+                tool="WriteFile",
+                args_redacted={"path": "/tmp/x"},
+            )
         )
         await asyncio.sleep(0.05)
         await bus.publish(
-            "frame",
-            {
-                "session_id": "s2",
-                "type": "tool.result",
-                "req_id": "s2:r0",
-                "status": "ok",
-            },
+            ToolResolved(
+                session_id="s2",
+                seq=2,
+                req_id="s2:r0",
+                ok=True,
+                result_redacted={"bytes": 4},
+            )
         )
         await asyncio.sleep(0.05)
         await bus.publish(
-            "session_state", {"session_id": "s2", "status": "completed"}
+            SessionStateChanged(
+                session_id="s2", from_state="running", to_state="completed"
+            )
         )
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())
@@ -110,34 +129,29 @@ class TestSubscriberSpans:
         assert "tool:WriteFile" in names
         sess = next(s for s in spans if s.name == "session:s2")
         tool = next(s for s in spans if s.name == "tool:WriteFile")
-        # Child span shares the parent's trace id and points to it.
         assert tool.parent is not None
         assert tool.parent.trace_id == sess.context.trace_id
         assert tool.parent.span_id == sess.context.span_id
 
-    async def test_error_frame_adds_event_to_session_span(self, harness):
+    async def test_install_error_event_lands_on_session_span(self, harness):
         bus, _sub, exporter = harness
         await bus.publish(
-            "session_state", {"session_id": "s3", "status": "running"}
-        )
-        # Wait for the state subscriber to register the parent span before
-        # the frame subscriber processes the error frame; they're
-        # independent asyncio tasks with no ordering guarantee between
-        # topics.
-        await asyncio.sleep(0.05)
-        await bus.publish(
-            "frame",
-            {
-                "session_id": "s3",
-                "type": "error",
-                "code": "boom",
-                "message": "oops",
-            },
+            SessionStateChanged(
+                session_id="s3", from_state="queued", to_state="running"
+            )
         )
         await asyncio.sleep(0.05)
         await bus.publish(
-            "session_state",
-            {"session_id": "s3", "status": "failed", "reason": "boom"},
+            InstallError(session_id="s3", code="boom", message="oops")
+        )
+        await asyncio.sleep(0.05)
+        await bus.publish(
+            SessionStateChanged(
+                session_id="s3",
+                from_state="running",
+                to_state="failed",
+                reason="boom",
+            )
         )
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())
@@ -145,17 +159,58 @@ class TestSubscriberSpans:
         ev_names = [e.name for e in sess.events]
         assert "error" in ev_names
 
+    async def test_error_frame_legacy_path(self, harness):
+        """Forward-compat: unknown wire frames still arrive via str topic."""
+        bus, _sub, exporter = harness
+        await bus.publish(
+            SessionStateChanged(
+                session_id="s3legacy",
+                from_state="queued",
+                to_state="running",
+            )
+        )
+        await asyncio.sleep(0.05)
+        # legacy 2-arg form
+        await bus.publish(
+            "frame",
+            {
+                "session_id": "s3legacy",
+                "type": "error",
+                "code": "legacy",
+                "message": "legacy-msg",
+            },
+        )
+        await asyncio.sleep(0.05)
+        await bus.publish(
+            SessionStateChanged(
+                session_id="s3legacy",
+                from_state="running",
+                to_state="failed",
+                reason="legacy",
+            )
+        )
+        await asyncio.sleep(0.05)
+        spans = list(exporter.get_finished_spans())
+        sess = next(s for s in spans if s.name == "session:s3legacy")
+        ev_names = [e.name for e in sess.events]
+        assert "error" in ev_names
+
     async def test_subscriber_idempotent_running_event(self, harness):
         bus, _sub, exporter = harness
         await bus.publish(
-            "session_state", {"session_id": "s4", "status": "running"}
-        )
-        # second running for the same session is a no-op (no extra span)
-        await bus.publish(
-            "session_state", {"session_id": "s4", "status": "running"}
+            SessionStateChanged(
+                session_id="s4", from_state="queued", to_state="running"
+            )
         )
         await bus.publish(
-            "session_state", {"session_id": "s4", "status": "completed"}
+            SessionStateChanged(
+                session_id="s4", from_state="running", to_state="running"
+            )
+        )
+        await bus.publish(
+            SessionStateChanged(
+                session_id="s4", from_state="running", to_state="completed"
+            )
         )
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())

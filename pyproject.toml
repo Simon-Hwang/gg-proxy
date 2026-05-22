@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gg-relay"
-version = "0.1.0"
+version = "0.5.0"
 description = "Python middleware/relay service over Claude Code SDK — tracing, IM integration, and visual dashboard"
 requires-python = ">=3.11"
 license = "MIT"
@@ -27,11 +27,14 @@ dependencies = [
     "sse-starlette>=2.0",
     "aiodocker>=0.21,<1.0",
     "aiohttp>=3.9",
+    "prometheus-client>=0.20",
 ]
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
-redis = ["redis>=5.0"]
+# NOTE: ``redis`` extra was removed in Plan 5 (D5.15) — gg-relay does not
+# use Redis anywhere in the codebase. Add it back here ONLY if a future
+# plan introduces a real Redis dependency.
 otel-http = ["opentelemetry-exporter-otlp-proto-http>=1.24"]
 feishu = []  # FeishuBackend uses only httpx (already a core dep); kept
             # as an empty extra so deployment recipes can pin a future
@@ -44,7 +47,7 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.4",
 ]
-all = ["gg-relay[postgres,redis,otel-http,feishu,dev]"]
+all = ["gg-relay[postgres,otel-http,feishu,dev]"]
 
 [project.scripts]
 gg-relay = "gg_relay.cli:app"

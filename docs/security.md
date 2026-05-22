@@ -86,7 +86,81 @@ to label the socket for the container's context.
   `gg_relay.tool` as attributes — sufficient to pivot a Grafana / Tempo
   trace to a `frames` row.
 
-## 7. Crash recovery posture
+## 7. Docker socket exposure (Plan 5 D5.12)
+
+The `DockerExecutor` (Plan 3+) needs to talk to a Docker daemon to spawn
+per-session runner containers. **How that daemon is exposed to the
+gg-relay service container is the single highest-impact security
+decision in your deployment**, because the Docker API is a root-
+equivalent control plane.
+
+### Threat model
+
+A process with read/write access to `/var/run/docker.sock` (or a TCP
+endpoint with the equivalent privileges) can:
+
+* run an arbitrary image bind-mounted to `/host`, granting full root
+  filesystem access to the host;
+* read or modify any container the daemon manages, including peers
+  running with secrets in their environment;
+* exfiltrate Docker secrets, certificates, and the daemon's TLS keys.
+
+Treat any container that holds the socket as **functionally privileged**,
+regardless of whether it sets `privileged: true`.
+
+### What gg-relay does
+
+| Posture                                                            | Where        |
+| ------------------------------------------------------------------ | ------------ |
+| Bind-mounts `/var/run/docker.sock` into the service container      | `docker-compose.dev.yml` — **dev only** |
+| Runs as non-root (`ggrelay` uid 1000), gains daemon access via `group_add: docker` | both dev & prod images |
+| **Does not** bind-mount the socket in production                    | `docker-compose.prod.yml` (D5.6=A) |
+| Production uses sysadmin-controlled per-session rootless docker exposed on `/var/run/gg-relay` | see `docs/deployment.md` |
+| Loads images only by digest in production (CI publishes `@sha256:…`) | `RELAY_DOCKER_IMAGE` |
+
+### Recommended production deployment
+
+1. **Run dockerd rootless** under a dedicated `dockerd-ggrelay` user.
+   The systemd unit listens on a Unix socket under `/var/run/gg-relay/`
+   with mode `0660` and group `gg-relay`.
+2. **Mount only that directory** into the service container; never
+   `/var/run/docker.sock` itself.
+3. **Pin runner images by digest.** A digest-pinned `RELAY_DOCKER_IMAGE`
+   lets you trust a CI-built tag even if the registry is later
+   compromised.
+4. **Restrict outbound network from the runner image.** The
+   MinimalProxy already enforces an allow-list; runners run with
+   `--network=gg-relay-egress` so direct internet egress fails closed.
+5. **Audit the proxy log.** `RELAY_PROXY_AUDIT_LOG` records every
+   resolved hostname and verdict; ship to your SIEM and alert on `deny`
+   spikes.
+
+### What you must NOT do in production
+
+* `privileged: true` on the service container.
+* Bind-mount `/var/run/docker.sock` read-only thinking that helps. Read-
+  only access to the socket still permits container creation; the
+  daemon's API is the wrong granularity for filesystem ACLs.
+* Expose dockerd on TCP without mutual TLS. Docker over TCP without
+  TLS is unauthenticated; a single port-forward turns the host into a
+  rootkit dropbox.
+* Run the service container as root with the socket mounted. Even
+  inside a sandbox, that grants ring-0 equivalence to anyone who can
+  reach the FastAPI port.
+
+### Incident response
+
+If you suspect socket exposure has been abused:
+
+1. Stop the service container; preserve the runner containers for
+   forensics (`docker ps -a`, `docker logs`).
+2. Rotate every secret in `RELAY_FEISHU_*`, the dashboard cookie key,
+   and any API key set issued during the window.
+3. Audit `RELAY_PROXY_AUDIT_LOG` for unusual destinations.
+4. Inspect `frames` table for rows whose `cwd` or tool names look out-
+   of-policy.
+
+## 8. Crash recovery posture
 
 `recover_on_startup` is intentionally conservative (D4.6): any session
 left in `running` when the process restarts is marked `interrupted`

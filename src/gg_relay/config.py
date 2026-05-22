@@ -104,6 +104,23 @@ class Config(BaseSettings):
     dashboard_admin_password: SecretStr | None = None
     dashboard_session_secret: SecretStr | None = None
 
+    # ── integrations ───────────────────────────────────────────────────
+    task_trace_path: Path | None = Path("~/.claude/metrics/gg-task-trace.jsonl")
+    """Where the :class:`TaskTraceSubscriber` writes ``gg.task-trace.v1``
+    JSONL records (D5.7=A + D5.16). ``None`` disables the writer entirely.
+
+    The default value targets the gg-plugins integration path; production
+    deployments running multiple gg-relay instances on the same host
+    MUST set a host-unique path (or ``None``) per the deployment guide,
+    otherwise concurrent line writes will interleave."""
+
+    @property
+    def task_trace_path_resolved(self) -> Path | None:
+        """Expand ``~`` in :attr:`task_trace_path` so callers don't have to."""
+        if self.task_trace_path is None:
+            return None
+        return Path(self.task_trace_path).expanduser()
+
 
 REQUIRED_FOR_PROD: tuple[str, ...] = (
     "api_keys",

@@ -31,10 +31,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
-from gg_relay.core import EventBus, SessionState, SessionSummary
+from gg_relay.core import (
+    EventBus,
+    InstallError,
+    SessionCreated,
+    SessionState,
+    SessionStateChanged,
+    SessionSummary,
+    frame_to_event,
+)
 from gg_relay.redaction import RedactionEngine
 from gg_relay.session.executor.protocol import ExecutorBackend
-from gg_relay.session.frames import make_error
 from gg_relay.session.hitl.coordinator import HITLCoordinator
 from gg_relay.session.hitl.policy import ToolPolicy
 from gg_relay.session.plugins.protocol import (
@@ -185,6 +192,13 @@ class SessionManager:
             backend=spec.executor,
             tags=tuple(spec.tags),
         )
+        await self._bus.publish(
+            SessionCreated(
+                session_id=sid,
+                prompt_redacted=str(spec_redacted.get("prompt", ""))[:512],
+                tags=tuple(spec.tags),
+            )
+        )
         self._metrics[sid] = _RunMetrics()
         task = asyncio.create_task(
             self._run(sid, spec, runtime_ctx), name=f"session-{sid}"
@@ -318,8 +332,11 @@ class SessionManager:
                     sid, status=SessionState.RUNNING.value, started_at=_utcnow()
                 )
                 await self._bus.publish(
-                    "session_state",
-                    {"session_id": sid, "status": SessionState.RUNNING.value},
+                    SessionStateChanged(
+                        session_id=sid,
+                        from_state=SessionState.QUEUED.value,
+                        to_state=SessionState.RUNNING.value,
+                    )
                 )
                 install_report = await self._prepare_plugins(sid, spec)
                 handle = await self._start_executor(sid, spec, runtime_ctx, policy)
@@ -349,22 +366,22 @@ class SessionManager:
             end_status = "failed"
             end_reason = f"install:{exc.code}"
             await self._bus.publish(
-                "frame",
-                {
-                    "session_id": sid,
-                    **make_error(0, "install_failed", str(exc)[:128]),
-                },
+                InstallError(
+                    session_id=sid,
+                    code="install_failed",
+                    message=str(exc)[:128],
+                )
             )
         except Exception as exc:  # pragma: no cover - defensive
             end_status = "failed"
             end_reason = f"{type(exc).__name__}:{str(exc)[:96]}"
             logger.exception("session %s failed", sid)
             await self._bus.publish(
-                "frame",
-                {
-                    "session_id": sid,
-                    **make_error(0, type(exc).__name__, str(exc)),
-                },
+                InstallError(
+                    session_id=sid,
+                    code=type(exc).__name__,
+                    message=str(exc)[:512],
+                )
             )
         finally:
             await self._store.update_session_status(
@@ -374,8 +391,12 @@ class SessionManager:
                 end_reason=end_reason,
             )
             await self._bus.publish(
-                "session_state",
-                {"session_id": sid, "status": end_status, "reason": end_reason},
+                SessionStateChanged(
+                    session_id=sid,
+                    from_state=SessionState.RUNNING.value,
+                    to_state=end_status,
+                    reason=end_reason,
+                )
             )
 
     def _effective_policy(self, spec: SessionSpec) -> ToolPolicy:
@@ -457,7 +478,14 @@ class SessionManager:
             await self._persist_frame(sid, f)
 
     async def _persist_frame(self, sid: str, frame: Mapping[str, Any]) -> None:
-        """Redact, persist, publish — the per-frame pipeline."""
+        """Redact, persist, publish — the per-frame pipeline.
+
+        The typed-event publish (Plan 5 D5.2=A3) replaces the legacy
+        ``bus.publish("frame", dict)`` fan-out. Frames whose type has no
+        registered factory in ``_FRAME_TO_EVENT`` fall back to a legacy
+        string-topic publish so future wire-protocol additions don't
+        silently disappear from subscribers that still match on ``"frame"``.
+        """
         redacted = self._redactor.redact_frame(frame)
         ts_str = redacted.get("ts")
         ts = _utcnow()
@@ -485,7 +513,14 @@ class SessionManager:
             metrics = self._metrics.get(sid)
             if metrics is not None:
                 metrics.frames_dropped += 1
-        await self._bus.publish("frame", {"session_id": sid, **redacted})
+        typed = frame_to_event(sid, dict(redacted))
+        if typed is not None:
+            await self._bus.publish(typed)
+        else:
+            # Forward-compat: unknown wire frame types still reach legacy
+            # str-topic subscribers (Plan 4 OTel subscriber etc.) until
+            # they fully migrate. Plan 6+ removes this fallback.
+            await self._bus.publish("frame", {"session_id": sid, **redacted})
 
 
 class _PluginInstallSummary(Exception):
