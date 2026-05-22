@@ -1,0 +1,22 @@
+docs/deployment.md
+  s_65c41fbea581d9::t_bc671ff3e3d39f 44
+  s_65c41fbea581d9::t_1393b9cb627e67 143-207
+docs/security.md
+  s_65c41fbea581d9::t_9bfaa2aacefc66 89-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "13e21aa6f4171bf34ec7a9b9d8bd8f13c9d55035",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
