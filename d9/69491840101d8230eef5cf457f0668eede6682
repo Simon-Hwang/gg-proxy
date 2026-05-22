@@ -1,0 +1,23 @@
+src/gg_relay/session/transport/inmemory.py
+  s_a2c6f58729c1b8::t_98b4a87713227e 1-30,32-74
+  s_a2c6f58729c1b8::t_5035b3f9069d50 31
+tests/unit/session/test_transport_inmemory.py
+  s_a2c6f58729c1b8::t_01abd4a5e30afe 23-24
+  s_a2c6f58729c1b8::t_9059e58f854851 1-22,25-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "d969491840101d8230eef5cf457f0668eede6682",
+  "prompts": {},
+  "sessions": {
+    "s_a2c6f58729c1b8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b95d714b-ebea-49e9-8924-4bf8ba10713b",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
