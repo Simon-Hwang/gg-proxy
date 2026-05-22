@@ -1,0 +1,23 @@
+docs/sdk-spike-report.md
+  s_a4f64b7e9d73b1::t_68965f5b03ae94 1-82
+.gitignore
+  s_a4f64b7e9d73b1::t_be633a6bdcd177 1-26
+scripts/spike_sdk_interrupt.py
+  s_a4f64b7e9d73b1::t_8c35b601936092 1-324
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "0fb28978fca43945f13b65a61cb2b470ee4e77fd",
+  "prompts": {},
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
