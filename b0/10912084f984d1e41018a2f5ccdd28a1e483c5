@@ -1,0 +1,21 @@
+.env.example
+  s_2bfb0ff47226e2::t_a892ade0f06207 123-128
+src/gg_relay/config.py
+  s_2bfb0ff47226e2::t_686a4f6d91b039 150-163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "b010912084f984d1e41018a2f5ccdd28a1e483c5",
+  "prompts": {},
+  "sessions": {
+    "s_2bfb0ff47226e2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a5df84e2-8efc-4d7d-b341-f46efd3765e0",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
