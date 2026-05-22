@@ -1,0 +1,31 @@
+docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md
+  s_45239a4d5cd400::t_4f11cfb5094541 731,736-740,754-755,772,781-783,823
+src/gg_relay/session/hitl/policy.py
+  s_45239a4d5cd400::t_76f9e84471b668 1-5,7-10,16-28,30-46,48-55,59-89
+  s_45239a4d5cd400::t_5c9831afebdaf0 6,11-15,29,47,56-58
+tests/unit/session/test_policy.py
+  s_45239a4d5cd400::t_fec481619b4842 1-68
+src/gg_relay/session/hitl/__init__.py
+  s_45239a4d5cd400::t_cc9559edb9c7b3 1-4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "9430c8cddf272dfc0765699181fe879f0d9bd39d",
+  "prompts": {},
+  "humans": {
+    "h_2781cf4fccc75f": {
+      "author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  },
+  "sessions": {
+    "s_45239a4d5cd400": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "dfacdfed-bb69-41d5-bc56-de2a545d0756",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
