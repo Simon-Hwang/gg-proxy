@@ -1,0 +1,25 @@
+.gitignore
+  s_a4f64b7e9d73b1::t_257549f6f65c10 28-29
+  h_2781cf4fccc75f 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "24a192c7f5e7246062bab284bc3e16fa9644600e",
+  "prompts": {},
+  "humans": {
+    "h_2781cf4fccc75f": {
+      "author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  },
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
