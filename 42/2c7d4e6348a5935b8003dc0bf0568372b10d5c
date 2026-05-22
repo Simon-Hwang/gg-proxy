@@ -1,0 +1,38 @@
+src/gg_relay/session/runner/proxy_client.py
+  s_bcc9af754accd4::t_df1dca1d9d8e06 27
+  s_bcc9af754accd4::t_db089d313e5bcd 24
+  s_bcc9af754accd4::t_e3460644fceca7 49
+  s_bcc9af754accd4::t_f6888e577491e4 107-116
+tests/unit/session/test_wire_bridge.py
+  s_bcc9af754accd4::t_f540193410cf58 69
+  s_bcc9af754accd4::t_bcfd92c64152bc 210
+  s_bcc9af754accd4::t_dcd23f8143ee0b 224
+  s_bcc9af754accd4::t_b9d5310b5ee176 139,150,162
+  s_bcc9af754accd4::t_f60714882c8f62 91-94,96-98,101-105,107,113
+  s_bcc9af754accd4::t_e217f7c3f4fd2f 14,24-29
+  s_bcc9af754accd4::t_4d54be4cc714c4 248,251,255-256,266-387
+  s_bcc9af754accd4::t_fcb7e9b3eccf42 190
+src/gg_relay/session/runner/bridge.py
+  s_bcc9af754accd4::t_c44cd913010481 29,32-37
+  s_bcc9af754accd4::t_d1b6dbcd203c07 62-64,73-82
+  s_bcc9af754accd4::t_8ff0a520c7b531 107-113,116-121,135-138,144-148
+  s_bcc9af754accd4::t_68175ecf0fbbb3 170-221
+docs/superpowers/plans/2026-05-22-plan-3-docker-backend-and-wire-transport.md
+  s_bcc9af754accd4::t_fad8b466ee15ad 921
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "422c7d4e6348a5935b8003dc0bf0568372b10d5c",
+  "prompts": {},
+  "sessions": {
+    "s_bcc9af754accd4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbaf1feb-32ab-447d-99c8-c669aebdf483",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
