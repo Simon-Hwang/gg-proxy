@@ -1,0 +1,143 @@
+src/gg_relay/session/manager.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 44,53,68-80,83-87,91-98,102-105,139-165,188-191,211-222,243,250-254,276,343,347-350,352-354,362-482,484-502,507-511,528-531,545-551,558,560-569,571-576,578-585,618-626,633-646,680-700,702-709,722,736-811,872-877,887-904,927-930,940-941,945
+tests/unit/session/test_max_paused.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-281
+tests/unit/im/test_im_subscriber.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-328
+src/gg_relay/session/runner/bridge.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 32,35,37,51-57,75,94-97,154-161,246-314
+docs/deployment.md
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 208-281
+pyproject.toml
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 7
+src/gg_relay/session/runner/inprocess_control.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-60
+src/gg_relay/dashboard/templates/_kanban_board.html
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-34
+src/gg_relay/store/migrations/versions/0002_add_session_aggregates.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-85
+tests/unit/im/test_feishu_backend.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 16,139-220
+tests/unit/session/test_manager.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 91,97,99
+examples/end_to_end_demo.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 76,78
+src/gg_relay/session/__init__.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 14-15,19-20,47,49,55-56
+src/gg_relay/dashboard/templates/session_detail.html
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 9,17-33
+tests/unit/core/test_states.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-107
+src/gg_relay/session/runner/proxy_client.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 16-21,33-34,50-55,63-64,73-102,160-178,188
+tests/unit/session/test_runner_control_loop.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-389
+README.md
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 20-21,25-27,110-131,138-140
+src/gg_relay/core/__init__.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 2-8,29,49
+tests/integration/test_dashboard_kanban.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-343
+CHANGELOG.md
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 13-114,273-274
+src/gg_relay/__init__.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 3
+tests/unit/im/test_card_builder.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-207
+tests/unit/im/test_feishu_card_builder.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-116
+src/gg_relay/api/routers/sessions.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 11,15,17,21-22,30-31,35-36,38,94-96,104,185-289
+src/gg_relay/session/transport/protocol.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 5,7-13,77-97,107-108,133-163
+tests/integration/test_dashboard.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 40,42
+src/gg_relay/session/executor/inprocess.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 6-11,20,22,37-46,48-53,56-60,90-94,100
+src/gg_relay/config.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 78-100,130-162
+tests/integration/test_end_to_end.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 68,70
+src/gg_relay/im/__init__.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 2,6,8-17
+.env.example
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 67-69,73-85,116-128
+src/gg_relay/dashboard/templates/span_tree.html
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-51
+tests/integration/test_api_pause_resume.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-378
+src/gg_relay/api/main.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 37-38,40,97-98,109-112,114,186,188-191,216-236,243-247
+src/gg_relay/dashboard/templates/kanban.html
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-64
+src/gg_relay/im/backends/feishu.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-3,5-11,23-29,31,34-35,37-39,43-53,55,58,65-66,81-82,94-95,103-275,286,288,301,325-358
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1030-1296
+scripts/spike_sdk_long_pause.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-483
+src/gg_relay/session/client.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 55-60,208-209,306,311-324,409,422,433-437,449-450,471-474,486-487
+deploy/nginx/jaeger-proxy.conf
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-98
+tests/unit/session/test_pause_resume.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-538
+tests/integration/test_session_aggregates_migration.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-205
+deploy/docker-compose.prod.yml
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 27,67-116
+src/gg_relay/dashboard/templates/_kanban_card.html
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-23
+src/gg_relay/api/deps.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 27-37,41
+tests/integration/test_dashboard_chart.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-213
+src/gg_relay/im/card.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-137
+src/gg_relay/dashboard/router.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 13-19,23-25,27-28,32-33,38,41,146-493
+docs/sdk-interrupt-resume-spike.md
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 133-195
+src/gg_relay/store/schema.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 21,54-91,95
+tests/integration/test_sse_events.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 59,61
+src/gg_relay/api/schemas.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 104-124
+docs/im-backends.md
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-199
+src/gg_relay/core/domain.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 18-22,24-28,33,50-90
+src/gg_relay/session/frames.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 21-22,25-26,155-196
+src/gg_relay/session/control.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-307
+src/gg_relay/im/protocol.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 3-17,23-24,28-34,38-50
+src/gg_relay/im/subscriber.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-229
+src/gg_relay/dashboard/templates/session_chart.html
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 1-56
+tests/integration/test_api_sessions.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 39,41
+src/gg_relay/store/repository.py
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 17,136-273
+src/gg_relay/dashboard/static/app.css
+  s_a4f64b7e9d73b1::t_4a7ca021adedf7 46-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "4d653be2b7c607f1eb5376d7fb5069a36e2ab9d8",
+  "prompts": {},
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
