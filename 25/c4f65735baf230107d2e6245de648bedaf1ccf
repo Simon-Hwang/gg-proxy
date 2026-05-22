@@ -1,0 +1,33 @@
+src/gg_relay/session/executor/inprocess.py
+  s_aaa22453e8a6dd::t_a3753d9e03942f 1-9,11-51,56-60
+  s_aaa22453e8a6dd::t_750fae5c14f839 10
+  s_aaa22453e8a6dd::t_f4393579139f92 52-55
+src/gg_relay/session/transport/inmemory.py
+  s_aaa22453e8a6dd::t_8920506a6ddc87 48-50
+tests/unit/session/test_executor_inprocess.py
+  s_aaa22453e8a6dd::t_81b2caf74834f5 1-68
+docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md
+  s_aaa22453e8a6dd::t_4d7bf1498400f6 1257,1260,1263,1265,1273,1291-1292,1299-1302,1310-1316
+  s_aaa22453e8a6dd::t_48a82343713d51 1169,1172,1174,1178,1215,1224,1231-1233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "25c4f65735baf230107d2e6245de648bedaf1ccf",
+  "prompts": {},
+  "humans": {
+    "h_2781cf4fccc75f": {
+      "author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  },
+  "sessions": {
+    "s_aaa22453e8a6dd": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "dbd8ec48-8384-41d4-87ab-149a286fc2a5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
