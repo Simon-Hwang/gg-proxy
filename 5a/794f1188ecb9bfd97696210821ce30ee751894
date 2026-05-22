@@ -1,0 +1,24 @@
+tests/unit/test_env_example.py
+  s_65c41fbea581d9::t_b115dcb9b28288 1-33
+.env.example
+  s_65c41fbea581d9::t_f2e6219ff44209 1-8,10-14,16-26,28-116,118-122
+  s_65c41fbea581d9::t_a7b11052143128 117
+  s_65c41fbea581d9::t_41a9f5296bb60b 9,15
+  s_65c41fbea581d9::t_d853c8ab90230b 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "5a794f1188ecb9bfd97696210821ce30ee751894",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
