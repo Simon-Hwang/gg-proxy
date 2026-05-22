@@ -1,0 +1,23 @@
+tests/integration/test_end_to_end.py
+  s_6f0ac3f1a2ed3e::t_c70051c890ea91 1-145
+pyproject.toml
+  s_6f0ac3f1a2ed3e::t_1b459e730a8044 88
+examples/end_to_end_demo.py
+  s_6f0ac3f1a2ed3e::t_a476994139e954 1-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "eb067bb0caa5e4fbbdab65f473f2c3771ec720a7",
+  "prompts": {},
+  "sessions": {
+    "s_6f0ac3f1a2ed3e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "66b0fb54-9a09-41a0-9028-d61647965347",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
