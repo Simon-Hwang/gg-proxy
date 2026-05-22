@@ -1,0 +1,27 @@
+src/gg_relay/config.py
+  s_65c41fbea581d9::t_8b04a4db5e1156 107-123
+src/gg_relay/api/main.py
+  s_65c41fbea581d9::t_26d159335fb2b6 48
+  s_65c41fbea581d9::t_a43fc27f4618cd 188-193
+tests/unit/tracing/test_task_trace.py
+  s_65c41fbea581d9::t_faf6101722a8f7 1-20,22-198
+  s_65c41fbea581d9::t_b2bad26eaf805e 21
+src/gg_relay/tracing/task_trace.py
+  s_65c41fbea581d9::t_ce5e0bef1cd3ff 1-171
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "2eab293b26c4441503ed61132c883d858e093fa8",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
