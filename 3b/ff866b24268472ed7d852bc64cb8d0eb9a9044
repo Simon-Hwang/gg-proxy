@@ -1,0 +1,33 @@
+tests/unit/proxy/test_minimal_proxy.py
+  s_bcc9af754accd4::t_baa48f46031557 30,41,44
+  s_bcc9af754accd4::t_0df5bb1254a434 10
+  s_bcc9af754accd4::t_8208182047abbe 1-9,11-29,31-40,42-43,45-275
+docs/superpowers/plans/2026-05-22-plan-3-docker-backend-and-wire-transport.md
+  s_bcc9af754accd4::t_884ad6d9921f53 923
+src/gg_relay/proxy/__init__.py
+  s_bcc9af754accd4::t_fe8ac109833d8d 1-27
+src/gg_relay/proxy/audit.py
+  s_bcc9af754accd4::t_3bea83eea0b38d 1-72
+src/gg_relay/proxy/server.py
+  s_bcc9af754accd4::t_05ea3787867444 1-67,69-337
+  s_bcc9af754accd4::t_178ea0e9d02fa1 68
+tests/integration/test_proxy_smoke.py
+  s_bcc9af754accd4::t_590d8b641d3a06 62,70-77
+  s_bcc9af754accd4::t_1dc7b7ec1a0e2f 1-61,63-69,78-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "3bff866b24268472ed7d852bc64cb8d0eb9a9044",
+  "prompts": {},
+  "sessions": {
+    "s_bcc9af754accd4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bbaf1feb-32ab-447d-99c8-c669aebdf483",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
