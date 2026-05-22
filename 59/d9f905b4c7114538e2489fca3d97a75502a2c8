@@ -1,0 +1,41 @@
+src/gg_relay/api/main.py
+  s_65c41fbea581d9::t_9c16790b50c9f7 252
+  s_65c41fbea581d9::t_de86d28dd6cda4 200-204
+  s_65c41fbea581d9::t_39b5f5578e9b00 30
+  s_65c41fbea581d9::t_b7b96d1de39826 130-133
+  s_65c41fbea581d9::t_a85e948f97aa2a 50
+  s_65c41fbea581d9::t_57949e5d63d1aa 49
+src/gg_relay/api/routers/metrics.py
+  s_65c41fbea581d9::t_f4df2f34e3610c 1-20
+pyproject.toml
+  s_65c41fbea581d9::t_cc27de29f8da39 30
+tests/integration/test_metrics_endpoint.py
+  s_65c41fbea581d9::t_756c0f05ccb914 1-153
+src/gg_relay/core/event_bus.py
+  s_65c41fbea581d9::t_6628f850c86ce8 236-238,243-245
+  s_65c41fbea581d9::t_c8fb792ea36e23 95-101,105-106
+  s_65c41fbea581d9::t_369286e240b75a 48,51
+src/gg_relay/api/routers/__init__.py
+  s_65c41fbea581d9::t_60a847d9758c43 5,8-14
+src/gg_relay/tracing/metrics.py
+  s_65c41fbea581d9::t_91895e61eb83cc 1-132
+src/gg_relay/tracing/metrics_subscriber.py
+  s_65c41fbea581d9::t_69b4688fa200de 1-26,28-98
+  s_65c41fbea581d9::t_40b6ea62c46870 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "59d9f905b4c7114538e2489fca3d97a75502a2c8",
+  "prompts": {},
+  "sessions": {
+    "s_65c41fbea581d9": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "26dd9f6d-ff0c-47d0-9dcd-e4f69dc628d5",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
