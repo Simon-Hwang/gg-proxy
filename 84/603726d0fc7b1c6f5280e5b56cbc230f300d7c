@@ -1,0 +1,26 @@
+src/gg_relay/session/executor/__init__.py
+  s_a4f64b7e9d73b1::t_dce89856e62a69 1-4
+src/gg_relay/session/executor/protocol.py
+  s_a4f64b7e9d73b1::t_78f07e5ea015db 1-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "84603726d0fc7b1c6f5280e5b56cbc230f300d7c",
+  "prompts": {},
+  "humans": {
+    "h_2781cf4fccc75f": {
+      "author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  },
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
