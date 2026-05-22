@@ -1,0 +1,22 @@
+docs/superpowers/plans/2026-05-22-plan-3-docker-backend-and-wire-transport.md
+  s_1b021bd4efa697::t_88ca0401998764 926
+  s_1b021bd4efa697::t_09257df9ceb658 934-937
+README.md
+  s_1b021bd4efa697::t_49494c1573356b 137-246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "04b1055200c4b319406df67b1c113f1696de38cc",
+  "prompts": {},
+  "sessions": {
+    "s_1b021bd4efa697": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "dbd59b45-b502-4321-a9d9-fa9e82f37aab",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
