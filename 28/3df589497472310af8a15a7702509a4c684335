@@ -1,0 +1,59 @@
+src/gg_relay/session/control.py
+  s_d9e2a754ff0cf8::t_e5a064584c360a 1-135,156-161,164,168-307
+  s_d9e2a754ff0cf8::t_0b31f217ae4807 136-147
+  s_d9e2a754ff0cf8::t_aaf21ad3e6a955 148-155,162-163,165-167
+src/gg_relay/session/runner/bridge.py
+  s_d9e2a754ff0cf8::t_8e6379fc1c7722 51-57
+  s_d9e2a754ff0cf8::t_5627ebe37941c8 296-297,303-305,309,312
+  s_d9e2a754ff0cf8::t_7e94a945e42979 154-161
+  s_d9e2a754ff0cf8::t_2fb40d6c549b53 246-295,298-302,306-308,310-311,313-315
+  s_d9e2a754ff0cf8::t_f642d04260ae64 32,35,37
+  s_d9e2a754ff0cf8::t_671d6158acc4d8 75,94-97
+src/gg_relay/session/frames.py
+  s_d9e2a754ff0cf8::t_e533ca7b215931 21-22,25-26
+  s_d9e2a754ff0cf8::t_d017b64caf4c17 155-196
+src/gg_relay/session/runner/proxy_client.py
+  s_d9e2a754ff0cf8::t_f04161bef53c63 73-102
+  s_d9e2a754ff0cf8::t_5001217cec180c 160-175,177-178,188
+  s_d9e2a754ff0cf8::t_4734173c997253 16-21,33-34,50-55,63-64
+  s_d9e2a754ff0cf8::t_6724aa42c5c81f 176
+src/gg_relay/session/transport/protocol.py
+  s_d9e2a754ff0cf8::t_527f3f4bbaa73b 77-97,107-108,133-163
+  s_d9e2a754ff0cf8::t_2a80ce17c3bc8a 5,7-13
+src/gg_relay/session/client.py
+  s_d9e2a754ff0cf8::t_9fc49b567be22d 409
+  s_d9e2a754ff0cf8::t_18539b46125f9d 55-60
+  s_d9e2a754ff0cf8::t_867f4059b59879 208-209
+  s_d9e2a754ff0cf8::t_3c93b6ba236bb3 306,311-315,317-324
+  s_d9e2a754ff0cf8::t_15b857ed7364c5 471-474,486-487
+  s_d9e2a754ff0cf8::t_3b1923a1a0d8a1 422,433-437,449-450
+  s_d9e2a754ff0cf8::t_66f8df1e122305 316
+src/gg_relay/session/executor/inprocess.py
+  s_d9e2a754ff0cf8::t_603c42692b3a66 92
+  s_d9e2a754ff0cf8::t_9168bde167872e 6-11,20,22
+  s_d9e2a754ff0cf8::t_cb751a1d944a90 37-46,48-53,56-60,90-91,93-94,100
+src/gg_relay/session/runner/inprocess_control.py
+  s_d9e2a754ff0cf8::t_f4da97dd7fb49a 1-60
+tests/unit/session/test_runner_control_loop.py
+  s_d9e2a754ff0cf8::t_5b1c95eae06ab4 22,39
+  s_d9e2a754ff0cf8::t_d643bacc8cb8e2 349
+  s_d9e2a754ff0cf8::t_fe9cd8bf49d629 379
+  s_d9e2a754ff0cf8::t_ac7ad72898c624 308-310,325
+  s_d9e2a754ff0cf8::t_6522bc9f3d3624 1-21,23-38,40-307,311-324,326-348,350-378,380-389
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "283df589497472310af8a15a7702509a4c684335",
+  "prompts": {},
+  "sessions": {
+    "s_d9e2a754ff0cf8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "01ddea3d-c97c-4c10-aa59-848e52eb8d38",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
