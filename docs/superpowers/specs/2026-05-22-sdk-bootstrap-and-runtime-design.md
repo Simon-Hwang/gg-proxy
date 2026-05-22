@@ -22,12 +22,29 @@
 - **不变** PLAN.md 的 6 条架构不变量（EventBus 唯一扇出、Protocol 接口、SQLAlchemy Core、
   P0 安全、`ClaudeSDKClient` 唯一 SDK 接口、事件分级投递）
 
-### 1.3 非目标
+### 1.3 非目标（v1）
 
 - 不实现 IM 卡片细节（沿用 PLAN.md §11 的 IMSubscriber 即可）
 - 不实现 dashboard 上 HITL 控件（沿用 PLAN.md §11 HITL 反向 REST 端点）
 - 不实现 cluster / 多 worker 分布（PLAN.md P6）
 - 不实现 per-session 切 gg-plugins 版本（决策 D2-a：单版本）
+- v1 仅实现 `DockerExecutor`，**不实现 `K8sExecutor`**
+
+### 1.4 显式预留的扩展点（v1.x+）
+
+下列扩展不在 v1 实现范围，但 Protocol 设计必须保证「不需要改 v1 既有代码」即可被第三方实现接入：
+
+| 扩展 | 解决方案 |
+|---|---|
+| **k8s 后端**（替换 docker run 为 Pod 编排） | `ExecutorBackend` Protocol；新增 `K8sExecutor` 实现 |
+| **跨 Pod transport**（Unix socket 不能跨 Pod） | `SessionTransport` Protocol；新增 `TcpSocketTransport` / `WebSocketTransport` |
+| **远程 Docker daemon** | `DockerExecutor` 用 `DOCKER_HOST` 即可，无需新实现 |
+| **第三方 IM/Slack 卡片样式** | 复用 PLAN.md §11 IMBackend Protocol |
+
+**对 v1 实现的约束**：以下三处设计**必须**显式抽象，不允许出现 docker / unix socket 字面假设：
+- `ExecutorBackend` Protocol 的方法签名（不出现 `container_id`、`docker_*` 字样；用 `runtime_id`）
+- `SessionTransport` Protocol（不假设 socket 类型，只约定双向 JSONL 流语义）
+- `HITLCoordinator` 与 transport 的交互（基于 `req_id` 路由，不依赖底层连接特性）
 
 ---
 
@@ -197,10 +214,11 @@ DEFAULT_POLICY = ToolPolicy()
 ```python
 @dataclass(frozen=True, slots=True)
 class RuntimeHandle:
-    backend:     Literal["docker", "inprocess"]
-    container_id: str | None      # docker 时填
-    transport:   SessionTransport # 已就绪的长连接
+    backend:     str                  # "docker" | "inprocess" | "k8s"(v1.x+) | ...
+    runtime_id:  str                  # 后端无关的执行实例 ID（container_id / pod_name / coroutine_id）
+    transport:   SessionTransport     # 已就绪的长连接
     started_at:  datetime
+    extra:       tuple[tuple[str, Any], ...] = ()   # 后端特定的额外元数据（如 docker_image_tag）
 ```
 
 ---
@@ -553,7 +571,8 @@ tests/integration/
 ## 13. 不在本 spec 范围
 
 - IM 卡片样式、多人审批、审批超时升级链 — 沿用 PLAN.md §11，本 spec 只对接 `HITLRequested` 事件
-- 容器集群编排（k8s pod 替代 docker run）— PLAN.md P5+ 范围
+- **`K8sExecutor` 实现** — 仅在 §1.4 声明为预留扩展点；具体 Pod 模板、跨 Pod transport、
+  Service mesh 接入等走独立 spec（建议在 v1 稳定后启动）
 - gg-plugins 自身的开发流程
 - claude CLI 的 fork / patch（如有需要走单独 spec）
 
