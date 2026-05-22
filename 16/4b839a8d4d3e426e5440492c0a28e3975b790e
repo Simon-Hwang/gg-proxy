@@ -1,0 +1,32 @@
+docs/superpowers/plans/2026-05-22-plan-2-plugin-assembly-and-real-sdk-dispatch.md
+  s_b97a9241cc4000::t_72947bf9efd458 588
+tests/unit/session/test_client_dispatch.py
+  s_b97a9241cc4000::t_f35afbab99afc0 241,243-246,250,252,262-271,273-274,276,279,281
+  s_b97a9241cc4000::t_abdedb55f3edf5 1-240,242,247-249,251,253-261,272,275,277-278,280,282-600
+tests/integration/test_walking_skeleton.py
+  s_b97a9241cc4000::t_7d7c5c4001373c 250,252
+  s_b97a9241cc4000::t_03b8abff7f4464 3-4,14-22
+  s_b97a9241cc4000::t_2ce064f6c8849e 379-391,393,396-398,410,416-446,450,456-476
+  s_b97a9241cc4000::t_801dfe2644b1e9 327,330-332
+examples/walking_skeleton_demo.py
+  s_b97a9241cc4000::t_3aabb9fac2d30d 23-31
+  s_b97a9241cc4000::t_e674576688837c 61,65-81,84-105
+src/gg_relay/session/client.py
+  s_b97a9241cc4000::t_0453fca85e642f 10-15,21,24,26-27,30,35-38,40-42,44,47-53,68-71,74-75,77-80,82-150,161,163-164,171-184,190-210,225-232,235-240,258-319,335-342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "164b839a8d4d3e426e5440492c0a28e3975b790e",
+  "prompts": {},
+  "sessions": {
+    "s_b97a9241cc4000": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c221d2fe-009a-4d37-8d4f-3b1e30350cbe",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
