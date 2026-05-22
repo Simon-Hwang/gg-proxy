@@ -1,0 +1,21 @@
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_a4f64b7e9d73b1::t_ddb7aa9aa166fe 217-219,221
+  s_a4f64b7e9d73b1::t_f7608a4b4565da 574-575
+  s_a4f64b7e9d73b1::t_2ffc3e64e84f6b 25,31-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "340d121582ada8cacc4a32b297c5b8b7ac8eb804",
+  "prompts": {},
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
