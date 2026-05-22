@@ -1,0 +1,38 @@
+pyproject.toml
+  s_d9e2a754ff0cf8::t_352cdca2af70a6 7
+deploy/docker-compose.prod.yml
+  s_d9e2a754ff0cf8::t_86ba19b8d5e21d 27
+CHANGELOG.md
+  s_2bfb0ff47226e2::t_e0c282e7e3b207 13
+  s_d9e2a754ff0cf8::t_a91f8241fa00c5 14-114
+  s_2bfb0ff47226e2::t_dee26637f6da49 273-274
+src/gg_relay/__init__.py
+  s_d9e2a754ff0cf8::t_1ee06d53baf319 3
+README.md
+  s_2bfb0ff47226e2::t_663637723d689a 110-131,138-140
+  s_2bfb0ff47226e2::t_914981c28ee085 20-21,25-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "1257e3a3674c021a5ada38d7bf4285caac45569c",
+  "prompts": {},
+  "sessions": {
+    "s_2bfb0ff47226e2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a5df84e2-8efc-4d7d-b341-f46efd3765e0",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_d9e2a754ff0cf8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "01ddea3d-c97c-4c10-aa59-848e52eb8d38",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
