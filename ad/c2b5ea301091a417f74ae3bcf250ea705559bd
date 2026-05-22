@@ -1,0 +1,19 @@
+docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md
+  s_a4f64b7e9d73b1::t_4aeaf52fa892b6 1-1905
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "adc2b5ea301091a417f74ae3bcf250ea705559bd",
+  "prompts": {},
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
