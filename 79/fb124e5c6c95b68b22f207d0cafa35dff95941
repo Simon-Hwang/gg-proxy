@@ -1,0 +1,30 @@
+src/gg_relay/im/__init__.py
+  s_d9e2a754ff0cf8::t_f6e69ad167f720 2,7-14
+tests/unit/im/test_card_builder.py
+  s_d9e2a754ff0cf8::t_e5f0b8ca22c802 86-89,95
+  s_d9e2a754ff0cf8::t_c10291db728ba8 41
+  s_d9e2a754ff0cf8::t_fcce86a5a46e6d 1-16,18-40,42-70,80-85,90-94,96-132,135-137,165-207
+  s_d9e2a754ff0cf8::t_92ca5c0b180f9f 71-79
+  s_d9e2a754ff0cf8::t_929ebf5e5dcba1 17
+  s_d9e2a754ff0cf8::t_f192aba1f04768 133-134,138-164
+src/gg_relay/im/card.py
+  s_d9e2a754ff0cf8::t_f8846115289499 98,102-107,112,114-119
+  s_d9e2a754ff0cf8::t_93dcd83ced3b53 34,36
+  s_d9e2a754ff0cf8::t_f03c47fcf6b727 1-33,35,37-97,99-101,108-111,113,120-137
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "79fb124e5c6c95b68b22f207d0cafa35dff95941",
+  "prompts": {},
+  "sessions": {
+    "s_d9e2a754ff0cf8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "01ddea3d-c97c-4c10-aa59-848e52eb8d38",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
