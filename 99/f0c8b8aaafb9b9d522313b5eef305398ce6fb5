@@ -1,0 +1,27 @@
+tests/integration/test_ci_workflow_extras_parity.py
+  s_269785191dc5e2::t_c2b0b0f8d84c7b 1-12,14-15,17-35,38-48,50-63,65-80,82-93,95-97,99-100,102
+  s_269785191dc5e2::t_ae53a98015debb 36-37
+  s_269785191dc5e2::t_acff753bfa1732 16
+  s_269785191dc5e2::t_fd4d0c9536e54e 13
+  s_269785191dc5e2::t_25bbcb63eb15cf 49,64,81,94,98,101
+uv.lock
+  ai_agent 1-2808
+.github/workflows/ci.yml
+  s_269785191dc5e2::t_445fa2da861ea7 27-31,33,35,37,42,50,71-75,83,88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "99f0c8b8aaafb9b9d522313b5eef305398ce6fb5",
+  "prompts": {},
+  "sessions": {
+    "s_269785191dc5e2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "bac4a53b-1764-4a3e-8446-5a1d37b8701b",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
