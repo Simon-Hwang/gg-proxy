@@ -1,3 +1,5 @@
 """gg-relay: Python middleware/relay service over Claude Code SDK."""
 
-__version__ = "0.6.0"
+from importlib.metadata import version as _v
+
+__version__ = _v("gg-relay")
