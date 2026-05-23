@@ -1,0 +1,35 @@
+scripts/check_version_sync.py
+  s_bda7f4228344f4::t_89deb7e87d26aa 1-85
+tests/unit/test_version_sync.py
+  s_f5da2e612e00fa::t_615fa6680d38e6 1-80
+LICENSE
+  s_bda7f4228344f4::t_438d6d78799535 1-21
+src/gg_relay/__init__.py
+  s_bda7f4228344f4::t_a3eafb112fa977 3-5
+.github/PULL_REQUEST_TEMPLATE.md
+  s_bda7f4228344f4::t_5c070a10a9fd47 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "724452d15fecc8258217ed3cc11a5753a427afb0",
+  "prompts": {},
+  "sessions": {
+    "s_bda7f4228344f4": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "722feb3c-33d5-4670-a094-dd8ec73e7a79",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_f5da2e612e00fa": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "59ed8f8a-c6cb-4563-a611-04efe50d1049",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
