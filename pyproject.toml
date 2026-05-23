@@ -39,6 +39,10 @@ otel-http = ["opentelemetry-exporter-otlp-proto-http>=1.24"]
 feishu = []  # FeishuBackend uses only httpx (already a core dep); kept
             # as an empty extra so deployment recipes can pin a future
             # SDK without breaking pyproject contracts.
+# Plan 7 Task 4 (D7.10): Locust load-test profiles. Deliberately excluded
+# from CI and from the ``all`` aggregate — operators install on demand
+# via ``pip install -e .[loadtest]`` or ``uv sync --extra loadtest``.
+loadtest = ["locust>=2.20"]
 dev = [
     "pytest>=8.1",
     "pytest-asyncio>=0.23",
