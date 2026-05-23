@@ -1,0 +1,66 @@
+src/gg_relay/core/__init__.py
+  s_f2524d040bf280::t_4de50f489d50d5 30
+  s_f2524d040bf280::t_47f0bcf8977197 57
+src/gg_relay/core/exceptions.py
+  s_f2524d040bf280::t_4bc0b4a886fbe7 244
+  s_f2524d040bf280::t_08dd6bc28b825d 34-48
+src/gg_relay/api/routers/sessions.py
+  s_f2524d040bf280::t_2b217e39fa6052 19-20,26-28,38
+  s_f2524d040bf280::t_7e48388d1041c7 430-598
+tests/unit/session/test_manager_retry.py
+  s_f2524d040bf280::t_b3f71398580bfe 1-182
+src/gg_relay/store/schema.py
+  s_f2524d040bf280::t_e57132003bc166 116-124
+  s_f2524d040bf280::t_a8adac954839d5 136
+tests/integration/test_migrations_chain.py
+  s_f2524d040bf280::t_b825c4ef80ebec 508-566
+src/gg_relay/api/main.py
+  s_f2524d040bf280::t_46ee8a9a1ecc95 532
+  s_f2524d040bf280::t_18c38273c9903a 39
+src/gg_relay/api/schemas.py
+  s_f2524d040bf280::t_39f4b4e015dc55 180-329
+tests/unit/store/test_session_repository.py
+  s_f2524d040bf280::t_0bf7cfe6023cc8 1-134
+src/gg_relay/store/repository.py
+  s_f2524d040bf280::t_28078c9aa88b6c 265,275-281,295,299-321
+src/gg_relay/session/manager.py
+  s_f2524d040bf280::t_183bf0af39031f 341
+  s_f2524d040bf280::t_91f5dc2c5305a7 57
+  s_f2524d040bf280::t_37ea3de183c030 276,298-303,318
+  s_f2524d040bf280::t_21b96edd14989b 430-532
+src/gg_relay/api/routers/hitl.py
+  s_f2524d040bf280::t_d41a7136cb40e0 172-317
+  s_f2524d040bf280::t_df2c1dff665fc5 51
+  s_f2524d040bf280::t_cae370c6a08a40 24,26,32-34,45-50
+src/gg_relay/api/routers/__init__.py
+  s_f2524d040bf280::t_60d5fccc3c591b 6
+  s_f2524d040bf280::t_456f9f9ea65d53 16
+tests/integration/test_batch_cancel_retry_e2e.py
+  s_f2524d040bf280::t_0cd61972c3750f 1-274
+tests/integration/test_hitl_batch_e2e.py
+  s_f2524d040bf280::t_a6d8b4f2833e22 1-230
+tests/integration/test_plan8_baseline.py
+  s_f2524d040bf280::t_f8a74052410b33 82,90-91
+docs/openapi.snapshot.json
+  s_f2524d040bf280::t_45b46417b813e3 4-240,1235-1276,1411-1447
+src/gg_relay/store/protocol.py
+  s_f2524d040bf280::t_7630e1d1a12abb 49,61-78
+src/gg_relay/store/migrations/versions/0008_add_parent_session_id.py
+  s_f2524d040bf280::t_18feb469bbad24 1-63
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "eb315e695a08248cf683d0a26d6d9335a585896b",
+  "prompts": {},
+  "sessions": {
+    "s_f2524d040bf280": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5e915e12-1bf3-4536-a1e3-cd02216f1515",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
