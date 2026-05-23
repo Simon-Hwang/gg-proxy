@@ -89,6 +89,14 @@ asyncio_mode = "auto"
 # store ≥ 90%, redaction ≥ 95%) are tracked in the plan's DOD.
 addopts = "--cov=gg_relay --cov-report=term-missing --cov-fail-under=88"
 testpaths = ["tests"]
+# Plan 7 Task 5 (D7.4): SessionRepository was renamed to SqlAlchemyStore;
+# the legacy alias emits a DeprecationWarning on instantiation. Suppress
+# the noise from in-tree gg_relay.store call-sites so the test runner
+# log stays signal-rich. Tests that explicitly verify the alias warning
+# still capture it via ``pytest.warns(DeprecationWarning)``.
+filterwarnings = [
+    "ignore::DeprecationWarning:gg_relay.store",
+]
 markers = [
     "requires_sdk: tests that exercise claude-code-sdk integration (no API call)",
     "requires_api_key: tests that hit the real Anthropic API (skipped without key)",

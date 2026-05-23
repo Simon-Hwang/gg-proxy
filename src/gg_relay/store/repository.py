@@ -1,15 +1,22 @@
-"""SessionRepository — async DAO over SQLAlchemy Core.
+"""SqlAlchemyStore — async DAO over SQLAlchemy Core.
 
-The repository hides SQLAlchemy from the SessionManager and presents an
+The store hides SQLAlchemy from the SessionManager and presents an
 intent-oriented API (``create_session`` / ``append_frame`` / ``upsert_hitl``
 etc). Every write commits in a single transaction; ``mark_in_flight_as_interrupted``
 is the only multi-row update and runs under a single transaction.
 
 All ``dict[str, Any]`` payloads MUST be pre-redacted by the caller — the
-repository never inspects values for sensitive content.
+store never inspects values for sensitive content.
+
+History: renamed from ``SessionRepository`` in Plan 7 Task 5 (D7.4) so
+the concrete name no longer conflicts with the
+:class:`gg_relay.store.protocol.SessionStore` Protocol. A
+:class:`SessionRepository` subclass alias is kept as a deprecated
+shim until 0.8.0.
 """
 from __future__ import annotations
 
+import warnings
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
@@ -27,12 +34,17 @@ def _utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class SessionRepository:
+class SqlAlchemyStore:
     """Async DAO over the three persistence tables.
 
     Construct once with the shared :class:`AsyncEngine` and reuse across
     handlers — methods open + close a per-call connection (SQLAlchemy
     handles pooling).
+
+    Structurally implements
+    :class:`gg_relay.store.protocol.SessionStore`,
+    :class:`gg_relay.store.protocol.FrameStore`, and
+    :class:`gg_relay.store.protocol.HITLStore`.
     """
 
     def __init__(self, engine: AsyncEngine) -> None:
@@ -432,3 +444,27 @@ class SessionRepository:
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
             return list(result.mappings().all())
+
+
+class SessionRepository(SqlAlchemyStore):
+    """Deprecated alias for :class:`SqlAlchemyStore`.
+
+    Renamed in Plan 7 Task 5 (D7.4); the alias will be removed in
+    0.8.0. Construct :class:`SqlAlchemyStore` directly instead.
+
+    The warning fires only on **instantiation** so importing
+    :mod:`gg_relay.store` (or this module) stays silent. ``isinstance``
+    against :class:`SqlAlchemyStore` and any of the
+    :mod:`gg_relay.store.protocol` Protocols still resolves to ``True``
+    because this is a thin subclass.
+    """
+
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        warnings.warn(
+            "SessionRepository has been renamed to SqlAlchemyStore "
+            "(gg_relay.store.SqlAlchemyStore); the alias will be removed "
+            "in 0.8.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        super().__init__(*args, **kwargs)
