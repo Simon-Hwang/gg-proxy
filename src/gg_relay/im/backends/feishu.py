@@ -188,6 +188,94 @@ class FeishuCardBuilder:
         del event
         return None
 
+    # ── Plan 8 D8.7 — AlertRouter card ───────────────────────────────
+
+    _ALERT_TITLES: dict[str, str] = {
+        "session_failed": "[ALERT] Session failed",
+        "session_cancelled": "[WARN] Session cancelled",
+        "session_completed": "[OK] Session completed",
+    }
+    _ALERT_TEMPLATES: dict[str, str] = {
+        "session_failed": "red",
+        "session_cancelled": "orange",
+        "session_completed": "green",
+    }
+
+    def build_alert_card(
+        self,
+        *,
+        event: Any,
+        event_type: str,
+        session_id: str,
+        owner: str | None,
+        end_reason: str,
+        mention_open_id: str | None = None,
+    ) -> RenderedCard:
+        """Render the AlertRouter card (Plan 8 D8.7).
+
+        Distinct from :meth:`build_session_end_card` (the noisy
+        every-terminal-event surface used by :class:`IMSubscriber`)
+        because this card is **actionable** for the on-call: it
+        carries an explicit alert header colour, the resolved
+        ``@mention`` of the session owner (when available via
+        ``cfg.feishu_user_mapping``), and a "View" button linking to
+        the dashboard so the operator can pivot to the full session
+        detail with one tap.
+
+        ``mention_open_id`` is the pre-resolved Feishu ``open_id``
+        from :meth:`AlertRouter.resolve_mention`; when ``None`` the
+        ``<at>`` element is omitted so the card still renders cleanly
+        in the team channel (just without a notification ping).
+        """
+        del event  # signature compat; values come from explicit kwargs
+        title = self._ALERT_TITLES.get(event_type, "[NOTE] Session event")
+        template = self._ALERT_TEMPLATES.get(event_type, "blue")
+        owner_display = owner or "anon"
+        body_lines = [
+            f"**Session:** `{session_id}`",
+            f"**Owner:** {owner_display}",
+            f"**Reason:** {end_reason}",
+        ]
+        if mention_open_id:
+            body_lines.insert(
+                0, f'<at id="{mention_open_id}"></at>'
+            )
+        payload: dict[str, Any] = {
+            "config": {"wide_screen_mode": True},
+            "header": {
+                "title": {"tag": "plain_text", "content": title},
+                "template": template,
+            },
+            "elements": [
+                {
+                    "tag": "markdown",
+                    "content": "\n".join(body_lines),
+                },
+                {
+                    "tag": "action",
+                    "actions": [
+                        {
+                            "tag": "button",
+                            "text": {
+                                "tag": "plain_text",
+                                "content": "View",
+                            },
+                            "type": "primary",
+                            "url": f"/dashboard/sessions/{session_id}",
+                        }
+                    ],
+                },
+            ],
+        }
+        return RenderedCard(
+            payload=payload,
+            metadata={
+                "msg_type": "interactive",
+                "alert_event_type": event_type,
+                "mention_open_id": mention_open_id or "",
+            },
+        )
+
 
 def _summarise_args(args: dict[str, Any]) -> str:
     """Compact one-line representation of redacted args. JSON is the

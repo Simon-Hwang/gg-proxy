@@ -22,7 +22,9 @@ from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
+from gg_relay.api.audit_service import AuditService
 from gg_relay.api.middleware.api_key_auth import APIKeyAuthMiddleware
+from gg_relay.api.middleware.audit import AuditFallbackMiddleware
 from gg_relay.api.middleware.dashboard_cookie import DashboardCookieMiddleware
 from gg_relay.api.middleware.logging import StructuredLoggingMiddleware
 from gg_relay.api.middleware.rate_limit import (
@@ -55,6 +57,7 @@ from gg_relay.session.recovery import recover_on_startup, recover_paused_timers
 from gg_relay.session.runner.bridge import WireBridge  # noqa: F401  (re-export for plugins)
 from gg_relay.store import SessionRepository, make_async_engine
 from gg_relay.store.durable_event import SqlAlchemyDurableEventStore
+from gg_relay.subscribers import AlertRouter, FailureSubscriber
 from gg_relay.tracing.metrics import BUS_DROPS, BUS_DURABLE_DROPS
 from gg_relay.tracing.metrics_subscriber import MetricsSubscriber
 from gg_relay.tracing.task_trace import TaskTraceSubscriber
@@ -199,6 +202,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         slow_query_log_ms=getattr(cfg, "db_slow_query_log_ms", 500),
     )
     store = SessionRepository(engine)
+    # Plan 8 D8.4 / Task 5 — durable audit log. Single shared service
+    # across all routes; the SessionManager grabs an explicit reference
+    # below so business mutations (submit / cancel / pause / resume)
+    # can record audit rows without a per-call DI hop.
+    audit_service = AuditService(store)
+    app.state.audit_service = audit_service
     # ── Plan 7 D7.17 (Task 13): wire durable-tier persistence ────────
     # The disk store backs the SSE Last-Event-ID replay path so
     # subscribers can reconnect after a disconnect without losing
@@ -269,6 +278,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_paused=cfg.max_paused,
         max_paused_per_api_key=cfg.max_paused_per_api_key,
         resume_timeout_s=cfg.resume_timeout_s,
+        audit_service=audit_service,
     )
 
     app.state.engine = engine
@@ -345,6 +355,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         bg_tasks.append(
             asyncio.create_task(im_subscriber.run(), name="im-subscriber")
         )
+    # ── Plan 8 D8.7 — AlertRouter + FailureSubscriber ──────────────────
+    # Wired AFTER IMSubscriber so a missing Feishu backend (dev mode,
+    # webhook-only deployment) degrades gracefully: AlertRouter logs a
+    # warning per matched event and reports ``dispatched=False`` instead
+    # of crashing the bus consumer. The router is exposed on app.state
+    # so future admin / debugging endpoints can introspect the active
+    # rule set + cooldown LRU without re-deriving them.
+    alert_router = AlertRouter(
+        rules=cfg.alert_rules,
+        feishu_user_mapping=cfg.feishu_user_mapping,
+        backend=feishu_backend,
+        card_builder=feishu_backend.builder if feishu_backend else None,
+        default_channel=cfg.feishu_target_chat_id,
+    )
+    failure_subscriber = FailureSubscriber(
+        bus=bus, alert_router=alert_router, store=store
+    )
+    failure_subscriber.start()
+    app.state.alert_router = alert_router
+    app.state.failure_subscriber = failure_subscriber
     app.state.bg_tasks = bg_tasks
     rate_limiter: TokenBucketRateLimiter | None = getattr(
         app.state, "rate_limiter", None
@@ -358,6 +388,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await rate_limiter.stop()
         # Stop accepting new submits, give in-flight sessions grace, then cancel.
         await manager.shutdown(grace_period_s=cfg.grace_period_s)
+        # Plan 8 D8.7 — drain alert subscriber BEFORE the bus closes so
+        # any in-flight terminal events fanning out from manager.shutdown
+        # have a chance to land in the router's cooldown LRU.
+        await failure_subscriber.stop()
         if im_subscriber is not None:
             await im_subscriber.stop()
         if feishu_backend is not None:
@@ -432,12 +466,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.state.dashboard_internal_keys = dashboard_internal_keys
     # Middleware add order is the *reverse* of dispatch order: the last
     # one added is the outermost layer and runs first. We want
-    #   DashboardCookie → APIKey → RateLimit → Logging → Session → router
+    #   DashboardCookie → APIKey → AuditFallback → RateLimit → Logging
+    #   → Session → router
     # so we add Session first (innermost) and DashboardCookie last
-    # (outermost). Plan 8 Task 5 will insert an Audit middleware
-    # between APIKey and RateLimit; the slot is reserved by adding
-    # APIKey just *after* RateLimit (and Audit will go between them
-    # by adding RateLimit before Audit before APIKey).
+    # (outermost). Plan 8 Task 5 inserts AuditFallback between
+    # RateLimit (added before) and APIKey (added after) — so at
+    # dispatch time AuditFallback runs *after* APIKey has populated
+    # ``request.state.api_key_label`` (the actor) and *before*
+    # RateLimit forwards into the router.
     session_secret = (
         config.dashboard_session_secret.get_secret_value()
         if config is not None
@@ -460,9 +496,17 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
         app.state.rate_limiter = rate_limiter
         app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
-    # Plan 8 Task 5 slot — Audit middleware will be added here (between
-    # RateLimit and APIKey) so it sees ``request.state.api_key_label``
-    # already populated by APIKey for every audited mutation.
+    # Plan 8 Task 5 / D8.4 — fallback audit for ``/api/v1/*`` mutations
+    # whose handler did NOT call ``audit_service.record(...)`` inline.
+    # Added BEFORE APIKey so APIKey is OUTER (dispatches first and
+    # populates ``request.state.api_key_label``), then forwards into
+    # AuditFallback which can read the actor for the fire-and-forget
+    # ``unknown_mutation`` row. The middleware resolves the
+    # AuditService from ``request.app.state.audit_service`` at dispatch
+    # time — the lifespan attaches the service after the engine is
+    # built, which is later than this ``create_app`` call but earlier
+    # than any actual request reaches the middleware.
+    app.add_middleware(AuditFallbackMiddleware)
     app.add_middleware(
         APIKeyAuthMiddleware,
         keys_with_labels=augmented_keys_with_labels,

@@ -112,9 +112,72 @@ These fields land in `Config` via Plan 8 Task 1; until then the engine
 factory honours the defaults above when the attributes are missing
 (`api/main.py` uses `getattr` fallbacks).
 
+## Alert routing — `AlertRouter` cooldown (D8.7)
+
+The Plan 8 `AlertRouter` (wired in `api/main.py` lifespan) deduplicates
+matched alerts via an in-process LRU keyed on
+`(event_type, owner, end_reason)`. Default cooldown window is **300 s**
+and the LRU cap is **1 000 entries**; both knobs live in the
+`gg_relay.subscribers.alert_router.AlertRouter` constructor.
+
+### Multi-worker cooldown caveat
+
+With **`N` workers** behind a load balancer, every worker maintains its
+**own** cooldown LRU. The same `(event_type, owner, end_reason)` tuple
+arriving at `N` distinct workers within `cooldown_s` will produce up to
+`N` Feishu cards instead of one:
+
+```
+Worker A   Worker B   Worker C
+  │          │          │
+  ▼          ▼          ▼
+[LRU A]   [LRU B]   [LRU C]    ← each independent
+  │          │          │
+  └──────────┼──────────┘
+             ▼
+        Feishu channel — up to 3 cards for the same incident
+```
+
+This is a **deliberate tradeoff** for Plan 8: zero shared-state
+dependency means the alert pipeline keeps working when Redis is
+unavailable. The mitigation tier-list, in order of operational impact:
+
+1. **Per-worker noise** is bounded by `cooldown_s` (default 5 min): an
+   incident fan-out across 3 workers produces at most 3 cards in a
+   5-minute window, not 30. Within tolerable burst for an on-call.
+2. **Distinct end-reasons** are *intended* to alert separately
+   (different failure modes warrant separate notification), so cross-
+   worker amplification only inflates the *same* failure mode count.
+3. **Plan 11+** moves cooldown state to Redis (the same backend that
+   D8.1 / D8.2 introduces for the event bus + rate limiter) so the
+   LRU is shared across workers and the cardinality drops back to 1
+   per `(event_type, owner, end_reason)` × `cooldown_s` window.
+
+If duplication is unacceptable *today*, reduce blast radius by sticky-
+routing each session's lifecycle events to one worker via your load
+balancer's session affinity / IP-hash (every terminal event for a
+given `session_id` lands on the worker that ran the session, and the
+cooldown LRU on that worker absorbs the duplicates). Alternatively
+pin `gg-relay` to a single worker until Plan 11 ships the Redis tier.
+
+### Cooldown tuning
+
+| Env var (planned, Plan 11+)              | Default | Notes |
+| ---                                      | ---     | ---   |
+| `RELAY_ALERT_COOLDOWN_S`                 | `300`   | Per-key cooldown window. |
+| `RELAY_ALERT_LRU_CAP`                    | `1000`  | Per-worker memory cap. |
+| `RELAY_ALERT_RULES_JSON`                 | (defaults) | `{"fail":["always"],"cancel":["timeout",...],"complete":["tag=notify"]}` |
+| `RELAY_FEISHU_USER_MAPPING_RAW`          | empty   | `alice=ou_xxx,bob=ou_yyy` for `@mention` resolution. |
+
+The cooldown / LRU knobs are NOT yet env-exposed — operators must
+construct the router directly in `api/main.py` if non-default values
+are required before Plan 11. The rules + mapping ARE env-exposed via
+Plan 8 Task 1 (`RELAY_ALERT_RULES_JSON` + `RELAY_FEISHU_USER_MAPPING_RAW`)
+and parsed by `Config.alert_rules` / `Config.feishu_user_mapping`.
+
 ## See also
 
 * [`deployment.md`](./deployment.md) — single-host docker compose recipe.
 * [`cluster.md`](./cluster.md) — multi-worker reverse-proxy + shared-state notes.
 * `docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`
-  — full Plan 8 spec (D8.10, D8.11 …).
+  — full Plan 8 spec (D8.7, D8.10, D8.11 …).
