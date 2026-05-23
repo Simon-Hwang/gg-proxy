@@ -49,7 +49,7 @@ from gg_relay.session.hitl.policy import ToolPolicy
 from gg_relay.session.manager import ExecutorFactory, SessionManager
 from gg_relay.session.plugins.install_shell import InstallShellAssembler
 from gg_relay.session.plugins.protocol import PluginAssembler
-from gg_relay.session.recovery import recover_on_startup
+from gg_relay.session.recovery import recover_on_startup, recover_paused_timers
 from gg_relay.session.runner.bridge import WireBridge  # noqa: F401  (re-export for plugins)
 from gg_relay.store import SessionRepository, make_async_engine
 from gg_relay.store.durable_event import SqlAlchemyDurableEventStore
@@ -93,6 +93,13 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
     The in-process path uses :func:`make_sdk_runner` only when the
     claude-code-sdk is importable; tests can override the factory entirely
     via ``app.state.executor_factory`` if they need finer control.
+
+    Plan 7 D7.19 / Task 14 — the optional ``runtime_ctx`` kwarg is
+    threaded to :func:`make_sdk_runner` so the runner core can inject
+    ``RELAY_TRACE_ID`` into the SDK's env (matching the docker
+    backend's env composition). SessionManager passes runtime_ctx in
+    when constructing the executor; legacy callers that don't supply
+    it get the pre-Task-14 behaviour.
     """
     def _factory(
         kind: str,
@@ -101,6 +108,7 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
         session_id: str,
         *,
         control_channel: ControlChannel | None = None,
+        runtime_ctx: Any = None,
     ) -> Any:
         if kind == "docker":
             return DockerExecutor(
@@ -115,6 +123,7 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
             coordinator=coordinator,
             session_id=session_id,
             control_channel=control_channel,
+            runtime_ctx=runtime_ctx,
         )
         return InProcessExecutor(runner=runner, control_channel=control_channel)
 
@@ -190,7 +199,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         durable_store=durable_store,
     )
     app.state.durable_event_store = durable_store
-    coordinator = HITLCoordinator()
+    # Plan 7 D7.20 / Task 14 — give the coordinator a store reference
+    # so its ``resolve`` consults the DB row's status before flipping
+    # the in-process future. Defends against cross-worker races where
+    # one worker's coordinator still has a pending future but another
+    # worker (or a direct ``upsert_hitl`` call) has already moved the
+    # row out of ``pending``.
+    coordinator = HITLCoordinator(store=store)
     redactor = RedactionEngine(
         sensitive_keys=(
             list(getattr(RedactionEngine, "_keys", []))
@@ -249,6 +264,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.coordinator = coordinator
     app.state.redactor = redactor
     app.state.manager = manager
+    # Plan 7 D7.18 / Task 14 — re-arm paused-timer watchdogs from
+    # durable state. The in-process timer was lost when the previous
+    # process exited; the recovery hook either re-arms with the
+    # remaining window or cancels sessions whose paused window
+    # already elapsed. Runs AFTER manager construction so
+    # ``manager._arm_paused_timer`` can land timers immediately.
+    try:
+        rearmed, cancelled = await recover_paused_timers(
+            manager, store, paused_timeout_s=cfg.paused_timeout_s
+        )
+    except Exception:
+        logger.exception("paused-timer recovery failed")
+    else:
+        if rearmed or cancelled:
+            logger.info(
+                "paused timer recovery: rearmed=%d cancelled=%d",
+                rearmed,
+                cancelled,
+            )
     # Background tasks (proxy, OTel subscriber) can be attached by tests by
     # registering them on app.state.bg_tasks before yielding.
     bg_tasks: list[asyncio.Task[Any]] = getattr(app.state, "bg_tasks", [])

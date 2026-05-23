@@ -70,7 +70,7 @@ from gg_relay.session.hitl.coordinator import HITLCoordinator
 from gg_relay.session.hitl.policy import ToolPolicy
 from gg_relay.session.plugins import InstallReport
 from gg_relay.session.runner.proxy_client import WireCoordinatorProxy
-from gg_relay.session.spec import Decision, SessionSpec
+from gg_relay.session.spec import Decision, SessionRuntimeContext, SessionSpec
 from gg_relay.session.transport.protocol import SessionTransport
 
 SdkFactory = Callable[[ClaudeCodeOptions], Any]
@@ -207,6 +207,7 @@ async def _make_runner_core(
     session_id: str = "",
     control_channel: ControlChannel | None = None,
     control_ack: AckSender | None = None,
+    runtime_ctx: SessionRuntimeContext | None = None,
 ) -> None:
     """Shared dispatch loop for the in-process and wire runners.
 
@@ -296,10 +297,20 @@ async def _make_runner_core(
             return PermissionResultAllow()
         return PermissionResultDeny(message="HITL rejected")
 
+    # Plan 7 D7.19 / Task 14 — when an OTel trace_id was supplied on
+    # the SessionRuntimeContext, propagate it to the SDK process via
+    # ``RELAY_TRACE_ID`` so tools / sub-processes started by the SDK
+    # can correlate their spans with the parent relay session. Mirrors
+    # the docker executor's env composition (see
+    # ``DockerExecutor._build_env``) so the in-process and container
+    # backends emit the same env contract to whatever the SDK spawns.
+    env = dict(spec.plugins.extra_env)
+    if runtime_ctx is not None and runtime_ctx.trace_id:
+        env["RELAY_TRACE_ID"] = runtime_ctx.trace_id
     options = ClaudeCodeOptions(
         can_use_tool=can_use_tool,
         cwd=str(spec.cwd),
-        env=dict(spec.plugins.extra_env),
+        env=env,
     )
 
     client: Any = None
@@ -420,6 +431,7 @@ def make_sdk_runner(
     install_report: InstallReport | None = None,
     session_id: str = "",
     control_channel: ControlChannel | None = None,
+    runtime_ctx: SessionRuntimeContext | None = None,
 ) -> RunnerCallable:
     """In-process runner factory.
 
@@ -435,6 +447,12 @@ def make_sdk_runner(
     pause/resume control-loop the wire runner uses. SessionManager
     builds the channel and stashes it on the inprocess bridge so it can
     push pause/resume directly without crossing a transport.
+
+    Plan 7 D7.19 / Task 14: optional ``runtime_ctx`` is consulted by
+    the runner core to inject ``RELAY_TRACE_ID`` into
+    :class:`ClaudeCodeOptions.env`, mirroring the docker executor's
+    env composition. Tests that don't need trace correlation can omit
+    it.
     """
 
     async def runner(transport: SessionTransport, spec: SessionSpec) -> None:
@@ -448,6 +466,7 @@ def make_sdk_runner(
             session_id=session_id,
             control_channel=control_channel,
             control_ack=(control_channel.runner_ack if control_channel else None),
+            runtime_ctx=runtime_ctx,
         )
 
     return runner

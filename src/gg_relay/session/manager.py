@@ -39,6 +39,7 @@ from gg_relay.core import (
     SessionState,
     SessionStateChanged,
     SessionSummary,
+    classify_sdk_error,
     frame_to_event,
 )
 from gg_relay.redaction import RedactionEngine
@@ -700,13 +701,25 @@ class SessionManager:
                 )
             )
         except Exception as exc:  # pragma: no cover - defensive
+            # Plan 7 D7.25 / Task 14 — classify raw SDK exceptions
+            # into the typed taxonomy so the API + dashboard can
+            # surface ``error_category`` instead of bare class names.
+            # Non-SDK exceptions (e.g. internal asserts) pass through
+            # ``classify_sdk_error`` and bucket as ``unknown`` which is
+            # the correct fallback for unrecognised failure modes.
+            sdk_err = classify_sdk_error(exc)
             end_status = "failed"
-            end_reason = f"{type(exc).__name__}:{str(exc)[:96]}"
-            logger.exception("session %s failed", sid)
+            end_reason = f"{sdk_err.category}:{sdk_err.http_status}"
+            logger.exception(
+                "session %s failed category=%s http_status=%s",
+                sid,
+                sdk_err.category,
+                sdk_err.http_status,
+            )
             await self._bus.publish(
                 InstallError(
                     session_id=sid,
-                    code=type(exc).__name__,
+                    code=sdk_err.category,
                     message=str(exc)[:512],
                 )
             )
@@ -843,6 +856,13 @@ class SessionManager:
         # wiring can construct an InProcessBridge / share it with the
         # runner factory's ControlLoop. Test factories that don't care
         # may declare a `control_channel=None` kwarg or `**kwargs`.
+        #
+        # Plan 7 D7.19 / Task 14 — ``runtime_ctx`` is also threaded
+        # through as a kwarg so the in-process runner factory can
+        # inject ``RELAY_TRACE_ID`` into the SDK env. Production
+        # ``_build_executor_factory`` accepts it; legacy 5-arg
+        # (control_channel only) factories trigger ``TypeError`` and
+        # we fall through to the older signatures.
         channel = ControlChannel()
         try:
             executor = self._executor_factory(
@@ -851,14 +871,25 @@ class SessionManager:
                 self._coordinator,
                 sid,
                 control_channel=channel,
+                runtime_ctx=runtime_ctx,
             )
         except TypeError:
-            # Backwards-compat for legacy 4-arg factories that don't
-            # accept the kwarg yet — pause/resume will be unavailable
-            # for those sessions but everything else continues to work.
-            executor = self._executor_factory(
-                spec.executor, policy, self._coordinator, sid
-            )
+            try:
+                executor = self._executor_factory(
+                    spec.executor,
+                    policy,
+                    self._coordinator,
+                    sid,
+                    control_channel=channel,
+                )
+            except TypeError:
+                # Backwards-compat for legacy 4-arg factories that
+                # don't accept either kwarg yet — pause/resume +
+                # trace_id injection are unavailable but everything
+                # else continues to work.
+                executor = self._executor_factory(
+                    spec.executor, policy, self._coordinator, sid
+                )
         self._executors_in_flight[sid] = executor
         handle = await executor.start(spec, runtime_ctx=runtime_ctx)
         # For in-process, the executor exposes the bridge in handle.extra
@@ -916,10 +947,31 @@ class SessionManager:
                 f"for key={api_key!r}"
             )
 
-    def _arm_paused_timer(self, sid: str) -> None:
+    def _arm_paused_timer(
+        self, sid: str, *, remaining_s: float | None = None
+    ) -> None:
+        """Arm (or re-arm) the paused-timeout watchdog for ``sid``.
+
+        Plan 7 D7.18 / Task 14 — ``remaining_s`` is used by
+        :func:`gg_relay.session.recovery.recover_paused_timers` when
+        the relay restarts mid-pause: the recovery hook computes the
+        elapsed-since-paused time and re-arms the watchdog with the
+        original deadline (``paused_timeout_s - elapsed``) instead of
+        a fresh full window.
+
+        Idempotent — any pre-existing timer for ``sid`` is cancelled
+        before the new one is created so repeat calls never leak
+        timers.
+        """
         self._cancel_paused_timer(sid)
+        sleep_s = (
+            float(remaining_s)
+            if remaining_s is not None
+            else float(self._paused_timeout_s)
+        )
         self._paused_timers[sid] = asyncio.create_task(
-            self._paused_timeout_watchdog(sid), name=f"paused-timeout-{sid}"
+            self._paused_timeout_watchdog(sid, sleep_s),
+            name=f"paused-timeout-{sid}",
         )
 
     def _cancel_paused_timer(self, sid: str) -> None:
@@ -927,9 +979,12 @@ class SessionManager:
         if timer is not None and not timer.done():
             timer.cancel()
 
-    async def _paused_timeout_watchdog(self, sid: str) -> None:
+    async def _paused_timeout_watchdog(
+        self, sid: str, sleep_s: float | None = None
+    ) -> None:
+        wait_s = sleep_s if sleep_s is not None else float(self._paused_timeout_s)
         try:
-            await asyncio.sleep(self._paused_timeout_s)
+            await asyncio.sleep(wait_s)
         except asyncio.CancelledError:
             return
         # Timer fired — cancel the session deterministically. We do NOT
@@ -1046,19 +1101,48 @@ class SessionManager:
             await self._bus.publish("frame", {"session_id": sid, **redacted})
 
     def _record_session_end(self, sid: str, frame: dict[str, Any]) -> None:
-        """Plan 6 D6.12 — capture the session.end frame's token /
-        cost / turn aggregates so ``_run``'s finally can flush them to
-        the store. The actual DB write happens in :meth:`_run` so it
-        can be awaited inside the existing transaction (avoids opening
-        a fresh connection on every frame)."""
+        """Capture the ``session.end`` frame's token / cost / turn aggregates.
+
+        Plan 6 D6.12 — the actual DB write happens in :meth:`_run`'s
+        finally so it can be batched into the terminal-state write.
+
+        Plan 7 D7.19 / Task 14 — field-name resolution mirrors
+        :class:`gg_relay.tracing.metrics_subscriber.MetricsSubscriber`:
+        canonical names (``input_tokens`` / ``output_tokens``) at the
+        frame's top level win over the legacy nested
+        ``tokens={"input_tokens", "output_tokens"}`` shape and over
+        the even-older ``tokens={"in", "out"}`` shape. Cost reads
+        ``cost_usd`` at the top level. Any field that resolves to a
+        falsy value falls through to the next candidate so partial
+        frames don't poison aggregates with zeros.
+        """
         metrics = self._metrics.get(sid)
         if metrics is None:
             return
         tokens = frame.get("tokens") or {}
-        if isinstance(tokens, dict):
-            metrics.input_tokens = int(tokens.get("input_tokens", 0) or 0)
-            metrics.output_tokens = int(tokens.get("output_tokens", 0) or 0)
-            metrics.turn_count = int(tokens.get("turn_count", 0) or 0)
+        if not isinstance(tokens, dict):
+            tokens = {}
+        in_toks = (
+            frame.get("input_tokens")
+            or tokens.get("input_tokens")
+            or tokens.get("in")
+            or 0
+        )
+        out_toks = (
+            frame.get("output_tokens")
+            or tokens.get("output_tokens")
+            or tokens.get("out")
+            or 0
+        )
+        turn_count = (
+            frame.get("turn_count") or tokens.get("turn_count") or 0
+        )
+        try:
+            metrics.input_tokens = int(in_toks or 0)
+            metrics.output_tokens = int(out_toks or 0)
+            metrics.turn_count = int(turn_count or 0)
+        except (TypeError, ValueError):
+            logger.debug("non-int token values in session.end frame sid=%s", sid)
         cost = frame.get("cost_usd")
         if isinstance(cost, int | float):
             metrics.cost_usd = float(cost)

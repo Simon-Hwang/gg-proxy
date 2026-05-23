@@ -147,6 +147,21 @@ class SessionStore(Protocol):
         """Move every ``running`` row to ``interrupted`` (recovery)."""
         ...
 
+    async def list_paused(self) -> Sequence[Mapping[str, Any]]:
+        """List every ``paused`` session row with a non-null ``paused_at``.
+
+        Plan 7 D7.18 / Task 14. Used by
+        :func:`gg_relay.session.recovery.recover_paused_timers` at
+        startup to re-arm or cancel the paused-timeout watchdog for
+        sessions that were paused before the previous process exit.
+
+        Returns rows newest-first by ``paused_at`` so the recovery
+        loop processes the most recently paused first (a marginal
+        optimisation — startup recovery typically touches a handful
+        of rows so ordering doesn't materially affect cost).
+        """
+        ...
+
 
 @runtime_checkable
 class FrameStore(Protocol):

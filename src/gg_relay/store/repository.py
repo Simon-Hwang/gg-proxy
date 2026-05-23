@@ -538,6 +538,32 @@ class SqlAlchemyStore:
                 f"aggregate_tokens_by_bucket: unsupported dialect {dialect!r}"
             )
 
+    async def list_paused(self) -> list[RowMapping]:
+        """List sessions currently in the ``paused`` state.
+
+        Plan 7 D7.18 / Task 14 — feeds
+        :func:`gg_relay.session.recovery.recover_paused_timers` so the
+        startup hook can decide per row whether to re-arm the paused
+        watchdog (still within the timeout window) or cancel the
+        session outright (elapsed > ``paused_timeout_s``).
+
+        Rows are returned ordered by ``paused_at`` descending so the
+        most recently paused get processed first (only a tie-breaker —
+        recovery treats every row independently).
+        """
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(sessions)
+                .where(
+                    and_(
+                        sessions.c.status == "paused",
+                        sessions.c.paused_at.is_not(None),
+                    )
+                )
+                .order_by(sessions.c.paused_at.desc())
+            )
+            return list(result.mappings().all())
+
     async def mark_in_flight_as_interrupted(self) -> list[str]:
         """Move every row whose ``status='running'`` to ``interrupted``.
 

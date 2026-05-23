@@ -26,7 +26,7 @@ from gg_relay.api.schemas import (
     SessionResponse,
     SessionSubmitRequest,
 )
-from gg_relay.core import SessionState
+from gg_relay.core import SDKError, SessionState
 from gg_relay.session.manager import (
     MaxPausedExceeded,
     ResumeQueueTimeout,
@@ -157,6 +157,19 @@ async def submit_session(
             owner=owner,
             description=description,
         )
+    except SDKError as exc:
+        # Plan 7 D7.25 / Task 14 — typed SDK errors carry their own
+        # HTTP status + machine-readable ``error_category``. We
+        # surface both so dashboards can render an actionable message
+        # without parsing the bare exception class name.
+        raise HTTPException(
+            status_code=exc.http_status,
+            detail={
+                "code": f"sdk_{exc.category}",
+                "error_category": exc.category,
+                "message": str(exc),
+            },
+        ) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     detail = await manager.get(sid)

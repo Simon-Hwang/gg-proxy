@@ -24,7 +24,18 @@ from gg_relay.core.events import (
     ToolResolved,
     frame_to_event,
 )
-from gg_relay.core.exceptions import DurableEventDropError, HITLAlreadyResolved
+from gg_relay.core.exceptions import (
+    DurableEventDropError,
+    HITLAlreadyResolved,
+    SDKConnectError,
+    SDKError,
+    SDKPermissionError,
+    SDKQueryError,
+    SDKTimeoutError,
+    SDKTransportError,
+    SDKUnknownError,
+    classify_sdk_error,
+)
 from gg_relay.core.protocol import DurableEventStore
 
 __all__ = [
@@ -42,6 +53,13 @@ __all__ = [
     "InstallError",
     "RelayEvent",
     "RelayEventT",
+    "SDKConnectError",
+    "SDKError",
+    "SDKPermissionError",
+    "SDKQueryError",
+    "SDKTimeoutError",
+    "SDKTransportError",
+    "SDKUnknownError",
     "SessionCompleted",
     "SessionCreated",
     "SessionOutputChunk",
@@ -50,6 +68,7 @@ __all__ = [
     "SessionSummary",
     "ToolRequested",
     "ToolResolved",
+    "classify_sdk_error",
     "frame_to_event",
     "is_legal_transition",
 ]

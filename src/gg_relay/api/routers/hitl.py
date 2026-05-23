@@ -114,6 +114,14 @@ async def resolve(
         # loser's body is informative.
         winner_row = await store.get_hitl(full_req_id)
         return _conflict_response(full_req_id, winner_row)
+    except HITLAlreadyResolved:
+        # Plan 7 D7.20 / Task 14 — the coordinator's optional
+        # ``store`` reference detected the row was already resolved
+        # out-of-band (e.g. cross-worker race or direct
+        # ``upsert_hitl`` from a job). Fetch a fresh row so the
+        # response carries the most-recent winning decision.
+        winner_row = await store.get_hitl(full_req_id)
+        return _conflict_response(full_req_id, winner_row)
 
     # Persist the decision with the version-checked upsert. A
     # cross-worker race (rare; covered for completeness) surfaces as
@@ -154,6 +162,7 @@ def _conflict_response(req_id: str, winner_row: Any | None) -> JSONResponse:
         {
             "detail": "HITL request {req_id} already resolved",
             "code": "hitl_already_resolved",
+            "error_category": "hitl_already_resolved",
             "first_decision": {
                 "status": "...",
                 "resolver": "...",
@@ -162,8 +171,11 @@ def _conflict_response(req_id: str, winner_row: Any | None) -> JSONResponse:
             } | null
         }
 
-    ``first_decision`` is ``null`` when the in-process race path had no
-    DB row to copy from (Plan 4 coordinator-only flows).
+    Plan 7 D7.25 / Task 14 — the ``error_category`` field mirrors the
+    SDKError taxonomy contract on the sessions router so machine
+    clients can dispatch on a uniform field across both paths.
+    ``first_decision`` is ``null`` when the in-process race path had
+    no DB row to copy from (Plan 4 coordinator-only flows).
     """
     err = HITLAlreadyResolved(
         req_id, first_decision=_decision_from_row(winner_row)
@@ -172,6 +184,7 @@ def _conflict_response(req_id: str, winner_row: Any | None) -> JSONResponse:
         {
             "detail": str(err),
             "code": "hitl_already_resolved",
+            "error_category": "hitl_already_resolved",
             "first_decision": err.first_decision,
         },
         status_code=409,

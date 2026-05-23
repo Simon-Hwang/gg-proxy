@@ -36,16 +36,42 @@ version-check defence-in-depth lives one level up in
 The HITL workflow deliberately does **not** retry on version mismatch
 — a contested resolve has at most one winner and surfaces a 409
 immediately rather than swallowing the conflict.
+
+Plan 7 D7.20 / Task 14: defence-in-depth pull-up. The coordinator now
+accepts an optional ``store`` reference and, when supplied, consults
+the row's ``status`` BEFORE flipping the in-process future. A row
+whose status has already left ``pending`` (e.g. another worker
+resolved it via direct ``upsert_hitl`` without going through this
+coordinator) causes :class:`gg_relay.core.HITLAlreadyResolved` to be
+raised directly — even if the in-process future is still pending.
+This way, callers that catch :class:`HITLAlreadyResolved` get full
+``first_decision`` payload without needing to know about the router-
+layer escape hatch.
 """
 from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+from gg_relay.core import HITLAlreadyResolved
+
+if TYPE_CHECKING:
+    from gg_relay.store.protocol import HITLStore
 
 
 class HITLNotPending(LookupError):
-    """``resolve()`` called for a ``req_id`` not currently pending."""
+    """``resolve()`` called for a ``req_id`` not currently pending.
+
+    Plan 7 D7.20 / Task 14 — this remains a distinct exception class
+    (not folded into :class:`HITLAlreadyResolved`) for backwards
+    compatibility with Plan 4 tests + the router's existing
+    ``except HITLNotPending`` block. New call sites that want full
+    ``first_decision`` payloads should also catch
+    :class:`gg_relay.core.HITLAlreadyResolved` which the coordinator
+    raises whenever its optional ``store`` reports the row is no
+    longer in ``pending`` state.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +82,27 @@ class _PendingEntry:
     session_id: str
 
 
+def _first_decision_from_row(row: Any) -> dict[str, Any]:
+    """Render a HITL DB row into the ``first_decision`` body fragment.
+
+    Plan 7 D7.20 / Task 14 — mirrors the helper in
+    :mod:`gg_relay.api.routers.hitl` so the coordinator can build the
+    same shape without depending on the router module (which would
+    create a circular import). ``resolved_at`` is converted to ISO
+    8601 so callers can serialise the dict to JSON without further
+    handling.
+    """
+    resolved_at = row.get("resolved_at")
+    return {
+        "status": row["status"],
+        "resolver": row.get("resolver"),
+        "reason": row.get("reason"),
+        "resolved_at": (
+            resolved_at.isoformat() if resolved_at is not None else None
+        ),
+    }
+
+
 class HITLCoordinator:
     """Stores pending HITL requests by ``req_id``; resolve() wakes the awaiter.
 
@@ -64,11 +111,36 @@ class HITLCoordinator:
     unique key. The optional ``session_id`` kwarg on
     :meth:`request` lets the caller annotate the entry for later filtering
     by :meth:`pending_snapshot` and :meth:`cancel_all`.
+
+    Plan 7 D7.20 / Task 14 — the optional ``store`` kwarg wires in
+    defence-in-depth race protection. When set, :meth:`resolve`
+    consults the row's status BEFORE flipping the in-process future,
+    so a row that was resolved out-of-band (e.g. another worker, or a
+    direct ``upsert_hitl`` from a job) surfaces
+    :class:`gg_relay.core.HITLAlreadyResolved` immediately with a
+    fully-populated ``first_decision`` body. Tests that don't care
+    about cross-worker races leave ``store=None``.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, store: HITLStore | None = None) -> None:
         self._pending: dict[str, _PendingEntry] = {}
         self._lock = asyncio.Lock()
+        self._store = store
+
+    @property
+    def store(self) -> HITLStore | None:
+        return self._store
+
+    def attach_store(self, store: HITLStore) -> None:
+        """Late-bind the optional DB store.
+
+        Used by :mod:`gg_relay.api.main` so the lifespan can construct
+        the coordinator before the engine and then wire the store
+        once the engine is initialised. Idempotent — overwriting an
+        existing reference is allowed (tests may rebind to a fresh
+        DB between fixture phases).
+        """
+        self._store = store
 
     async def request(
         self,
@@ -121,9 +193,30 @@ class HITLCoordinator:
     ) -> None:
         """Wake the ``request(req_id)`` coroutine with ``decision`` + ``reason``.
 
-        Raises :class:`HITLNotPending` if the request was never registered
-        or has already been resolved.
+        Plan 7 D7.20 / Task 14 — when the coordinator was constructed
+        with an optional ``store`` reference, we consult the DB row's
+        status BEFORE flipping the future:
+
+        * row absent or in ``pending`` → proceed as before (in-process
+          fast path).
+        * row in any non-pending status → raise
+          :class:`gg_relay.core.HITLAlreadyResolved` directly with a
+          fully-populated ``first_decision`` from the row.
+
+        This covers the cross-worker race the router cannot see (one
+        worker resolves via :meth:`HITLStore.upsert_hitl` directly,
+        the other worker's coordinator still holds the pending
+        future). Callers that only have the in-memory coordinator
+        will continue to see :class:`HITLNotPending` from the
+        existing fast-path branch.
         """
+        if self._store is not None:
+            cur = await self._store.get_hitl(req_id)
+            if cur is not None and cur["status"] != "pending":
+                raise HITLAlreadyResolved(
+                    req_id,
+                    first_decision=_first_decision_from_row(cur),
+                )
         async with self._lock:
             entry = self._pending.get(req_id)
             if entry is None or entry.future.done():

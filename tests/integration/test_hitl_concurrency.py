@@ -1,7 +1,7 @@
-"""Plan 7 D7.5 / Task 8 — HITL resolve race-condition tests.
+"""Plan 7 D7.5 / Task 8 + D7.20 / Task 14 — HITL resolve race tests.
 
-Two integration tests against the real FastAPI app exercising the
-HITL resolve flow's race-condition handling:
+Integration tests against the real FastAPI app exercising the HITL
+resolve flow's race-condition handling at multiple layers:
 
 * :func:`test_two_resolve_same_req_race` — two concurrent
   ``POST /sessions/{sid}/hitl/{req_id}`` calls. Exactly one returns
@@ -13,6 +13,18 @@ HITL resolve flow's race-condition handling:
   ``first_decision`` body fragment carrying the winning
   ``status`` / ``resolver`` / ``reason`` / ``resolved_at`` so the
   loser can render an informative error.
+
+Task 14 additions:
+* :func:`test_409_carries_first_decision_full_fields` — explicit
+  field-by-field assertion that all four ``first_decision`` keys
+  are populated when the DB row exists.
+* :func:`test_409_error_category_field` — Task 14 added the
+  ``error_category`` field for uniform machine-readable dispatch
+  alongside the SDKError taxonomy on the sessions router.
+* :func:`test_coordinator_race_via_db_update` — direct DB UPDATE
+  short-circuits the in-process coordinator; the coordinator's
+  optional store check raises :class:`HITLAlreadyResolved` so the
+  router still returns 409 with a populated ``first_decision``.
 """
 from __future__ import annotations
 
@@ -220,3 +232,157 @@ async def test_409_carries_first_decision(
     assert "looks safe" in (first["reason"] or "")
     assert first["resolver"] == "alice"
     assert first["resolved_at"] is not None
+
+
+# ── Plan 7 Task 14 (D7.20+D7.25) — extended HITL race coverage ────
+
+
+async def test_409_carries_first_decision_full_fields(
+    app_bundle: tuple[AsyncClient, HITLCoordinator, Any],
+) -> None:
+    """Field-by-field assertion that ``first_decision`` is complete.
+
+    Plan 7 D7.20 / Task 14 — guards against silent regression where
+    one of the four required keys (``status`` / ``resolver`` /
+    ``reason`` / ``resolved_at``) stops being populated. The
+    409 contract for HITL race losers is the foundation operators
+    rely on to render "Alice already approved this at 14:32" toasts.
+    """
+    ac, coord, store = app_bundle
+    sid = "s-full-fields"
+    full_req_id = f"{sid}:r1"
+    pending_task = await _seed_pending_hitl(
+        store, coord, sid=sid, full_req_id=full_req_id
+    )
+
+    r_win = await ac.post(
+        f"/api/v1/sessions/{sid}/hitl/r1",
+        json={
+            "decision": "deny",
+            "reason": "looks dangerous",
+            "resolver": "carol",
+        },
+        headers=HEADERS,
+    )
+    assert r_win.status_code == 200, r_win.text
+    await asyncio.wait_for(pending_task, timeout=0.5)
+
+    r_loss = await ac.post(
+        f"/api/v1/sessions/{sid}/hitl/r1",
+        json={"decision": "accept", "resolver": "dave"},
+        headers=HEADERS,
+    )
+    assert r_loss.status_code == 409, r_loss.text
+    body = r_loss.json()
+    first = body.get("first_decision")
+    assert first is not None, f"missing first_decision in body: {body}"
+    # All four required keys present.
+    assert set(first.keys()) >= {"status", "resolver", "reason", "resolved_at"}
+    assert first["status"] == "deny"
+    assert first["resolver"] == "carol"
+    # Reason is suffixed with "|by:<resolver>"; assert original survives.
+    assert "looks dangerous" in (first["reason"] or "")
+    # resolved_at must be a non-empty isoformat string.
+    assert isinstance(first["resolved_at"], str)
+    assert len(first["resolved_at"]) > 0
+
+
+async def test_409_error_category_field(
+    app_bundle: tuple[AsyncClient, HITLCoordinator, Any],
+) -> None:
+    """Plan 7 D7.25 / Task 14 — 409 body carries ``error_category``.
+
+    The HITL router uses the same ``error_category`` field name the
+    sessions router emits for SDKError taxonomy mapping, so machine
+    clients can dispatch uniformly on a single body key across both
+    surfaces.
+    """
+    ac, coord, store = app_bundle
+    sid = "s-err-cat"
+    full_req_id = f"{sid}:r1"
+    pending_task = await _seed_pending_hitl(
+        store, coord, sid=sid, full_req_id=full_req_id
+    )
+
+    r_win = await ac.post(
+        f"/api/v1/sessions/{sid}/hitl/r1",
+        json={"decision": "accept", "resolver": "alice"},
+        headers=HEADERS,
+    )
+    assert r_win.status_code == 200, r_win.text
+    await asyncio.wait_for(pending_task, timeout=0.5)
+
+    r_loss = await ac.post(
+        f"/api/v1/sessions/{sid}/hitl/r1",
+        json={"decision": "deny", "resolver": "bob"},
+        headers=HEADERS,
+    )
+    assert r_loss.status_code == 409, r_loss.text
+    body = r_loss.json()
+    assert body.get("error_category") == "hitl_already_resolved", (
+        f"missing/wrong error_category: {body}"
+    )
+    assert body.get("code") == "hitl_already_resolved"
+
+
+async def test_coordinator_race_via_db_update(
+    app_bundle: tuple[AsyncClient, HITLCoordinator, Any],
+) -> None:
+    """Plan 7 D7.20 / Task 14 — coordinator defence-in-depth via store.
+
+    Simulate the cross-worker race the router cannot see: a direct
+    DB UPDATE moves the row out of ``pending`` while the in-process
+    coordinator still holds the pending future. When the API
+    receives a resolve call, the coordinator's optional ``store``
+    reference detects the row is no longer pending and raises
+    :class:`HITLAlreadyResolved` directly. The router catches it
+    and returns 409 with a fully-populated ``first_decision``.
+    """
+    from datetime import UTC, datetime
+
+    ac, coord, store = app_bundle
+    sid = "s-coord-race"
+    full_req_id = f"{sid}:r1"
+    pending_task = await _seed_pending_hitl(
+        store, coord, sid=sid, full_req_id=full_req_id
+    )
+
+    # Race: directly UPDATE the row's status without touching the
+    # coordinator. Emulates another worker that wrote through
+    # ``upsert_hitl`` and bypassed THIS worker's coordinator.
+    await store.upsert_hitl(
+        id=full_req_id,
+        session_id=sid,
+        tool="Bash",
+        args_json={"cmd": "ls"},
+        status="accept",
+        created_at=datetime.now(UTC),
+        resolved_at=datetime.now(UTC),
+        reason="raced by another worker",
+        resolver="external-worker",
+    )
+
+    # Now the local API tries to resolve — coordinator sees the row
+    # is no longer pending via its optional store reference.
+    resp = await ac.post(
+        f"/api/v1/sessions/{sid}/hitl/r1",
+        json={"decision": "deny", "resolver": "local-bob"},
+        headers=HEADERS,
+    )
+    assert resp.status_code == 409, resp.text
+    body = resp.json()
+    assert body["code"] == "hitl_already_resolved"
+    assert body.get("error_category") == "hitl_already_resolved"
+    first = body.get("first_decision")
+    assert first is not None
+    assert first["status"] == "accept"
+    assert first["resolver"] == "external-worker"
+    assert "raced by another worker" in (first["reason"] or "")
+
+    # Cleanup: cancel the still-pending coordinator future so the
+    # fixture teardown doesn't see a hung task.
+    import contextlib
+
+    pending_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError, TimeoutError):
+        await asyncio.wait_for(pending_task, timeout=0.5)
