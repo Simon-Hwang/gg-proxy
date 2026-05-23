@@ -307,4 +307,104 @@ class HITLStore(Protocol):
         ...
 
 
-__all__ = ["AuditStore", "FrameStore", "HITLStore", "SessionStore"]
+@runtime_checkable
+class CommentStore(Protocol):
+    """Async DAO surface for the ``session_comments`` table (Plan 8 D8.5).
+
+    Implemented by :class:`gg_relay.store.repository.SqlAlchemyStore`.
+    Backs the comment CRUD endpoints in
+    :mod:`gg_relay.api.routers.comments` and the Task-8 dashboard
+    comment stream.
+
+    Soft-delete semantics: ``soft_delete_comment`` sets ``deleted_at``;
+    ``list_comments`` filters out soft-deleted rows by default. Hard
+    delete is not exposed — the moderation trail survives in
+    ``session_comments`` itself, and ``audit_log`` retains the
+    ``comment_delete`` action.
+
+    All ``conn`` kwargs follow the v2.1 MAJOR 3 durable-outbox pattern:
+    when the caller already has an open transaction (e.g. wrapping
+    the comment write together with an :meth:`AuditStore.record_audit`
+    call), passing ``conn=`` reuses that transaction so the two
+    writes commit or roll back together. Without ``conn`` the method
+    opens its own short-lived transaction.
+    """
+
+    async def create_comment(
+        self,
+        *,
+        session_id: str,
+        author: str,
+        body_markdown: str,
+        body_html: str,
+        conn: Any = None,
+    ) -> Mapping[str, Any]:
+        """Insert a comment row; return the full row dict including
+        ``id``, ``created_at``, ``updated_at``, ``deleted_at=None``.
+
+        ``body_html`` MUST already be sanitised by the caller
+        (:func:`gg_relay.comments.sanitizer.render_safe`) — the store
+        never inspects HTML for XSS payloads.
+        """
+        ...
+
+    async def list_comments(
+        self,
+        *,
+        session_id: str,
+        include_deleted: bool = False,
+        limit: int = 100,
+    ) -> Sequence[Mapping[str, Any]]:
+        """List comments for one session, oldest first.
+
+        ``include_deleted=False`` (default) hides soft-deleted rows.
+        The list is capped at ``limit`` rows; pagination cursors are
+        not exposed (per-session threads are bounded by UX).
+        """
+        ...
+
+    async def get_comment(
+        self, *, comment_id: int
+    ) -> Mapping[str, Any] | None:
+        """Fetch a single comment row by id, or ``None`` if absent.
+
+        Soft-deleted rows are returned (caller filters); the moderation
+        path needs to read the tombstoned row.
+        """
+        ...
+
+    async def update_comment(
+        self,
+        *,
+        comment_id: int,
+        body_markdown: str,
+        body_html: str,
+        conn: Any = None,
+    ) -> bool:
+        """Update ``body_markdown`` + ``body_html`` + ``updated_at``.
+
+        Refuses to touch a soft-deleted row (the UPDATE adds
+        ``deleted_at IS NULL``). Returns ``True`` on success,
+        ``False`` if no live row matched.
+        """
+        ...
+
+    async def soft_delete_comment(
+        self, *, comment_id: int, conn: Any = None
+    ) -> bool:
+        """Tombstone a comment by stamping ``deleted_at`` to ``utcnow``.
+
+        Idempotent: a second soft-delete on the same id returns
+        ``False`` (the ``deleted_at IS NULL`` WHERE clause already
+        excludes the tombstoned row).
+        """
+        ...
+
+
+__all__ = [
+    "AuditStore",
+    "CommentStore",
+    "FrameStore",
+    "HITLStore",
+    "SessionStore",
+]

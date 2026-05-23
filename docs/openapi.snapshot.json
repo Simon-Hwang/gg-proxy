@@ -55,6 +55,38 @@
         "title": "CancelRequest",
         "type": "object"
       },
+      "CommentCreate": {
+        "description": "POST body for create. ``body`` is raw markdown the server\nsanitises before storing.",
+        "properties": {
+          "body": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "CommentCreate",
+        "type": "object"
+      },
+      "CommentUpdate": {
+        "description": "PATCH body for edit. Same shape + bounds as create.",
+        "properties": {
+          "body": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Body",
+            "type": "string"
+          }
+        },
+        "required": [
+          "body"
+        ],
+        "title": "CommentUpdate",
+        "type": "object"
+      },
       "FrameOut": {
         "properties": {
           "payload": {
@@ -874,6 +906,95 @@
         ]
       }
     },
+    "/api/v1/comments/{comment_id}": {
+      "delete": {
+        "description": "Soft-delete a comment.\n\nAuthorization: ``author`` OR ``admin`` (per Plan 8 \u00a77 Task 7).\nThe admin check reuses :data:`ROLE_HIERARCHY` so the comparison\nmatches every other ``require_role`` site \u2014 a future\n\"moderator\" tier between submitter and admin would propagate\nhere without code changes if added below ``admin`` in the\nhierarchy.\n\nIdempotent at the 404 boundary: a second DELETE on the same\ncomment returns the same 404 ``comment_not_found`` body because\nthe soft-delete predicate filters out tombstoned rows.",
+        "operationId": "delete_comment_api_v1_comments__comment_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "comment_id",
+            "required": true,
+            "schema": {
+              "title": "Comment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Comment",
+        "tags": [
+          "comments"
+        ]
+      },
+      "patch": {
+        "description": "Edit a comment body.\n\nAuthorization: only the original ``author`` (server-side label)\nmay edit. Admins are deliberately excluded \u2014 moderation flows\nthrough DELETE so the original wording is preserved.\n\n404 when the comment is missing or already soft-deleted; 403\nwith ``forbidden_comment_edit`` when the caller is not the\nauthor. The 409 ``comment_update_failed`` branch covers the\nrare concurrent-delete race where the row exists at read time\nbut a parallel DELETE soft-deletes it before the UPDATE lands.",
+        "operationId": "update_comment_api_v1_comments__comment_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "comment_id",
+            "required": true,
+            "schema": {
+              "title": "Comment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Comment Api V1 Comments  Comment Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Comment",
+        "tags": [
+          "comments"
+        ]
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "description": "List sessions newest-first with cursor pagination.\n\nPlan 7 D7.6 / Task 9. Pass ``after=<next_cursor>`` from a previous\nresponse to fetch the next page; ``limit`` is capped at 100 to keep\npage sizes bounded. The response body carries both the new\ncursor-shaped fields (``items`` + ``next_cursor``) and the\ndeprecated v0.6 fields (``sessions`` alias + ``total=-1`` sentinel)\nso existing clients keep working until 0.8.0.\n\nError mapping \u2014 body is a flat ``{\"detail\": msg, \"code\": ...}`` JSON\nobject (no nesting) so machine clients can dispatch on ``code``:\n  * 400 ``invalid_status``           \u2014 unknown ``status`` value\n  * 400 ``cursor_invalid``           \u2014 malformed ``after`` token\n  * 400 ``cursor_filter_mismatch``   \u2014 cursor was minted under a\n    different ``status`` / ``tag`` combination than the current\n    query (re-mint by dropping ``after`` and starting over)",
@@ -1178,6 +1299,114 @@
         "summary": "Cancel Session",
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/api/v1/sessions/{session_id}/comments": {
+      "get": {
+        "description": "List comments for one session, oldest first.\n\nSoft-deleted rows are excluded; ``limit`` caps the response\n(default 100 \u2014 per-session threads are bounded by UX). 404 if\nthe session does not exist so a typo'd id surfaces clearly\ninstead of returning an empty list that the dashboard would\nconfuse with \"no discussion yet\".",
+        "operationId": "list_comments_api_v1_sessions__session_id__comments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Comments Api V1 Sessions  Session Id  Comments Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Comments",
+        "tags": [
+          "comments"
+        ]
+      },
+      "post": {
+        "description": "Create a comment on ``session_id``.\n\nAuth: ``submitter+`` via the route ``Depends``. The session must\nexist (404 otherwise). ``author`` is captured server-side from\n``request.state.api_key_label`` so a malicious client cannot\nimpersonate another user by spoofing a JSON field.\n\nThe body is sanitised through :func:`render_safe` BEFORE the\nstore write so the database always holds the post-bleach HTML.\nAudit row lands after the insert with\n``action='comment_create'``.",
+        "operationId": "create_comment_api_v1_sessions__session_id__comments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Comment Api V1 Sessions  Session Id  Comments Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Comment",
+        "tags": [
+          "comments"
         ]
       }
     },

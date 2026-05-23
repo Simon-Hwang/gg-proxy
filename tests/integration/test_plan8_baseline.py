@@ -79,7 +79,7 @@ def test_alembic_head_advances_with_plan_8() -> None:
     Phase 0 froze on ``0005`` (Plan 7 baseline). Each Plan 8 task that
     lands a migration bumps this gate so a regression that drops a
     migration is caught immediately. Current expected head:
-    ``0006`` (Task 5, D8.4 audit_log).
+    ``0007`` (Task 7, D8.5 session_comments).
     """
     result = subprocess.run(
         ["uv", "run", "alembic", "heads"],
@@ -87,7 +87,7 @@ def test_alembic_head_advances_with_plan_8() -> None:
         text=True,
         cwd=REPO_ROOT,
     )
-    assert "0006" in result.stdout, (
-        f"alembic head not 0006: stdout={result.stdout!r} "
+    assert "0007" in result.stdout, (
+        f"alembic head not 0007: stdout={result.stdout!r} "
         f"stderr={result.stderr!r}"
     )

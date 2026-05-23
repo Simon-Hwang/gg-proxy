@@ -35,7 +35,13 @@ from gg_relay.store.exceptions import (
     CursorFilterMismatchError,
     CursorInvalidError,
 )
-from gg_relay.store.schema import audit_log, frames, hitl_requests, sessions
+from gg_relay.store.schema import (
+    audit_log,
+    frames,
+    hitl_requests,
+    session_comments,
+    sessions,
+)
 
 
 def _utcnow() -> datetime:
@@ -1039,6 +1045,182 @@ class SqlAlchemyStore:
                 ts=last["ts"], id=int(last["id"]), filter_hash=fh
             )
         return rows, next_cursor
+
+
+    # ── session_comments (Plan 8 D8.5 / Task 7) ───────────────────────
+
+    async def create_comment(
+        self,
+        *,
+        session_id: str,
+        author: str,
+        body_markdown: str,
+        body_html: str,
+        conn: Any = None,
+    ) -> dict[str, Any]:
+        """Insert one comment row; return the materialised row dict.
+
+        Plan 8 D8.5 / Task 7. ``body_html`` MUST already be sanitised
+        by :func:`gg_relay.comments.sanitizer.render_safe` — the
+        store does not inspect HTML for XSS. ``body_markdown`` is
+        kept verbatim so a future sanitizer upgrade can re-render
+        historical rows.
+
+        The same-tx ``conn`` kwarg follows the v2.1 MAJOR 3
+        durable-outbox pattern: the router wraps the
+        :meth:`AuditService.record` call inside the same
+        ``engine.begin()`` block so the comment + its audit row
+        commit or roll back atomically. Without ``conn`` the method
+        opens its own short-lived transaction.
+
+        The returned dict mirrors the on-disk row shape so callers
+        can hand it straight to the response serializer without a
+        follow-up ``get_comment`` round trip.
+        """
+        now = _utcnow()
+        stmt = insert(session_comments).values(
+            session_id=session_id,
+            author=author,
+            body_markdown=body_markdown,
+            body_html=body_html,
+            created_at=now,
+            updated_at=now,
+            deleted_at=None,
+        )
+        if conn is not None:
+            result = await conn.execute(stmt)
+        else:
+            async with self._engine.begin() as new_conn:
+                result = await new_conn.execute(stmt)
+        pk = result.inserted_primary_key
+        cid = int(pk[0]) if pk and pk[0] is not None else 0
+        return {
+            "id": cid,
+            "session_id": session_id,
+            "author": author,
+            "body_markdown": body_markdown,
+            "body_html": body_html,
+            "created_at": now,
+            "updated_at": now,
+            "deleted_at": None,
+        }
+
+    async def list_comments(
+        self,
+        *,
+        session_id: str,
+        include_deleted: bool = False,
+        limit: int = 100,
+    ) -> list[RowMapping]:
+        """List comments for one session, oldest first.
+
+        Plan 8 D8.5 / Task 7. Tied to the
+        ``ix_session_comments_session_created`` composite index so
+        the canonical "render the discussion thread top-to-bottom"
+        query is one seek + a sequential scan over a small range.
+
+        Soft-deleted rows (``deleted_at IS NOT NULL``) are excluded
+        by default; the moderation path passes ``include_deleted=True``
+        to retrieve the tombstoned rows for review.
+        """
+        where: list[sa.ColumnElement[bool]] = [
+            session_comments.c.session_id == session_id,
+        ]
+        if not include_deleted:
+            where.append(session_comments.c.deleted_at.is_(None))
+        stmt = (
+            select(session_comments)
+            .where(*where)
+            .order_by(session_comments.c.created_at.asc())
+            .limit(limit)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            return list(result.mappings().all())
+
+    async def get_comment(
+        self, *, comment_id: int
+    ) -> RowMapping | None:
+        """Fetch a single comment row by id (incl. tombstoned).
+
+        Plan 8 D8.5 / Task 7. The router uses this for the
+        author / admin authorization check on PATCH / DELETE, so
+        soft-deleted rows are returned and the caller filters on
+        ``row["deleted_at"]``.
+        """
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(session_comments).where(
+                    session_comments.c.id == comment_id
+                )
+            )
+            return result.mappings().first()
+
+    async def update_comment(
+        self,
+        *,
+        comment_id: int,
+        body_markdown: str,
+        body_html: str,
+        conn: Any = None,
+    ) -> bool:
+        """Update comment body; bump ``updated_at``. Returns ``True``
+        when a row was modified.
+
+        Plan 8 D8.5 / Task 7. Refuses to touch a soft-deleted row
+        (``WHERE deleted_at IS NULL``); a concurrent delete therefore
+        manifests as ``ok=False`` and the router maps it to a 404.
+
+        ``conn`` follows the same-tx outbox pattern documented on
+        :meth:`create_comment`.
+        """
+        stmt = (
+            update(session_comments)
+            .where(
+                session_comments.c.id == comment_id,
+                session_comments.c.deleted_at.is_(None),
+            )
+            .values(
+                body_markdown=body_markdown,
+                body_html=body_html,
+                updated_at=_utcnow(),
+            )
+        )
+        if conn is not None:
+            result = await conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
+        async with self._engine.begin() as new_conn:
+            result = await new_conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
+
+    async def soft_delete_comment(
+        self, *, comment_id: int, conn: Any = None
+    ) -> bool:
+        """Tombstone a comment by stamping ``deleted_at = utcnow``.
+
+        Plan 8 D8.5 / Task 7. Idempotent: a second soft-delete on the
+        same id returns ``False`` because the ``deleted_at IS NULL``
+        WHERE clause already excludes the tombstoned row. Callers
+        (the DELETE endpoint) map ``False`` to 404 so concurrent
+        deletes converge on the same status.
+
+        ``conn`` follows the same-tx outbox pattern documented on
+        :meth:`create_comment`.
+        """
+        stmt = (
+            update(session_comments)
+            .where(
+                session_comments.c.id == comment_id,
+                session_comments.c.deleted_at.is_(None),
+            )
+            .values(deleted_at=_utcnow())
+        )
+        if conn is not None:
+            result = await conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
+        async with self._engine.begin() as new_conn:
+            result = await new_conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
 
 
 class SessionRepository(SqlAlchemyStore):

@@ -441,3 +441,67 @@ async def test_downgrade_0006_to_0005_roundtrip(sqlite_db_url: str):
         "0005 description lost on 0006 downgrade"
     )
     assert "events" in tables, "0004 events table lost on 0006 downgrade"
+
+
+# ── Plan 8 Task 7 / D8.5: session_comments table (0007) ──────────────
+
+
+async def test_chain_0001_to_0007_upgrade(sqlite_db_url: str):
+    """0001 → … → 0007 顺次 upgrade，session_comments 表 + 复合 index 就位.
+
+    Plan 8 D8.5 / Task 7. Verifies ``session_comments`` was created
+    with the full schema (id PK / session_id FK CASCADE / author /
+    body_markdown / body_html / created_at / updated_at /
+    deleted_at) and the composite ``ix_session_comments_session_created``
+    index exists. Sanity: 0006 ``audit_log`` table is still alive
+    (we didn't accidentally rebuild it).
+    """
+    _run_upgrade(sqlite_db_url, "head")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "session_comments" in tables, (
+        f"session_comments table missing after 0007: {tables}"
+    )
+
+    cols = await _columns(sqlite_db_url, "session_comments")
+    expected = {
+        "id",
+        "session_id",
+        "author",
+        "body_markdown",
+        "body_html",
+        "created_at",
+        "updated_at",
+        "deleted_at",
+    }
+    assert expected <= cols, (
+        f"session_comments columns missing: expected {expected}, got {cols}"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "session_comments")
+    assert "ix_session_comments_session_created" in indexes, (
+        f"ix_session_comments_session_created missing: {indexes}"
+    )
+
+    # Sanity — 0006 audit_log table still present.
+    assert "audit_log" in tables, "0006 audit_log lost after 0007 upgrade"
+
+
+async def test_downgrade_0007_to_0006_roundtrip(sqlite_db_url: str):
+    """upgrade head → downgrade -1 → session_comments 表 + index 消失,
+    0006 audit_log 表仍保留 (验证只回滚 0007)."""
+    _run_upgrade(sqlite_db_url, "head")
+    _run_downgrade(sqlite_db_url, "0006")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "session_comments" not in tables, (
+        f"session_comments survived downgrade to 0006: {tables}"
+    )
+
+    # 0006 audit_log + earlier migrations must still be alive — only
+    # 0007 was rolled back.
+    assert "audit_log" in tables, (
+        "0006 audit_log table lost on 0007 downgrade"
+    )
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "owner" in sess_cols, "0005 owner lost on 0007 downgrade"

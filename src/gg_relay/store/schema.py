@@ -25,6 +25,7 @@ from sqlalchemy import (
     MetaData,
     String,
     Table,
+    Text,
     UniqueConstraint,
 )
 
@@ -233,4 +234,46 @@ audit_log = Table(
     Index("ix_audit_log_ts", "ts"),
     Index("ix_audit_log_actor_ts", "actor", "ts"),
     Index("ix_audit_log_target", "target_type", "target_id"),
+)
+
+# ── Plan 8 D8.5 (Task 7): session comments for async collaboration ──
+# Lightweight discussion thread anchored to a session id. ``body_markdown``
+# preserves the raw user input so a future sanitizer ruleset upgrade can
+# re-render historical rows; ``body_html`` is the pre-sanitized HTML the
+# dashboard renders directly (no per-page-view bleach round-trip).
+#
+# Indexes:
+#   * ``ix_session_comments_session_created`` — composite ``(session_id,
+#     created_at)`` for the canonical "list comments for this session,
+#     chronological order" query in one seek.
+#   * ``ix_session_comments_session_id`` — auto-created via the column
+#     ``index=True`` on ``session_id`` so the FK locality stays cheap.
+#   * ``ix_session_comments_author``         — equality scan for the
+#     dashboard "my comments" lookup planned for Task 8.
+#
+# Deletion is **soft** via ``deleted_at`` so the moderation trail
+# survives; the API list endpoint filters ``deleted_at IS NULL`` by
+# default. ``ON DELETE CASCADE`` on ``session_id`` is intentional: a
+# session deletion already implies the discussion is no longer
+# meaningful, and ``audit_log`` retains the audit trail.
+session_comments = Table(
+    "session_comments",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "session_id",
+        String(36),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
+    Column("author", String(64), nullable=False, index=True),
+    Column("body_markdown", Text, nullable=False),
+    Column("body_html", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("deleted_at", DateTime(timezone=True), nullable=True),
+    Index(
+        "ix_session_comments_session_created", "session_id", "created_at"
+    ),
 )

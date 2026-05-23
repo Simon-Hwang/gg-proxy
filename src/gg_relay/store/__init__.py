@@ -29,6 +29,7 @@ from gg_relay.store.exceptions import (
 )
 from gg_relay.store.protocol import (
     AuditStore,
+    CommentStore,
     FrameStore,
     HITLStore,
     SessionStore,
@@ -39,11 +40,13 @@ from gg_relay.store.schema import (
     frames,
     hitl_requests,
     metadata,
+    session_comments,
     sessions,
 )
 
 __all__ = [
     "AuditStore",
+    "CommentStore",
     "ConcurrencyError",
     "CursorFilterMismatchError",
     "CursorInvalidError",
@@ -58,5 +61,6 @@ __all__ = [
     "hitl_requests",
     "make_async_engine",
     "metadata",
+    "session_comments",
     "sessions",
 ]
