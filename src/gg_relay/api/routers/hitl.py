@@ -23,9 +23,10 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 
+from gg_relay.api.dependencies.require_role import require_role
 from gg_relay.api.deps import CoordinatorDep, StoreDep
 from gg_relay.api.schemas import (
     HITLPendingItem,
@@ -74,7 +75,11 @@ async def list_pending(
     )
 
 
-@router.post("/{req_id}", status_code=200)
+@router.post(
+    "/{req_id}",
+    status_code=200,
+    dependencies=[Depends(require_role("submitter"))],
+)
 async def resolve(
     session_id: str,
     req_id: str,

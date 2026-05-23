@@ -12,9 +12,13 @@ import contextlib
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
+from gg_relay.api.dependencies.require_role import (
+    require_role,
+    require_role_or_own_session,
+)
 from gg_relay.api.deps import ApiKeyIdDep, ManagerDep
 from gg_relay.api.schemas import (
     CancelRequest,
@@ -108,7 +112,12 @@ def _detail_to_response(detail: SessionDetail) -> SessionDetailResponse:
 _DESCRIPTION_MAX_LEN = 512
 
 
-@router.post("", response_model=SessionResponse, status_code=202)
+@router.post(
+    "",
+    response_model=SessionResponse,
+    status_code=202,
+    dependencies=[Depends(require_role("submitter"))],
+)
 async def submit_session(
     request: Request,
     body: SessionSubmitRequest,
@@ -283,7 +292,11 @@ async def get_session(
     return _detail_to_response(detail)
 
 
-@router.post("/{session_id}/cancel", status_code=202)
+@router.post(
+    "/{session_id}/cancel",
+    status_code=202,
+    dependencies=[Depends(require_role_or_own_session("admin"))],
+)
 async def cancel_session(
     session_id: str,
     body: CancelRequest | None = None,
@@ -306,7 +319,11 @@ async def cancel_session(
 _RETRY_AFTER_DEFAULT_S = 5
 
 
-@router.post("/{session_id}/pause", status_code=202)
+@router.post(
+    "/{session_id}/pause",
+    status_code=202,
+    dependencies=[Depends(require_role_or_own_session("submitter"))],
+)
 async def pause_session(
     session_id: str,
     body: PauseRequest | None = None,
@@ -354,7 +371,11 @@ async def pause_session(
     )
 
 
-@router.post("/{session_id}/resume", status_code=202)
+@router.post(
+    "/{session_id}/resume",
+    status_code=202,
+    dependencies=[Depends(require_role_or_own_session("submitter"))],
+)
 async def resume_session(
     session_id: str,
     body: ResumeRequest | None = None,
@@ -401,7 +422,11 @@ async def resume_session(
     )
 
 
-@router.delete("/{session_id}", status_code=202)
+@router.delete(
+    "/{session_id}",
+    status_code=202,
+    dependencies=[Depends(require_role_or_own_session("admin"))],
+)
 async def delete_session(
     session_id: str,
     manager: SessionManager = ManagerDep,
