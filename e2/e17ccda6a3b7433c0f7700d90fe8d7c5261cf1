@@ -1,0 +1,27 @@
+docs/api.md
+  s_9a15dee56dfe02::t_3dac8711db6982 155-172
+docs/api-snapshot-v0.7.0.json
+  s_9a15dee56dfe02::t_f37a7347284cba 1-1820
+tests/integration/test_plan8_baseline.py
+  s_9a15dee56dfe02::t_eec25e2265197c 1-85
+README.md
+  s_9a15dee56dfe02::t_4faf8d9bf04799 85-107
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_9a15dee56dfe02::t_54c6ace3ec7eba 1498-1518
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "e2e17ccda6a3b7433c0f7700d90fe8d7c5261cf1",
+  "prompts": {},
+  "sessions": {
+    "s_9a15dee56dfe02": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a0cf90ac-57d2-41ef-88d9-345f173ace6e",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
