@@ -1,0 +1,61 @@
+src/gg_relay/subscribers/__init__.py
+  s_0e8cf2b2620f17::t_d664bbbc1bdb47 1-22
+tests/integration/test_alert_routing_e2e.py
+  s_0e8cf2b2620f17::t_3e58fef9b7e667 1-206
+src/gg_relay/subscribers/failure_subscriber.py
+  s_0e8cf2b2620f17::t_f29abd497a24fd 1-130,136-138,142-200
+  s_0e8cf2b2620f17::t_8eb3bd32356920 131-135,139-141
+tests/unit/subscribers/test_failure_subscriber.py
+  s_0e8cf2b2620f17::t_5274f3814b7bb2 161-165,183-187,210-234
+  s_0e8cf2b2620f17::t_e1539d1f0466cd 7-13,38-54,64-65,69-70
+  s_0e8cf2b2620f17::t_4f0cb7229a2c3d 1-6,14-37,55-63,66-68,71-160,166-182,188-209,235-237
+tests/unit/subscribers/test_alert_router_rules.py
+  s_0e8cf2b2620f17::t_f6317b14fd5895 367
+  s_0e8cf2b2620f17::t_1ce865de4c1bf2 24-25
+  s_0e8cf2b2620f17::t_d805fd5ae48f41 310
+  s_0e8cf2b2620f17::t_f93d70a1502ea2 1-23,26-175,177-273,275-309,311-366,368-395
+  s_0e8cf2b2620f17::t_bdd20d19da3090 274
+  s_0e8cf2b2620f17::t_2956f467112a94 176
+tests/unit/subscribers/test_alert_completion.py
+  s_0e8cf2b2620f17::t_37cf0e96cd5728 13,34-48,61-68,70-74,109-116
+  s_0e8cf2b2620f17::t_8a8d176b52dba2 1-12,14-33,49-60,69,75-108,117-128
+src/gg_relay/im/backends/feishu.py
+  s_0e8cf2b2620f17::t_e6909669044782 191-278
+src/gg_relay/api/main.py
+  s_0e8cf2b2620f17::t_29f01d1e20e57e 358-377
+  s_d4578dc03276cf::t_4d9ed024862930 25,27
+  s_d4578dc03276cf::t_ebc727a6b81cb7 281
+  s_d4578dc03276cf::t_f57fe6a91d759d 504-509
+  s_0e8cf2b2620f17::t_a5799c53d5121c 391-394
+  s_d4578dc03276cf::t_83d0987201fd16 469-470,472-476,499-503
+  s_0e8cf2b2620f17::t_d6c37f4ec90535 60
+  s_d4578dc03276cf::t_a367df063cec82 205-210
+src/gg_relay/subscribers/alert_router.py
+  s_0e8cf2b2620f17::t_a80d5eaddae07d 1-263
+docs/team-deployment.md
+  s_0e8cf2b2620f17::t_a0c522aff1d30c 115-177,183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "dddb3efb007259358443039d8c95194bfd931faa",
+  "prompts": {},
+  "sessions": {
+    "s_0e8cf2b2620f17": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "d3699777-174b-4686-96d8-441547ae9fac",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_d4578dc03276cf": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "94cfa8ba-f0c0-4dba-90b7-0c91124d155d",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
