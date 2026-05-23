@@ -1,5 +1,7 @@
 # gg-relay — Implementation Plan
 
+> **Note**: Plan 5/6/7 implementation deviates from §8/§16 in several places — see [spec §17](docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md#plan-7-contract-reconciliation) for canonical contract.
+
 *Final · 2026-05-21 · Santa Method verified (2 rounds, 4 independent reviewers)*
 
 ---

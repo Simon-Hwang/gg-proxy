@@ -1294,3 +1294,167 @@ iframe `src` 走 nginx，`X-Frame-Options` 不会拦截。
 
 *Plan 6 spec 同步完。Plan 7+ roadmap 见 §9 of plan
 `docs/superpowers/plans/2026-05-22-plan-6-*.md`。*
+
+---
+
+<a id="plan-7-contract-reconciliation"></a>
+
+## §17 Plan 7 contract reconciliation (2026-05-23)
+
+*Added by Plan 7 v2.3 Task 0 (D7.13 + D7.24).*
+
+PLAN.md (2026-05-21, *Santa Method verified*) §8 (Key Data Models) and
+§16 (Integration Contract with gg-plugins) were written before Plan 4 /
+5 / 6 were implemented. Several items in those sections have **drifted
+from the running code**. This §17 declares which sub-items are
+**superseded** and provides the **canonical contract** that Plan 7+
+tasks must reference.
+
+PLAN.md itself is kept verbatim for historical/audit reasons (the
+v1 Santa Method record is preserved). Where PLAN.md and §17 disagree,
+**§17 wins**.
+
+### 17.1 Session state — lowercase string values, expanded state set
+
+PLAN.md §8 (lines 465-477) declares:
+
+```python
+class SessionState(StrEnum):
+    PENDING   = "PENDING"     # superseded
+    RUNNING   = "RUNNING"     # superseded
+    PAUSED    = "PAUSED"      # superseded
+    COMPLETED = "COMPLETED"   # superseded
+    CANCELLED = "CANCELLED"   # superseded
+    CRASHED   = "CRASHED"     # superseded
+```
+
+Plan 4 → 6 implementation in `src/gg_relay/core/domain.py` uses
+**lowercase values** and a different state set:
+
+```python
+class SessionState(StrEnum):
+    QUEUED      = "queued"
+    RUNNING     = "running"
+    PAUSED      = "paused"        # Plan 6 D6.1
+    COMPLETED   = "completed"
+    FAILED      = "failed"
+    CANCELLED   = "cancelled"
+    INTERRUPTED = "interrupted"   # crash-recovery sweep target
+```
+
+Changes vs PLAN §8:
+
+* All **wire/storage values are lowercase**. DB rows, HTTP JSON, SSE
+  events, dashboard templates, and OTel attributes all carry the
+  lowercase form. (Python enum *member names* remain UPPERCASE per
+  `StrEnum` convention.)
+* `PENDING` → renamed to `QUEUED` (Plan 4 D4.5/D4.18).
+* `CRASHED` → split into `FAILED` (handled error, terminal) and
+  `INTERRUPTED` (orphaned-on-restart sweep, terminal).
+* Authoritative transition table is `LEGAL_TRANSITIONS` +
+  `is_legal_transition()` in `core/domain.py` (Plan 6 D6.1) — *not*
+  the prose table in PLAN §8.
+
+When PLAN.md mentions a state, treat the **string value** as lowercase
+and map `PENDING`→`queued`, `CRASHED`→`failed`/`interrupted` as
+appropriate.
+
+### 17.2 No `SessionRecord` class — SessionManager + Store Protocol instead
+
+PLAN.md §8 (lines 510-526) and §12 describe a `SessionRecord` frozen
+dataclass that holds full session row state in memory with a
+`with_state()` copy-on-write helper. **This class does not exist** —
+`rg "class SessionRecord" src/gg_relay/` returns zero hits.
+
+The intermediate row-model was replaced during Plan 4 by two
+collaborating components:
+
+| Concern                      | Replacement                                                    |
+|------------------------------|----------------------------------------------------------------|
+| Lifecycle + state machine    | `SessionManager` (`src/gg_relay/session/manager.py`)           |
+| Persistence (async)          | `Store` Protocol (`src/gg_relay/store/`) — SQLAlchemy Core     |
+| Row projection (list views)  | `SessionSummary` frozen dataclass (`core/domain.py`)           |
+| Detail / spec round-trip     | Manager methods return row dicts or domain objects ad-hoc      |
+
+Plan 7+ task descriptions that reference "load a `SessionRecord`" must
+be interpreted as:
+
+* For business logic: call `SessionManager.get_session(id)` /
+  `SessionManager.list_sessions(...)`.
+* For raw row access: use the relevant `Store` async helper directly.
+* For typed list rows: `SessionSummary` (no `spec_json` — list endpoints
+  intentionally omit raw spec).
+
+### 17.3 Health probes — `/healthz` + `/readyz`
+
+PLAN.md §16 (line 752) advertises `GET /health`. PLAN.md §6 P0-11 also
+mentions `/health + /ready`. Plan 4 instead ships, in
+`src/gg_relay/api/routers/health.py`:
+
+| Probe       | Path             | Auth | Semantics                                       |
+|-------------|------------------|------|-------------------------------------------------|
+| Liveness    | `GET /healthz`   | none | Process is up — always `{"status":"ok"}`.       |
+| Readiness   | `GET /readyz`    | none | SessionManager exists *and* `accepting_new`.    |
+
+`/readyz` returns `{"status":"starting"}` before manager construction
+and `{"status":"draining"}` once `SessionManager.shutdown()` has been
+entered (Plan 4 D4.18 graceful drain semantics).
+
+Plan 7 Task 6 (DB-aware readiness) extends **`/readyz` only** — it
+performs a `SELECT 1` and downgrades to non-2xx on DB failure.
+`/healthz` stays trivially-true on purpose so k8s liveness never
+flaps on DB transients.
+
+When PLAN.md §6 / §11 / §13 / §16 mentions `/health` or `/ready`,
+read them as `/healthz` / `/readyz` respectively.
+
+### 17.4 Dashboard surface — actual routes
+
+PLAN.md and earlier sketches in this spec describe a v1 dashboard with
+a single `/sessions` overview. The current dashboard
+(`src/gg_relay/dashboard/router.py`, evolved through Plan 4 D4.10 /
+D4.11 and Plan 6 D6.3 / D6.4 / D6.5 / D6.13 / D6.16) exposes:
+
+| Route                                       | Purpose                                    |
+|---------------------------------------------|--------------------------------------------|
+| `GET  /login`, `POST /login`, `POST /logout` | API-key cookie session login.              |
+| `GET  /sessions`                            | List view (queued + running + paused).     |
+| `GET  /sessions/{id}`                       | Detail page — events, HITL, controls.      |
+| `GET  /sessions/{id}/chart`                 | Per-session usage chart fragment.          |
+| `GET  /sessions/{id}/trace`                 | OTel trace deep-link fragment.             |
+| `POST /sessions/{id}/hitl/{req_id}`         | HITL approve / deny action.                |
+| `GET  /kanban`                              | Kanban board page (Plan 6 D6.4).           |
+| `GET  /kanban/board`                        | Kanban board HTMX fragment.                |
+| `GET  /kanban/stream`                       | SSE push for board updates (Plan 6 D6.5).  |
+| `GET  /kanban/chart`                        | Aggregate Kanban chart fragment.           |
+
+Plan 7+ tasks that touch dashboard surface area must extend **this**
+table (in §17), not PLAN.md.
+
+### 17.5 What §17 does *not* change
+
+The following PLAN.md sections remain authoritative and unchanged —
+Plan 7 Task 0 does **not** touch them:
+
+* §1–§7 — project overview, repo layout, architecture overview,
+  tech stack, module architecture, phase plan, skeleton.
+* §9 — Event Bus contract (`AsyncEventBus`, delivery tiers, P5 Redis
+  swap shape).
+* §10 — OTel tracing span hierarchy.
+* §11 — IM integration shape (`IMBackend` Protocol, webhook router).
+* §13 — Security baseline (API key auth, webhook verification,
+  redaction).
+* §14 — HITL design (now further refined by spec §7).
+* §17 of PLAN.md — Implementation Notes.
+
+### 17.6 Extending §17
+
+Plan 7 Task 1+ may discover additional drift. Each follow-up reconciliation
+must:
+
+1. Append a new subsection (`17.7`, `17.8`, …) here.
+2. Quote the PLAN.md text being superseded.
+3. State the running-code reality with a code citation.
+4. **Never** rewrite PLAN.md historical body — the v1 Santa Method
+   audit trail is preserved verbatim.
+
