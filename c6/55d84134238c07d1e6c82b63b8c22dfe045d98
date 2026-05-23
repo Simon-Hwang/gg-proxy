@@ -1,0 +1,51 @@
+docs/openapi.snapshot.json
+  s_73ea27d9447e10::t_59f5de87b3d2cd 564-669,1559-1728,2564-2796
+src/gg_relay/dashboard/templates/base.html
+  s_73ea27d9447e10::t_d7891bf77b8070 22
+src/gg_relay/dashboard/router.py
+  s_73ea27d9447e10::t_a978ed28d88f8c 601-746
+  s_73ea27d9447e10::t_4b13a54571288e 43
+src/gg_relay/dashboard/templates/_search_results.html
+  s_73ea27d9447e10::t_a9219df485fb84 1-37
+tests/integration/test_search_e2e.py
+  s_73ea27d9447e10::t_83e464340343db 1-274
+tests/unit/store/test_search_query.py
+  s_73ea27d9447e10::t_f6201963204643 1-125
+src/gg_relay/api/schemas.py
+  s_73ea27d9447e10::t_d4491d542cfd3f 124-163
+src/gg_relay/dashboard/templates/search.html
+  s_73ea27d9447e10::t_5c4e23d94bc965 1-38
+src/gg_relay/store/repository.py
+  s_73ea27d9447e10::t_cd11c982caa989 28-39
+  s_9ebaa6fed0f427::t_5bf4592757ab1f 246-322
+  s_73ea27d9447e10::t_a970e4bde8ef07 592-703
+src/gg_relay/store/protocol.py
+  s_73ea27d9447e10::t_cca19496c07326 133-159
+src/gg_relay/api/routers/sessions.py
+  s_73ea27d9447e10::t_81f0f1da8b6139 12,14,34-35
+  s_73ea27d9447e10::t_b0704b3e362155 287-397
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "c655d84134238c07d1e6c82b63b8c22dfe045d98",
+  "prompts": {},
+  "sessions": {
+    "s_73ea27d9447e10": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e303e800-3ffb-43cc-97e3-a7d63fcf36ce",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_9ebaa6fed0f427": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5c3e015b-1e72-42be-bcaa-dcbd250dd09d",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
