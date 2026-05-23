@@ -1,6 +1,19 @@
 # Plan 8 — Team Collaboration & Optional Multi-Worker
 
-**作者**: gg-relay  **创建**: 2026-05-23  **修订**: v2.3 (v2.2 用户回炉 + micro-Santa 3 BLOCKER + 5 MAJOR 修复)  **状态**: 🟢 **LOCKED** — Santa Method 双轮 + v2.2 micro + v2.3 micro-Santa 修复
+**作者**: gg-relay  **创建**: 2026-05-23  **修订**: v2.4 (D8.30 cost attribution + per-role default view micro-补充)  **状态**: 🟢 **LOCKED** — Santa 双轮 + v2.2/v2.3/v2.4 micro 全通过
+
+> **v2.3 → v2.4 关键改动**（"任务消耗由发起人承担" + per-role default view 需求闭合）：
+> - **+D8.30 NEW**: Per-owner cost attribution + per-role default dashboard view
+>   - 2 个新 endpoint：`GET /api/v1/cost/per-owner?from=&to=&limit=20`（聚合 group by owner）+ `GET /api/v1/cost/per-session?owner=&from=&to=`（明细）
+>   - Dashboard `/dashboard/cost` 新页面：Top-N owners 排行表 + 时间序列 chart (Chart.js)
+>   - Dashboard 默认视图按 role：submitter → `?owner={self}` "My Sessions" / admin → `?owner=all` "Team Sessions"；顶部 banner 显示 "My/Team total cost this month"
+>   - Switch view toggle（admin 可切；submitter 只能 self）
+>   - Grafana 加 `gg_relay_session_cost_usd_total{owner="..."}` series + Top-10 owner panel
+>   - **数据基础已有**（Plan 6 D6.12 cost_usd/input_tokens/output_tokens + Plan 7 D7.26 sessions.owner）；本 micro 仅加聚合 endpoint + UI
+> - **+Task 23 (Plan 8 v2.4)**: D8.30 实现 (~8 test)
+> - Scope: 20 → 21 tracked decisions / 22 → 23 task / ~182 → ~190 test
+
+> **v2.2 → v2.3 关键修复**（micro-Santa reviewer V 找出 3 BLOCKER + 5 MAJOR 全部吸收）：
 
 > **v2.2 → v2.3 关键修复**（micro-Santa reviewer V 找出 3 BLOCKER + 5 MAJOR 全部吸收）：
 > 1. **BLOCKER 1 修复**：Plan 7 D7.15 APIKeyMiddleware signature 破坏 — AC 改为"行为契约兼容；Plan 7 测试 fixture 迁移到 mock KeyResolver；中间层提供 `from_keys_with_labels()` classmethod 兼容旧构造路径仅作 deprecated shim"
@@ -86,11 +99,13 @@
 - **Migration 顺序（v2.1 修正）**：`0006 audit_log → 0007 session_comments → 0008 parent_session_id → 0009 session_favorites → 0010 prompt_templates`（5 个 new migration，与 §6 module layout + §7 Task 5/7/9/13/14 完全一致；role_mapping 走 Config 不入表，alert_mutes / hitl_mutes 砍掉）
 - audit_log middleware 改为兜底，敏感 mutation 由业务路径显式写
 
-**最终 scope (v2.2)**：**16 main + 4 boundary = 20 tracked decisions + 22 task + ~180 test**
+**最终 scope (v2.4)**：**17 main + 4 boundary = 21 tracked decisions + 23 task + ~190 test**
 - v1 起点 14 + 27 task + 155 test
 - v2 大幅收缩 + 重排 → 15+4=19 decisions / 21 task / 152 test
 - v2.1 测试加密关键路径 → ~165 test
 - v2.2 用户回炉加 D8.29 DB-backed API key 自助 → 20 decisions / 22 task / ~180 test
+- v2.3 D8.29 micro-Santa 3 BLOCKER + 5 MAJOR 修复 → 测试 → ~182 test
+- v2.4 加 D8.30 cost attribution + per-role default view → 21 decisions / 23 task / ~190 test
 
 ---
 
@@ -122,6 +137,7 @@
 | D8.21 | Session 收藏 / star | single | P0 |
 | D8.22 | Simple label role：viewer / submitter / admin（label 命名约定 + Config 显式映射） | single | P0 |
 | **D8.29** | **DB-backed API key 自助（v2.2 NEW）：表 + KeyResolver Protocol + 热加载 + admin CRUD + dashboard UI + expires/revoke/last_used_at** | **single** | **P0** |
+| **D8.30** | **Per-owner cost attribution + per-role default view（v2.4 NEW）：cost aggregation endpoint + dashboard /cost page + role-based default Kanban filter + Grafana per-owner panel** | **single** | **P0** |
 | D8.24 | Prompt templates / saved prompts（团队共享） | single | P1 |
 | D8.10 | Postgres pool tuning（pool_size/overflow/pre_ping/slow_log） | single+multi | P0 |
 | D8.3 | Maintenance command + 推荐 external cron / 独立 container（不内嵌 worker） | single | P1 |
@@ -168,10 +184,11 @@
 - Plan 7 D7.25 SDKError taxonomy → D8.7 alert 按 category 分流
 - Plan 7 D7.15 APIKeyMiddleware → D8.26 cookie auth 绑定 `dashboard-{user}` label
 
-## 4. Decisions — 19 个 (15 main + 4 boundary，+ v2.2 micro 增 D8.29 详见 §6 后)
+## 4. Decisions — 21 个 (17 main + 4 boundary，+ v2.2/v2.4 micro 增 D8.29/D8.30 详见 §6 后)
 
 > **v2.2 注**: D8.29 详细设计放在 §6 module layout 之后（避免本节过长）；§4 此处仅列摘要：
 > - **D8.29 — DB-backed API key 自助 (v2.2 NEW)**: Alembic 0011 `api_keys` 表 + `KeyResolver` Protocol (`EnvKeyResolver` bootstrap / `DBKeyResolver` runtime + 10s TTL cache + invalidate broadcast) + `APIKeyMiddleware` 改造 + admin CRUD endpoint + dashboard `/admin/keys` UI + bootstrap-admin CLI 默认 DB-backed + Plan 7 D7.26 兼容（env 仍为 bootstrap source）+ 多 worker 一致性自然解决（vs v1 D8.12 文件锁）+ DB 不可用 fallback EnvKeyResolver + observable degradation gauge
+> - **D8.30 — Per-owner cost attribution + per-role default view (v2.4 NEW)**: Cost aggregation endpoint (`GET /api/v1/cost/per-owner` + `per-session`) + dashboard `/cost` page (Top-N owners 表 + 时间序列 chart) + Kanban 默认 filter 按 role 切换 (submitter→self / admin→all) + Grafana per-owner panel；数据基础已有 (Plan 6 D6.12 cost_usd + Plan 7 D7.26 owner)
 
 
 ### D8.0 — Dashboard owner UX + CLI 子命令
@@ -416,6 +433,7 @@
 | D8.27 | SSE 走 EventBusBackend | A 透明 multi-worker | TBD |
 | D8.28 | Admin bootstrap CLI | A warning + `bootstrap-admin --dashboard-user --write-env` (v2.2 默认改 DB) | TBD |
 | **D8.29** | **DB-backed API key 自助 (v2.2)** | **A Alembic 0011 + KeyResolver Protocol + admin CRUD + dashboard UI + 10s TTL cache + invalidate broadcast** | **TBD** |
+| **D8.30** | **Per-owner cost attribution (v2.4)** | **A 2 endpoints + summary + dashboard /cost page + Kanban per-role default view + Grafana panel** | **TBD** |
 
 ## 6. Module layout
 
@@ -459,6 +477,7 @@ src/gg_relay/
 │   │   ├── alerts.py               # NEW (D8.7 minimal: rules read-only inspect)
 │   │   ├── templates.py            # NEW (D8.24)
 │   │   ├── admin_keys.py           # NEW (D8.29): POST/GET/DELETE /api/v1/admin/keys + invalidate-cache
+│   │   ├── cost.py                 # NEW (D8.30, v2.4): per-owner + per-session + summary + csv export
 │   │   ├── hitl.py                 # MODIFIED: add batch endpoint
 │   │   └── ... (existing)
 │   ├── audit_service.py            # NEW (D8.4): explicit audit.record() helpers for managers
@@ -492,7 +511,8 @@ src/gg_relay/
 │       ├── session_detail.html     # MODIFIED: comments + audit timeline + star toggle
 │       ├── alerts.html             # NEW (D8.7 minimal viewing alert rules)
 │       ├── admin.html              # NEW (D8.28 bootstrap-admin status warning)
-│       └── admin_keys.html         # NEW (D8.29): list + create dialog + revoke confirm
+│       ├── admin_keys.html         # NEW (D8.29): list + create dialog + revoke confirm
+│       └── cost.html               # NEW (D8.30, v2.4): Top-N owners table + Chart.js timeseries + summary banner
 └── maintenance/
     ├── __init__.py                 # NEW
     └── retention.py                # NEW (D8.3): retention logic (no scheduler)
@@ -759,6 +779,84 @@ async def lifespan(app):
 - 持有 worker 本地 `DBKeyResolver` 实例引用 → 收到 `ApiKeyInvalidated` event → 调 `resolver.invalidate_cache(label)`
 - 漏接语义（v2.3 MAJOR 4 修复）：RedisStream XREAD live fan-out 无 ack；worker 重启 / Redis 短暂不可达 → 漏接 event；但因 cache TTL 10s → 最多 10s 延迟后 cache miss → DB lookup → 收敛到正确状态；文档明示"漏接 invalidate event 最多延迟 10s 收敛"
 
+## 4d. D8.30 详细决策（v2.4 micro-补充）
+
+### D8.30 — Per-owner cost attribution + per-role default view (v2.4 NEW)
+
+**背景**：用户需求"任务消耗由发起人承担"+"admin 看所有任务、submitter 仅看自己"。数据基础已齐（Plan 6 D6.12 sessions.cost_usd + input/output_tokens + Plan 7 D7.26 sessions.owner），仅缺 aggregation endpoint + dashboard 可视化 + per-role default view。
+
+**已锁定**：
+
+#### 1. Cost aggregation endpoints
+- `GET /api/v1/cost/per-owner?from=2026-05-01&to=2026-05-23&limit=20&order_by=cost_desc`
+  - Query: `from` (RFC3339, default 30 days ago), `to` (default now), `limit` (max 100), `order_by` (`cost_desc` | `tokens_desc` | `sessions_desc`)
+  - Response: `[{owner: "alice", total_cost_usd: 5.32, total_input_tokens: 124000, total_output_tokens: 53000, session_count: 12, avg_cost_per_session: 0.443}, ...]`
+  - SQL: `SELECT owner, SUM(cost_usd), SUM(input_tokens), SUM(output_tokens), COUNT(*) FROM sessions WHERE ended_at BETWEEN ? AND ? AND owner IS NOT NULL GROUP BY owner ORDER BY ...`
+  - 利用 Plan 6 `ix_sessions_completed_at` index (`ended_at`)
+  - Role 权限：admin 全集；submitter/viewer 仅自己 owner（自动 `WHERE owner = request.state.api_key_label`）
+
+- `GET /api/v1/cost/per-session?owner=alice&from=&to=&limit=50&after=<cursor>`
+  - 单个 owner（或全部，admin 才允许 `owner=all`）的明细 session 列表
+  - Response: `[{session_id, prompt_summary (前 80 char), cost_usd, input_tokens, output_tokens, tags, ended_at, status, duration_ms}, ...]`
+  - 复用 Plan 7 D7.6 cursor pagination
+  - Role 权限：admin 任何 owner；submitter 仅自己（owner != self → 403）
+
+- `GET /api/v1/cost/summary` — 当前 user 一站式 summary（dashboard banner 用）
+  - Response: `{user: "alice", role: "submitter", this_month: {cost_usd: 12.34, sessions: 45}, today: {cost_usd: 0.50, sessions: 3}, team_this_month_visible_to_admin_only: 234.56 | null}`
+  - 普通 submitter 只看自己；admin 同时返回 team total
+
+#### 2. Dashboard `/dashboard/cost` 页面
+- 顶部 banner：根据 role
+  - submitter: "My total cost this month: $X.XX (Y sessions) | Today: $Z.ZZ (W sessions)"
+  - admin: "Team total cost this month: $XX.XX (YY sessions) | My share: $X.XX (Y sessions)"
+- Top-10 owners 表格（仅 admin 可见）：rank / owner / total_cost_usd / total_tokens / session_count / avg_cost / last_active_at
+- 时间序列 chart（Chart.js inline 单文件，无 npm 依赖）：
+  - X: 日期（最近 30 天，可调 7/30/90 天 toggle）
+  - Y: $USD per day
+  - Lines: per owner（admin 看 top-5 + others）或 single line（submitter 仅自己）
+- Filter form: from/to date picker + owner select (admin) + group by (owner/tag/status)
+- Export CSV button (admin only): `GET /api/v1/cost/per-owner.csv?...`
+
+#### 3. Kanban 默认 view per-role (v2.4)
+- 现有 Kanban (Plan 8 D8.0) 默认显示全部 sessions
+- v2.4 改为按 role 默认 filter：
+  - viewer/submitter: 默认 redirect to `/dashboard/?owner={self}` (即 `/dashboard/?owner=alice` if logged in as alice)
+  - admin: 默认 `/dashboard/?owner=all` (现行为)
+- 顶部 toggle button:
+  - submitter: 只显示 "My Sessions" 已选中（无 "All" 选项）
+  - admin: "My Sessions" / "All Sessions" / "By User" (跳 /dashboard/cost) 三选
+- "My Cost" 链 → `/dashboard/cost`（所有 role 都可见，仅展示 own 数据）；"Team Cost" 链（admin only）
+
+#### 4. Grafana D8.13 panel 扩展
+- 新 metric: `gg_relay_session_cost_usd_total{owner="alice", status="completed"}` Counter
+- 新 metric: `gg_relay_session_tokens_total{owner="alice", direction="input|output"}` Counter
+- session ended subscriber (复用 D8.7 失败 subscriber 同 pattern) → 更新这些 metric
+- Grafana dashboard JSON 加 panel:
+  - "Cost by owner (last 7d)" - bar chart top 10 owners
+  - "Cost trend by owner (last 30d)" - timeseries
+  - "Total team cost (this month)" - single stat
+  - "Cost vs token efficiency" - scatter (cost / tokens per owner)
+
+#### 5. 与 v2.1+ 其他决策协同
+- 复用 D7.26 sessions.owner（数据源）
+- 复用 D6.12 sessions.cost_usd/input_tokens/output_tokens（数据源）
+- 复用 D8.22 require_role（权限）
+- 复用 D8.4 audit log（cost export 写 audit `action=cost_export`）
+- 复用 D8.0 owner filter（dashboard 复用）
+- 复用 D8.13 Grafana provisioning（新 panel 加入同 dashboard JSON）
+
+#### 6. 性能 / 数据量考虑
+- 单团队 < 50k sessions/年 不构成 perf 问题；GROUP BY owner + SUM 在 `ix_sessions_completed_at` index 下 < 100ms
+- 如未来超 100k sessions/月 → 引入 daily aggregation table（Plan 11+），现 plan 不做
+- summary endpoint 缓存 30s（in-memory TTLCache）避免 dashboard 刷新打爆 DB
+
+#### 7. 不做（明确推后）
+- ❌ Budget alert（per-owner monthly limit + 超额阻提交） — Plan 11+
+- ❌ Cost forecasting（基于历史预测下月） — Plan 11+
+- ❌ Cost allocation 跨 plugin（按 plugin 维度分摊） — Plan 11+
+- ❌ Billing invoice 生成 — 永不做（非 SaaS）
+- ❌ Currency conversion — 仅 USD（Claude API 报价单位）
+
 ## 4c. D8.5 bleach 配置详情（v2.1 Round 2 MINOR 补充）
 
 ### D8.5 — Comments bleach 配置详情 (v2.1 Round 2 MINOR)
@@ -775,7 +873,7 @@ async def lifespan(app):
   ```
 - 测试 XSS payload 含：`<script>alert(1)</script>` / `<img onerror>` / `<a href="javascript:...">` / `<a href="data:text/html...">` 全部应被 strip 或 protocol filter
 
-## 7. Task breakdown — 22 tasks（按依赖排序，v2.2 增 Task 22）
+## 7. Task breakdown — 23 tasks（按依赖排序，v2.2 增 Task 22 / v2.4 增 Task 23）
 
 ### Phase 0: Reconciliation (Task 0)
 
@@ -975,6 +1073,48 @@ async def lifespan(app):
 
 **DOD**: D8.29 完整 12 个子项落地；test 全绿；与 Plan 7 D7.26 `RELAY_API_KEYS_RAW` 100% 行为兼容（fixture 迁移）；多 worker tier cache invalidate 跨 worker 漏接最多 10s 收敛；DB outage 三级 fallback；invalidate 仅在事务 commit 后广播
 
+### Phase 4c: Cost attribution (Task 23, v2.4)
+
+#### Task 23 — D8.30 Per-owner cost attribution + per-role default view
+
+**Files**:
+- `api/routers/cost.py` (NEW): per-owner / per-session / summary / csv export endpoints
+- `api/schemas.py` (MODIFY): `OwnerCostSummary` / `SessionCostBreakdown` / `UserCostSummary` Pydantic models
+- `store/repository.py` (MODIFY): `aggregate_cost_by_owner()` + `list_sessions_with_cost()` + `summary_for_user()` methods
+- `dashboard/router.py` (MODIFY): add `/dashboard/cost` route + root `/` redirect-by-role
+- `dashboard/templates/cost.html` (NEW): Top-N table + Chart.js timeseries + summary banner
+- `dashboard/templates/kanban.html` (MODIFY): default view 按 role；toggle button "My / All Sessions"（admin 可见）
+- `dashboard/templates/base.html` (MODIFY): top nav 加 "My Cost" 链 / "Team Cost" 链 (admin only)
+- `subscribers/cost_metric_subscriber.py` (NEW): 订阅 SessionCompleted / SessionFailed → 更新 Prometheus Counter
+- `deploy/grafana/gg-relay-dashboard.json` (MODIFY): 加 4 个新 panel (Cost by owner 7d / Cost trend 30d / Team total / Efficiency scatter)
+- `static/chart.min.js` (NEW): Chart.js v4 (单文件 ~200KB inline，无 npm)
+- `tests/unit/api/test_cost_endpoints.py` (NEW)
+- `tests/unit/store/test_cost_aggregation.py` (NEW)
+- `tests/unit/subscribers/test_cost_metric_subscriber.py` (NEW)
+- `tests/integration/test_cost_per_owner_e2e.py` (NEW)
+- `tests/integration/test_dashboard_role_default_view.py` (NEW)
+
+**实现要点**:
+1. `aggregate_cost_by_owner(from_ts, to_ts, limit, order_by)` SQL: GROUP BY owner + SUM/COUNT；利用 `ix_sessions_completed_at` index
+2. summary endpoint 30s in-memory TTLCache（防 dashboard 刷新打爆）
+3. submitter 调 per-owner endpoint without owner filter → 自动 inject `WHERE owner = request.state.api_key_label`；attempting `owner=all` → 403
+4. CSV export: `text/csv` content-type + audit log `action=cost_export, target_type=date_range`；仅 admin
+5. Dashboard `/` 根路径 redirect: 解析 role → submitter 跳 `/dashboard/?owner={self}` / admin 跳 `/dashboard/?owner=all`
+6. cost_metric_subscriber: 复用 D8.7 EventBusSubscriber pattern；session ended → `gg_relay_session_cost_usd_total.labels(owner=..., status=...).inc(cost_usd)` + token counter
+7. Chart.js 用单文件 inline（避免 npm 依赖）；HTMX 触发 chart 数据 refresh
+
+**Tests (~8)**:
+- per-owner aggregation: alice 3 sessions $5 / bob 2 sessions $3 → 正确 group / order_by_cost / order_by_sessions
+- per-owner role check: submitter 强制 self filter；submitter request `owner=bob` → 403；admin 可见全集
+- per-session: cursor pagination + owner=all admin / owner=self submitter
+- summary endpoint: 含 user/role/this_month/today；admin 含 team_this_month；TTLCache 30s 同请求不重查
+- csv export: 正确 csv format + audit log 写入
+- dashboard root redirect: submitter → `?owner=alice`；admin → `?owner=all`；no role → submitter default
+- cost_metric_subscriber: SessionCompleted 触发 → counter 增；SessionFailed 触发 → counter 增（含 failed 成本）
+- integration: alice 提交 3 session → /cost/per-owner?owner=alice 返回 alice 3 sessions；admin 查 /cost/per-owner 返回 [alice, bob] 排序
+
+**DOD**: 多用户场景 cost attribution 完整闭环（aggregation + endpoint + dashboard + Grafana）；per-role default view 生效；submitter 隔离生效；admin 跨用户视图生效；数据基础 (Plan 6 D6.12 + Plan 7 D7.26) 复用零额外 migration
+
 ### Phase 5: 运维 + 发布 (Tasks 20-21)
 
 #### Task 20 — D8.3 maintenance cmd + D8.13 Grafana + D8.28 bootstrap-admin
@@ -1038,7 +1178,8 @@ async def lifespan(app):
 | **v2.1 增**: audit 强一致（同事务 commit/rollback） | +3 | Task 5 |
 | **v2.1 增**: backend degraded gauge + dashboard banner | +2 | Task 17/18 |
 | **v2.2 增**: D8.29 DB-backed API key 自助 (migration+resolver+middleware+endpoints+UI+CLI+DB outage 三级 fallback+invalidate broadcast) | **+17** | **Task 22 (v2.3 12→17)** |
-| **Total Plan 8 v2.3** | **~182** | + Plan 7 v2.3 ≈ ~833 baseline = ~1015 |
+| **v2.4 增**: D8.30 per-owner cost attribution (aggregation + endpoints + dashboard /cost + per-role default view + Chart.js + Grafana panels) | **+8** | **Task 23 (v2.4 NEW)** |
+| **Total Plan 8 v2.4** | **~190** | + Plan 7 v2.3 ≈ ~833 baseline = ~1023 |
 
 > v1 → v2 测试变化：v1 ~155 → v2 ~152（数量近似但分布大改）；v1 包含 8 replay/9 SVG/12 runtime_keys/19 hitl_mutes/8 admin_keys 等被砍项；v2 补 4 search/5 favorites/6 templates/6 role/6 cookie/12 CLI/4 alembic/4 doc 等贴合协作的测试。
 
@@ -1120,6 +1261,12 @@ async def lifespan(app):
 41. ✅ **v2.3 D8.29 role authoritative source 模式 (BLOCKER 2)**：默认 `role_override_mode="db"` → dashboard 改 DB role 立即生效；`role_mapping` 仅 bootstrap default；`role_override_mode="config"` emergency 模式启动 warn
 42. ✅ **v2.3 D8.29 三级 DB outage fallback (MAJOR 1)**：cache hit 仍返回 / disk snapshot `~/.cache/gg-relay/known-keys.json` hit 返回 + warn / EnvKeyResolver 兜底 / 全 miss 401；DB 恢复自动切回 + snapshot 刷新；snapshot 仅含 hash 不含明文
 43. ✅ **v2.3 D8.29 invalidate broadcast 时序 (MAJOR 2)**：事务 commit 后才 publish；事务 rollback 不广播；测试 mock store.create raise / commit raise 验证
+44. ✅ **v2.4 D8.30 cost aggregation**：`GET /api/v1/cost/per-owner` GROUP BY owner + SUM/COUNT 正确；admin 见全集；submitter 强制 self filter；attempting `owner=other` → 403
+45. ✅ **v2.4 D8.30 per-session breakdown**：`GET /api/v1/cost/per-session?owner=` cursor pagination；admin 任意 owner；submitter 仅 self；非 own 403
+46. ✅ **v2.4 D8.30 summary endpoint**：submitter `{user, role, this_month, today}`；admin 加 `team_this_month`；30s TTLCache 重复请求不重查 DB
+47. ✅ **v2.4 D8.30 dashboard /cost**：submitter banner "My total cost this month: $X"；admin banner "Team total" + Top-N owners table + Chart.js timeseries (7/30/90d toggle) + CSV export 仅 admin
+48. ✅ **v2.4 D8.30 per-role default Kanban view**：root `/` 解析 role → submitter redirect `/dashboard/?owner={self}` / admin redirect `/dashboard/?owner=all`；submitter 顶部仅 "My Sessions" toggle；admin 见 "My / All / By User" 三选；"Team Cost" 链 admin only
+49. ✅ **v2.4 D8.30 Grafana per-owner panel**：dashboard JSON 加 4 新 panel；`gg_relay_session_cost_usd_total{owner}` Counter 通过 `cost_metric_subscriber` 正确更新（SessionCompleted + SessionFailed 均算）；metric 名 grep src/ 实际存在
 
 ## 12. Out-of-scope verification
 
@@ -1181,9 +1328,15 @@ PATTERNS+=(
   - MAJOR 4: Redis 漏接 invalidate 10s 收敛文档明示
   - MAJOR 5: Task 22 测试 12 → 17
   - MINOR: typo / status / OOS gate 同步
-- 🟢 **LOCKED**：Plan 8 v2.3 + Plan 7 v2.3 双轮 Santa + v2.2 micro + v2.3 micro 全通过，可一起 commit + 执行
+- ✅ **v2.4 micro-增量 (用户 cost attribution 需求闭合)**：
+  - 用户决策：multi-user (single-tenant) 场景必备 cost 归属到发起人 + 默认视图按 role
+  - 新加 D8.30 Per-owner cost attribution + per-role default view
+  - 数据基础已有 (Plan 6 D6.12 cost_usd + Plan 7 D7.26 owner)；本 micro 仅加 aggregation endpoint + dashboard /cost + Chart.js + Grafana panel + per-role default redirect
+  - 复用 D8.22 require_role + D8.13 Grafana + D8.0 owner filter
+  - Scope: 20 → 21 decisions / 22 → 23 task / ~182 → ~190 test
+- 🟢 **LOCKED**：Plan 8 v2.4 + Plan 7 v2.3 双轮 Santa + v2.2 micro + v2.3 micro + v2.4 micro 全通过，可一起 commit + 执行
 
-## 14. Plan 8 v2.3 总结
+## 14. Plan 8 v2.4 总结
 
 **对单团队多人维护场景的贴合度自检**：
 
@@ -1194,12 +1347,13 @@ PATTERNS+=(
 - ✅ **可选 multi-worker tier 可观测降级**：D8.1 Redis Streams / D8.2 Redis lua / D8.27 SSE 透明 fan-out；fallback 时 Prometheus gauge + dashboard banner + `strict_backend` 可选 fail-fast（v2.1）
 - ✅ **团队自治闭合**：D8.28 bootstrap-admin `--dashboard-user` 双 namespace + D8.22 role + **D8.29 API key 自助 (v2.2)**；env + DB-based 双源运行
 - ✅ **API key 全生命周期 (v2.2)**：create/list/revoke/rotate/expires/last_used_at 全 dashboard 自助；不需 SSH + 不需 restart + 新人入职/离职/泄漏 rotation/临时访客全覆盖；多 worker 一致性 DB-backed 自然解决；DB outage fallback EnvKeyResolver
+- ✅ **Multi-user cost attribution (v2.4)**：每人用自己 API key 提交 → cost 归属 owner；submitter 默认看 "My Sessions"；admin 看全部 + per-user cost ranking；dashboard `/cost` 页面 + Grafana per-owner panel + CSV export
 - ❌ **不 over-engineer**：砍掉 D8.8 replay UI / D8.9 SVG span tree / D8.11 mute（这些都推 Plan 10+/Plan 11）；v1 D8.12 文件锁方案被 v2.2 D8.29 DB-backed 取代（避免重蹈覆辙）
-- ✅ **Santa Method 双轮通过 + v2.2 用户回炉 + v2.3 micro 修复**：Round 1 (3 reviewer) + Round 2 (1 reviewer) + v2.2 user reopen + v2.3 micro-Santa (1 reviewer V, 3 BLOCKER + 5 MAJOR + 3 MINOR 全修)；Plan 7 v2.3 + Plan 8 v2.3 双 plan lock
+- ✅ **Santa Method 双轮通过 + v2.2 用户回炉 + v2.3 micro 修复 + v2.4 用户 cost 需求**：Round 1 (3 reviewer) + Round 2 (1 reviewer) + v2.2 user reopen API key + v2.3 micro-Santa (3 BLOCKER + 5 MAJOR + 3 MINOR 全修) + v2.4 user reopen multi-user cost；Plan 7 v2.3 + Plan 8 v2.4 双 plan lock
 
 ---
 
-**下一步**: commit Plan 7 v2.3 + Plan 8 v2.3，进入实施阶段。建议 squash PR：
+**下一步**: 进入实施阶段。建议 squash PR：
 1. Plan 7 squash PR `feat: Plan 7 — Foundation Recovery & Production Readiness (v0.7.0)` — 19 task / ~126 test
-2. Plan 8 squash PR `feat: Plan 8 — Team Collaboration & Optional Multi-Worker + API Key Self-Service (v0.8.0)` — 22 task / ~182 test
+2. Plan 8 squash PR `feat: Plan 8 — Team Collaboration + Multi-Worker + API Key Self-Service + Cost Attribution (v0.8.0)` — 23 task / ~190 test
 3. 两个 PR 不重叠（Plan 8 严格依赖 Plan 7 main 合并），按顺序执行
