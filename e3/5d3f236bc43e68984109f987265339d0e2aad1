@@ -1,0 +1,37 @@
+src/gg_relay/dashboard/templates/session_detail.html
+  s_13492e9130ac8c::t_831a530df1e4a0 49-68
+src/gg_relay/api/routers/__init__.py
+  s_13492e9130ac8c::t_0f784593f05cc6 2,10
+docs/openapi.snapshot.json
+  s_13492e9130ac8c::t_88d52c1a73e252 727-876,1758-1824
+tests/integration/test_audit_endpoint_e2e.py
+  s_13492e9130ac8c::t_9f9c0c41ceac10 1-315
+src/gg_relay/dashboard/router.py
+  s_13492e9130ac8c::t_665b8ce35da648 577-677
+  s_13492e9130ac8c::t_8cda707234bf05 53,55
+src/gg_relay/api/main.py
+  s_13492e9130ac8c::t_d32dd4d03fa938 530-534
+  s_13492e9130ac8c::t_7b3e2075bfacb8 35
+src/gg_relay/dashboard/templates/_session_audit_timeline.html
+  s_13492e9130ac8c::t_c240baa8836834 1-45
+tests/integration/test_audit_dashboard_render.py
+  s_13492e9130ac8c::t_53a421893e7996 1-185
+src/gg_relay/api/routers/audit.py
+  s_13492e9130ac8c::t_e2928ce1dcd37b 1-188
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "e35d3f236bc43e68984109f987265339d0e2aad1",
+  "prompts": {},
+  "sessions": {
+    "s_13492e9130ac8c": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9c6e1b97-4c69-4ec0-95fa-ede51f9b9d1d",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
