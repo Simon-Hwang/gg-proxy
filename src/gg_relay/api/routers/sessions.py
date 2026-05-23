@@ -42,7 +42,11 @@ from gg_relay.session.spec import (
     SessionRuntimeContext,
     SessionSpec,
 )
-from gg_relay.store import CursorFilterMismatchError, CursorInvalidError
+from gg_relay.store import (
+    ConcurrencyError,
+    CursorFilterMismatchError,
+    CursorInvalidError,
+)
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -243,7 +247,11 @@ async def pause_session(
 
     Always returns 202 on success. Error mapping:
       * 404 — unknown id
-      * 409 — session not in RUNNING (already paused / completed / etc)
+      * 409 ``code=session_not_running``    — session not in RUNNING
+      * 409 ``code=session_version_mismatch`` — Plan 7 D7.5: another
+              writer mutated the row twice while pause was in flight
+              (1 jitter retry exhausted); operator should refresh and
+              retry
       * 429 — global or per-api-key paused cap exceeded; includes
               ``Retry-After`` header
       * 504 — runner didn't ack the pause within the bridge timeout
@@ -263,6 +271,14 @@ async def pause_session(
         )
     except BridgeAckTimeout as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except ConcurrencyError:
+        return JSONResponse(
+            {
+                "detail": "session state changed, please refresh",
+                "code": "session_version_mismatch",
+            },
+            status_code=409,
+        )
     return JSONResponse(
         {"status": "paused", "session_id": session_id, "reason": reason or ""},
         status_code=202,
@@ -279,7 +295,10 @@ async def resume_session(
 
     Error mapping:
       * 404 — unknown id
-      * 409 — session not in PAUSED
+      * 409 ``code=session_not_paused``     — session not in PAUSED
+      * 409 ``code=session_version_mismatch`` — Plan 7 D7.5: optimistic
+              lock collision after 1 retry; operator should refresh
+              and retry
       * 429 — couldn't re-acquire a semaphore slot within
               ``resume_timeout_s``; ``Retry-After`` advises when to retry
       * 504 — runner didn't ack the resume
@@ -299,6 +318,14 @@ async def resume_session(
         )
     except BridgeAckTimeout as exc:
         raise HTTPException(status_code=504, detail=str(exc)) from exc
+    except ConcurrencyError:
+        return JSONResponse(
+            {
+                "detail": "session state changed, please refresh",
+                "code": "session_version_mismatch",
+            },
+            status_code=409,
+        )
     return JSONResponse(
         {"status": "running", "session_id": session_id, "hint": hint or ""},
         status_code=202,

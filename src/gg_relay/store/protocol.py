@@ -57,8 +57,25 @@ class SessionStore(Protocol):
         ended_at: datetime | None = None,
         end_reason: str | None = None,
         runtime_id: str | None = None,
-    ) -> None:
-        """Patch lifecycle columns (leave ``None`` args untouched)."""
+        paused_at: datetime | None = None,
+        expected_version: int | None = None,
+    ) -> int:
+        """Patch lifecycle columns (leave ``None`` args untouched).
+
+        Plan 7 D7.5 / Task 8 — adds optimistic locking via the
+        ``expected_version`` kwarg and the ``paused_at`` column kwarg
+        (used by pause/resume). Returns the new ``version`` after the
+        update; raises
+        :class:`gg_relay.store.exceptions.ConcurrencyError` when
+        ``expected_version`` is supplied and the row's current
+        version no longer matches.
+        """
+        ...
+
+    async def get_session_version(
+        self, session_id: str
+    ) -> int | None:
+        """Plan 7 D7.5 — return the session's optimistic-locking version."""
         ...
 
     async def list_sessions(
@@ -166,14 +183,29 @@ class HITLStore(Protocol):
         resolved_at: datetime | None = None,
         reason: str | None = None,
         resolver: str | None = None,
-    ) -> None:
-        """Insert-or-update a HITL request row."""
+        expected_version: int | None = None,
+    ) -> int | None:
+        """Insert-or-update a HITL request row.
+
+        Plan 7 D7.5 / Task 8 — when ``expected_version`` is supplied
+        the row is updated with a ``WHERE version = :expected_version``
+        clause and the implementation raises
+        :class:`gg_relay.store.exceptions.ConcurrencyError` on a
+        stale match. Returns the new version on update, ``None`` on
+        plain insert.
+        """
         ...
 
     async def get_hitl(
         self, req_id: str
     ) -> Mapping[str, Any] | None:
         """Fetch a single HITL request row, or ``None`` if absent."""
+        ...
+
+    async def get_hitl_version(
+        self, req_id: str
+    ) -> int | None:
+        """Plan 7 D7.5 — return the HITL row's optimistic-locking version."""
         ...
 
     async def list_pending_hitl(

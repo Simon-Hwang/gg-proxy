@@ -24,12 +24,14 @@ from gg_relay.core.events import (
     ToolResolved,
     frame_to_event,
 )
+from gg_relay.core.exceptions import HITLAlreadyResolved
 
 __all__ = [
     "LEGAL_TRANSITIONS",
     "TERMINAL_STATES",
     "DeliveryTier",
     "EventBus",
+    "HITLAlreadyResolved",
     "Heartbeat",
     "HITLRequested",
     "HITLResolved",

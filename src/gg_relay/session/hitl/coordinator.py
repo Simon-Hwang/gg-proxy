@@ -14,6 +14,28 @@ Plan 4 D4 additions:
   - ``reason`` is now plumbed through resolve and returned alongside the
     decision via :meth:`request_with_reason` for callers that want to
     persist the rationale.
+
+Plan 7 D7.5 / Task 8: race-condition coverage. The coordinator itself
+remains the in-process source of truth (so two concurrent ``resolve``
+calls in the same worker see the second one raise
+:class:`HITLNotPending` once the first has fired the future). The DB
+version-check defence-in-depth lives one level up in
+:mod:`gg_relay.api.routers.hitl`, which:
+
+* reads the row's ``version`` before issuing
+  :meth:`HITLStore.upsert_hitl(expected_version=...)`,
+* catches :class:`HITLNotPending` from the coordinator and converts it
+  to :class:`gg_relay.core.HITLAlreadyResolved` with the winning
+  decision pulled from the DB (so the loser's 409 body shows what
+  actually won), and
+* maps :class:`gg_relay.store.exceptions.ConcurrencyError` from the
+  upsert to the same :class:`HITLAlreadyResolved` shape (covers
+  multi-process deployments where two API workers race past their
+  separate in-memory coordinators).
+
+The HITL workflow deliberately does **not** retry on version mismatch
+— a contested resolve has at most one winner and surfaces a 409
+immediately rather than swallowing the conflict.
 """
 from __future__ import annotations
 

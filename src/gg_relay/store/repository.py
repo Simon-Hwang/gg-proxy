@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from gg_relay.store.exceptions import (
+    ConcurrencyError,
     CursorFilterMismatchError,
     CursorInvalidError,
 )
@@ -204,11 +205,32 @@ class SqlAlchemyStore:
         ended_at: datetime | None = None,
         end_reason: str | None = None,
         runtime_id: str | None = None,
-    ) -> None:
+        paused_at: datetime | None = None,
+        expected_version: int | None = None,
+    ) -> int:
         """Patch the status / lifecycle columns for a session.
 
-        Any ``None`` argument is left untouched (no overwrite of an existing
-        value). Caller is responsible for keeping status transitions sane.
+        Plan 7 D7.5 / Task 8 — adds optimistic locking. Behaviour:
+
+        * Any ``None`` argument among the column kwargs is left
+          untouched (no overwrite of an existing value), matching
+          the pre-Task-8 contract so legacy callers keep working.
+        * Every successful update bumps ``version`` by 1.
+        * When ``expected_version`` is supplied, the UPDATE adds
+          ``WHERE version = :expected_version`` so a stale read
+          surfaces as :class:`ConcurrencyError` (rowcount == 0).
+          The exception carries the actual current version so the
+          caller can decide to retry (managed in SessionManager)
+          or surface ``409`` to the user (HITL resolve, API
+          endpoints).
+        * When ``expected_version`` is ``None``, the implementation
+          reads the current version under the same connection and
+          bumps it blindly — backwards-compatible with every
+          pre-Task-8 call site.
+
+        Returns the new version after the update (or the row's
+        current version when there is nothing to update — that
+        case never bumps anything).
         """
         values: dict[str, Any] = {}
         if status is not None:
@@ -221,12 +243,65 @@ class SqlAlchemyStore:
             values["end_reason"] = end_reason
         if runtime_id is not None:
             values["runtime_id"] = runtime_id
-        if not values:
-            return
+        if paused_at is not None:
+            values["paused_at"] = paused_at
+        if not values and expected_version is None:
+            return 0
         async with self._engine.begin() as conn:
-            await conn.execute(
-                update(sessions).where(sessions.c.id == session_id).values(**values)
+            if expected_version is None:
+                current = await conn.execute(
+                    select(sessions.c.version).where(
+                        sessions.c.id == session_id
+                    )
+                )
+                cur_v_raw = current.scalar()
+                if cur_v_raw is None:
+                    # Row doesn't exist; preserve pre-Task-8 silent no-op.
+                    return 0
+                cur_v = int(cur_v_raw)
+                new_version = cur_v + 1
+            else:
+                new_version = int(expected_version) + 1
+            if not values:
+                return new_version - 1
+            values["version"] = new_version
+            where: list[sa.ColumnElement[bool]] = [sessions.c.id == session_id]
+            if expected_version is not None:
+                where.append(sessions.c.version == expected_version)
+            result = await conn.execute(
+                update(sessions).where(*where).values(**values)
             )
+            if result.rowcount == 0 and expected_version is not None:
+                actual = (
+                    await conn.execute(
+                        select(sessions.c.version).where(
+                            sessions.c.id == session_id
+                        )
+                    )
+                ).scalar()
+                raise ConcurrencyError(
+                    f"session {session_id} version mismatch",
+                    expected_version=int(expected_version),
+                    actual_version=int(actual) if actual is not None else None,
+                )
+        return new_version
+
+    async def get_session_version(self, session_id: str) -> int | None:
+        """Plan 7 D7.5 / Task 8 — read the optimistic-locking version.
+
+        Returns ``None`` when the row does not exist. Callers (the
+        SessionManager pause/resume retry helper) use this before
+        a version-checked write so the ``expected_version`` kwarg
+        is anchored to a recent read.
+        """
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(sessions.c.version).where(sessions.c.id == session_id)
+            )
+            v = result.scalar()
+        if v is None:
+            return None
+        return int(v)
 
     async def list_sessions(
         self,
@@ -546,13 +621,32 @@ class SqlAlchemyStore:
         resolved_at: datetime | None = None,
         reason: str | None = None,
         resolver: str | None = None,
-    ) -> None:
+        expected_version: int | None = None,
+    ) -> int | None:
         """Insert-or-update a HITL request row.
 
-        Uses SQLite's ``ON CONFLICT DO UPDATE`` when the dialect supports it
-        and falls back to a SELECT-then-UPDATE/INSERT for portability
-        (Postgres prod path will also support the SQLite UPSERT shape via
-        SQLAlchemy 2.0's dialect-specific helpers).
+        Plan 7 D7.5 / Task 8 — adds optimistic locking on the UPDATE
+        path. Behaviour:
+
+        * INSERT path (no existing row) inserts ``version=0`` via the
+          schema default; ``expected_version`` is ignored.
+        * UPDATE path bumps ``version`` to ``current + 1``. When
+          ``expected_version`` is supplied, an additional ``WHERE
+          version = :expected_version`` clause makes a stale read
+          surface as :class:`ConcurrencyError`. The HITL path **does
+          not retry** — the API router catches this and returns 409
+          with a body carrying the winning decision.
+
+        Returns the new version on the UPDATE path, or ``None`` if
+        the row was just inserted (the caller's INSERT-path use case
+        — registering a new pending request — has no use for the
+        version).
+
+        Uses SQLite's ``ON CONFLICT DO UPDATE`` when the dialect
+        supports it and falls back to a SELECT-then-UPDATE/INSERT for
+        portability. When ``expected_version`` is supplied the path
+        is always a plain UPDATE so the version-check is unambiguous
+        across dialects.
         """
         values: dict[str, Any] = {
             "id": id,
@@ -565,6 +659,45 @@ class SqlAlchemyStore:
             "reason": reason,
             "resolver": resolver,
         }
+        # Explicit version-checked UPDATE — used by the HITL resolve
+        # flow once a pending row exists. Bypasses dialect-specific
+        # UPSERT shapes so the WHERE-clause behaviour is uniform.
+        if expected_version is not None:
+            new_version = int(expected_version) + 1
+            upd = {
+                k: v
+                for k, v in values.items()
+                if k not in {"id", "session_id", "created_at"}
+            }
+            upd["version"] = new_version
+            async with self._engine.begin() as conn:
+                result = await conn.execute(
+                    update(hitl_requests)
+                    .where(
+                        and_(
+                            hitl_requests.c.id == id,
+                            hitl_requests.c.version == expected_version,
+                        )
+                    )
+                    .values(**upd)
+                )
+                if result.rowcount == 0:
+                    actual = (
+                        await conn.execute(
+                            select(hitl_requests.c.version).where(
+                                hitl_requests.c.id == id
+                            )
+                        )
+                    ).scalar()
+                    raise ConcurrencyError(
+                        f"hitl {id} version mismatch",
+                        expected_version=int(expected_version),
+                        actual_version=(
+                            int(actual) if actual is not None else None
+                        ),
+                    )
+            return new_version
+
         dialect = self._engine.dialect.name
         async with self._engine.begin() as conn:
             if dialect == "sqlite":
@@ -574,11 +707,16 @@ class SqlAlchemyStore:
                     for k, v in values.items()
                     if k not in {"id", "session_id", "created_at"}
                 }
+                # Blind-bump version on UPDATE so even non-checked
+                # upserts increment a row's optimistic-locking
+                # counter (so callers that DO use expected_version
+                # later see monotonic growth).
+                upd["version"] = hitl_requests.c.version + 1
                 stmt = stmt.on_conflict_do_update(
                     index_elements=[hitl_requests.c.id], set_=upd
                 )
                 await conn.execute(stmt)
-                return
+                return None
             try:
                 await conn.execute(insert(hitl_requests).values(**values))
             except IntegrityError:
@@ -587,11 +725,31 @@ class SqlAlchemyStore:
                     for k, v in values.items()
                     if k not in {"id", "session_id", "created_at"}
                 }
+                upd["version"] = hitl_requests.c.version + 1
                 await conn.execute(
                     update(hitl_requests)
                     .where(hitl_requests.c.id == id)
                     .values(**upd)
                 )
+        return None
+
+    async def get_hitl_version(self, req_id: str) -> int | None:
+        """Plan 7 D7.5 / Task 8 — read the HITL row's optimistic-locking version.
+
+        Returns ``None`` when the row does not exist. Used by the API
+        router to read the pre-resolve version before issuing a
+        ``upsert_hitl(expected_version=...)`` call.
+        """
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(hitl_requests.c.version).where(
+                    hitl_requests.c.id == req_id
+                )
+            )
+            v = result.scalar()
+        if v is None:
+            return None
+        return int(v)
 
     async def get_hitl(self, req_id: str) -> RowMapping | None:
         async with self._engine.connect() as conn:

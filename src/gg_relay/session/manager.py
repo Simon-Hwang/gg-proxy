@@ -24,6 +24,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import random
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -61,7 +62,7 @@ from gg_relay.session.transport.protocol import (
     SessionTransport,
     TransportClosed,
 )
-from gg_relay.store import SessionRepository
+from gg_relay.store import ConcurrencyError, SessionRepository
 
 logger = logging.getLogger("gg_relay.session.manager")
 
@@ -161,6 +162,12 @@ class ResumeQueueTimeout(RuntimeError):
     be re-acquired within ``Config.resume_timeout_s`` after pause released
     the slot (Plan 6 D6.2 / §10 risk row). Maps to HTTP 429 with a
     Retry-After so the operator retries when other sessions finish."""
+
+
+# Plan 7 D7.5 / Task 8 — bounded jitter for the optimistic-locking
+# retry. Kept small (≤ 50ms) so a single retry adds at most ~50ms to
+# the pause/resume latency even when contended.
+_RETRY_JITTER_MAX_S = 0.05
 
 
 class SessionManager:
@@ -379,11 +386,20 @@ class SessionManager:
         that will :meth:`cancel` the session if resume doesn't arrive
         within ``paused_timeout_s``.
 
+        Plan 7 D7.5 / Task 8 — the row transition uses optimistic
+        locking via :meth:`_update_status_locked` (read version,
+        attempt UPDATE WHERE version=expected, 1 jitter retry). If
+        both attempts collide with another writer the
+        :class:`ConcurrencyError` propagates so the API router can
+        emit a ``409`` with ``code=session_version_mismatch``.
+
         Raises:
           * :class:`SessionNotFound` — unknown id
           * :class:`SessionNotRunning` — not currently RUNNING
           * :class:`MaxPausedExceeded` — would exceed global or per-key cap
           * :class:`BridgeAckTimeout` — runner didn't ack in time
+          * :class:`ConcurrencyError` — two concurrent pause calls
+            both failed the version check after one retry
         """
         bridge = self._bridges.get(sid)
         if bridge is None:
@@ -399,6 +415,14 @@ class SessionManager:
             self._arm_paused_timer(sid)
             return
         self._check_paused_caps(sid)
+        # Read the row's optimistic-locking anchor BEFORE the bridge ack
+        # so the version-checked write below is anchored to a recent
+        # value. Doing it after the ack would race with internal
+        # ``_run`` writes that bump the row mid-flight.
+        row = await self._store.get_session(sid)
+        if row is None:
+            raise SessionNotFound(sid)
+        expected_v = int(row["version"])
         ack = await bridge.pause(reason=reason)
         if not ack.ok:
             raise RuntimeError(
@@ -415,8 +439,11 @@ class SessionManager:
         else:
             self._paused_holds_slot.add(sid)
             self._sem.release()
-        await self._store.update_session_status(
-            sid, status=SessionState.PAUSED.value
+        await self._update_status_locked(
+            sid,
+            expected_version=expected_v,
+            status=SessionState.PAUSED.value,
+            paused_at=self._paused_at[sid],
         )
         await self._bus.publish(
             SessionStateChanged(
@@ -437,11 +464,16 @@ class SessionManager:
         the runner verbatim and may be used by the SDK
         ``client.query(hint)`` continuation.
 
+        Plan 7 D7.5 / Task 8 — the row transition uses optimistic
+        locking via :meth:`_update_status_locked`.
+
         Raises:
           * :class:`SessionNotFound` — unknown id
           * :class:`SessionNotPaused` — not currently PAUSED
           * :class:`ResumeQueueTimeout` — semaphore couldn't be re-acquired
           * :class:`BridgeAckTimeout` — runner didn't ack
+          * :class:`ConcurrencyError` — version-checked write collided
+            twice (rare; surfaces as 409 at the API layer)
         """
         bridge = self._bridges.get(sid)
         if sid not in self._paused_set or bridge is None:
@@ -452,6 +484,11 @@ class SessionManager:
                 f"session {sid} is {row['status']!r}; resume requires 'paused'"
             )
         self._cancel_paused_timer(sid)
+        # Read the row's optimistic-locking anchor before the bridge ack.
+        row = await self._store.get_session(sid)
+        if row is None:
+            raise SessionNotFound(sid)
+        expected_v = int(row["version"])
         try:
             await asyncio.wait_for(
                 self._sem.acquire(), timeout=self._resume_timeout_s
@@ -478,8 +515,10 @@ class SessionManager:
         # Hand the slot back to _run's finally block via _paused_holds_slot.
         self._paused_holds_slot.discard(sid)
         self._release_pause_bookkeeping(sid, keep_holds=True)
-        await self._store.update_session_status(
-            sid, status=SessionState.RUNNING.value
+        await self._update_status_locked(
+            sid,
+            expected_version=expected_v,
+            status=SessionState.RUNNING.value,
         )
         await self._bus.publish(
             SessionStateChanged(
@@ -568,9 +607,25 @@ class SessionManager:
         try:
             await self._sem.acquire()
             acquired_slot = True
-            await self._store.update_session_status(
-                sid, status=SessionState.RUNNING.value, started_at=_utcnow()
-            )
+            # Plan 7 D7.5: optimistic-lock internal transitions too so
+            # the version counter is monotonic across pause/_run races.
+            # ConcurrencyError after 1 retry means an external writer
+            # already moved the row — log and continue (the external
+            # state is authoritative).
+            try:
+                await self._update_status_locked(
+                    sid,
+                    status=SessionState.RUNNING.value,
+                    started_at=_utcnow(),
+                )
+            except ConcurrencyError as exc:
+                logger.info(
+                    "session %s queued→running version race; external "
+                    "state wins (expected=%s actual=%s)",
+                    sid,
+                    exc.expected_version,
+                    exc.actual_version,
+                )
             await self._bus.publish(
                 SessionStateChanged(
                     session_id=sid,
@@ -581,9 +636,18 @@ class SessionManager:
             install_report = await self._prepare_plugins(sid, spec)
             handle = await self._start_executor(sid, spec, runtime_ctx, policy)
             try:
-                await self._store.update_session_status(
-                    sid, runtime_id=handle.runtime_id
-                )
+                try:
+                    await self._update_status_locked(
+                        sid, runtime_id=handle.runtime_id
+                    )
+                except ConcurrencyError as exc:
+                    logger.info(
+                        "session %s runtime_id write race; expected=%s "
+                        "actual=%s",
+                        sid,
+                        exc.expected_version,
+                        exc.actual_version,
+                    )
                 timeout = spec.timeout_s or self._default_timeout_s
                 async with asyncio.timeout(timeout):
                     await self._drive_session(sid, spec, handle, install_report)
@@ -633,12 +697,28 @@ class SessionManager:
             self._release_pause_bookkeeping(sid)
             self._bridges.pop(sid, None)
             self._api_key_by_session.pop(sid, None)
-            await self._store.update_session_status(
-                sid,
-                status=end_status,
-                ended_at=_utcnow(),
-                end_reason=end_reason,
-            )
+            # Plan 7 D7.5: terminal-state write is optimistically
+            # locked but ConcurrencyError is suppressed — if cancel /
+            # pause raced into a terminal state already, that outcome
+            # wins over our default ``end_status``.
+            try:
+                await self._update_status_locked(
+                    sid,
+                    status=end_status,
+                    ended_at=_utcnow(),
+                    end_reason=end_reason,
+                )
+            except ConcurrencyError as exc:
+                logger.info(
+                    "session %s terminal write race; external state "
+                    "wins (expected=%s actual=%s)",
+                    sid,
+                    exc.expected_version,
+                    exc.actual_version,
+                )
+            except SessionNotFound:
+                # Row deleted out from under us (rare; defensive).
+                pass
             # Plan 6 D6.12: flush aggregates harvested from the
             # session.end frame. Always write — sessions that crashed
             # before session.end land with zeros, which is the correct
@@ -661,6 +741,55 @@ class SessionManager:
                     reason=end_reason,
                 )
             )
+
+    async def _update_status_locked(
+        self,
+        sid: str,
+        *,
+        expected_version: int | None = None,
+        **fields: Any,
+    ) -> int:
+        """Version-checked ``update_session_status`` with 1 jitter retry.
+
+        Plan 7 D7.5 / Task 8. Reads the current version (or accepts
+        the caller's ``expected_version`` anchor — used by pause()
+        which read the version before sending the bridge ack so the
+        write happens against a known-recent value).
+
+        Retries **once** with a small jitter on
+        :class:`ConcurrencyError` so the common "rapid pause →
+        internal state-write race" resolves transparently. After the
+        second failure the caller decides what to do: pause/resume
+        re-raise (the API router maps to 409), the manager's
+        internal ``_run`` finally block logs + suppresses so a
+        crash-on-shutdown race never breaks the lifecycle bookkeeping.
+        """
+        if expected_version is None:
+            row = await self._store.get_session(sid)
+            if row is None:
+                raise SessionNotFound(sid)
+            expected_version = int(row["version"])
+        last_exc: ConcurrencyError | None = None
+        for attempt in (1, 2):
+            try:
+                return await self._store.update_session_status(
+                    sid, expected_version=expected_version, **fields
+                )
+            except ConcurrencyError as exc:
+                last_exc = exc
+                if attempt == 2:
+                    raise
+                await asyncio.sleep(random.random() * _RETRY_JITTER_MAX_S)
+                if exc.actual_version is not None:
+                    expected_version = int(exc.actual_version)
+                else:
+                    row = await self._store.get_session(sid)
+                    if row is None:
+                        raise SessionNotFound(sid) from exc
+                    expected_version = int(row["version"])
+        # Defensive: the loop always returns or raises.
+        assert last_exc is not None
+        raise last_exc
 
     def _effective_policy(self, spec: SessionSpec) -> ToolPolicy:
         override = spec.hitl_policy

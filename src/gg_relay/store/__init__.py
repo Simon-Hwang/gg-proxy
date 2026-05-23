@@ -16,9 +16,14 @@ Public surface used by SessionManager + API routers:
                                     — Plan 7 D7.6 cursor pagination
                                       errors raised by
                                       ``list_sessions(after=...)``
+  - :class:`ConcurrencyError`       — Plan 7 D7.5 optimistic-locking
+                                      mismatch raised by
+                                      ``update_session_status(expected_version=...)``
+                                      and ``upsert_hitl(expected_version=...)``
 """
 from gg_relay.store.engine import create_all_tables, make_async_engine
 from gg_relay.store.exceptions import (
+    ConcurrencyError,
     CursorFilterMismatchError,
     CursorInvalidError,
 )
@@ -27,6 +32,7 @@ from gg_relay.store.repository import SessionRepository, SqlAlchemyStore
 from gg_relay.store.schema import frames, hitl_requests, metadata, sessions
 
 __all__ = [
+    "ConcurrencyError",
     "CursorFilterMismatchError",
     "CursorInvalidError",
     "FrameStore",
