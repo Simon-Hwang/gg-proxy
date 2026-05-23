@@ -4,6 +4,14 @@
     <meta charset="utf-8">
     <title>{% block title %}gg-relay{% endblock %}</title>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+    {# Plan 8 Task 8 (D8.5) — json-enc HTMX extension so opt-in forms
+       (the comments POST / PATCH on session_detail) serialise their
+       fields as a JSON body instead of form-urlencoded, matching the
+       Pydantic ``CommentCreate(body=...)`` API contract. The script
+       is opt-in via ``hx-ext="json-enc"`` on the form element, so
+       loading it globally is safe — other dashboard pages without
+       that attribute keep their default form encoding. #}
+    <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/json-enc.js"></script>
     <link rel="stylesheet" href="/dashboard/static/app.css">
 </head>
 <body>

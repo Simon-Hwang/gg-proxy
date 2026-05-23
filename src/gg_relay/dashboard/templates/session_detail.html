@@ -66,6 +66,23 @@
     </details>
 </section>
 
+<section class="comments-panel">
+    {# Plan 8 Task 8 (D8.5) — comments fragment lazy-loaded on page
+       load. Comments are typically the operator's primary interaction
+       on the detail page (post-mortem discussion, status updates), so
+       unlike the audit timeline we don't gate the fetch behind a
+       <details> open. The ``load`` trigger fires once when this
+       wrapper enters the DOM; subsequent reloads after POST / PATCH /
+       DELETE are driven by the form's hx-on::after-request hook in
+       _session_comments.html. #}
+    <h3>💬 Comments</h3>
+    <div hx-get="/dashboard/sessions/{{ detail.id }}/comments"
+         hx-trigger="load"
+         hx-swap="innerHTML">
+        Loading comments&hellip;
+    </div>
+</section>
+
 <section>
     <h3>Frames</h3>
     <table class="frames">

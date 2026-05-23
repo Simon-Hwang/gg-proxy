@@ -675,6 +675,116 @@ async def session_audit_timeline(
     )
 
 
+@router.get("/sessions/{session_id}/comments", response_class=HTMLResponse)
+async def session_comments_fragment(
+    request: Request,
+    session_id: str,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """HTMX endpoint serving the comments fragment (Plan 8 Task 8 / D8.5).
+
+    Read-only render. Mutations (POST / PATCH / DELETE) skip this
+    handler and go directly to ``/api/v1/sessions/{sid}/comments`` and
+    ``/api/v1/comments/{cid}`` — :class:`DashboardCookieMiddleware`
+    (Task 3) injects the synthetic ``X-API-Key`` header so the API
+    layer sees the same ``dashboard-<username>`` label this fragment
+    rendered with. Author / role enforcement therefore lives entirely
+    in :mod:`gg_relay.api.routers.comments`; the visibility toggles in
+    the rendered HTML are purely UX hints.
+
+    ``current_actor`` and ``current_role`` are passed to the template
+    so it can show / hide the Edit + Delete buttons. They use the same
+    ``dashboard-<username>`` label format and ``cfg.role_mapping``
+    lookup as :func:`session_audit_timeline` — keeping the two
+    fragments single-sourced on identity resolution.
+    """
+    store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
+
+    label = _dashboard_label(request)
+    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
+    role = role_map.get(label, "viewer") if label else "viewer"
+
+    sess = await store.get_session(session_id)
+    if sess is None:
+        return HTMLResponse(
+            "<div class='error'>Session not found.</div>", status_code=404
+        )
+
+    rows = await store.list_comments(session_id=session_id, limit=200)
+    items = [
+        {
+            "id": int(r["id"]),
+            "session_id": r["session_id"],
+            "author": r["author"],
+            "body_markdown": r["body_markdown"],
+            "body_html": r["body_html"],
+            "created_at": (
+                r["created_at"].isoformat()
+                if hasattr(r["created_at"], "isoformat")
+                else r["created_at"]
+            ),
+        }
+        for r in rows
+    ]
+    return templates.TemplateResponse(
+        request,
+        "_session_comments.html",
+        {
+            "session_id": session_id,
+            "items": items,
+            "current_actor": label,
+            "current_role": role,
+        },
+    )
+
+
+@router.get("/comments/{comment_id}/edit", response_class=HTMLResponse)
+async def comment_edit_form(
+    request: Request,
+    comment_id: int,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """HTMX endpoint serving the inline edit form (author only).
+
+    Resolves the caller's ``dashboard-<username>`` label via
+    :func:`_dashboard_label` and refuses to render the form unless
+    it matches the comment's stored ``author`` field. The PATCH
+    endpoint on the API side re-checks the same condition, so this
+    layer is just a UX gate — a tampered DOM cannot bypass the
+    server-side rule.
+
+    Returns a 404 ``<li>`` fragment when the comment does not exist
+    or has been soft-deleted (so a stale Edit button after a
+    concurrent delete swaps cleanly into the row's slot instead of
+    leaking a JSON error blob).
+    """
+    store: SessionRepository = request.app.state.store
+
+    label = _dashboard_label(request)
+    c = await store.get_comment(comment_id=comment_id)
+    if c is None or c["deleted_at"] is not None:
+        return HTMLResponse(
+            "<li class='error'>Comment not found.</li>", status_code=404
+        )
+    if c["author"] != label:
+        return HTMLResponse(
+            "<li class='error'>Forbidden.</li>", status_code=403
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "_comment_edit_form.html",
+        {
+            "comment": {
+                "id": int(c["id"]),
+                "session_id": c["session_id"],
+                "body_markdown": c["body_markdown"],
+            },
+        },
+    )
+
+
 @router.post("/sessions/{session_id}/hitl/{req_id}")
 async def session_hitl_resolve(
     request: Request,

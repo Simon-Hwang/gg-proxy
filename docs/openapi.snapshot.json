@@ -1689,6 +1689,49 @@
         ]
       }
     },
+    "/dashboard/comments/{comment_id}/edit": {
+      "get": {
+        "description": "HTMX endpoint serving the inline edit form (author only).\n\nResolves the caller's ``dashboard-<username>`` label via\n:func:`_dashboard_label` and refuses to render the form unless\nit matches the comment's stored ``author`` field. The PATCH\nendpoint on the API side re-checks the same condition, so this\nlayer is just a UX gate \u2014 a tampered DOM cannot bypass the\nserver-side rule.\n\nReturns a 404 ``<li>`` fragment when the comment does not exist\nor has been soft-deleted (so a stale Edit button after a\nconcurrent delete swaps cleanly into the row's slot instead of\nleaking a JSON error blob).",
+        "operationId": "comment_edit_form_dashboard_comments__comment_id__edit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "comment_id",
+            "required": true,
+            "schema": {
+              "title": "Comment Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Comment Edit Form",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/dashboard/kanban": {
       "get": {
         "description": "Render the full Kanban board chrome \u2014 the inner board fragment\nis fetched separately by HTMX so subsequent 5s polls and SSE swaps\nonly re-render the data, not the surrounding navigation.",
@@ -2092,6 +2135,49 @@
           }
         },
         "summary": "Session Chart",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/sessions/{session_id}/comments": {
+      "get": {
+        "description": "HTMX endpoint serving the comments fragment (Plan 8 Task 8 / D8.5).\n\nRead-only render. Mutations (POST / PATCH / DELETE) skip this\nhandler and go directly to ``/api/v1/sessions/{sid}/comments`` and\n``/api/v1/comments/{cid}`` \u2014 :class:`DashboardCookieMiddleware`\n(Task 3) injects the synthetic ``X-API-Key`` header so the API\nlayer sees the same ``dashboard-<username>`` label this fragment\nrendered with. Author / role enforcement therefore lives entirely\nin :mod:`gg_relay.api.routers.comments`; the visibility toggles in\nthe rendered HTML are purely UX hints.\n\n``current_actor`` and ``current_role`` are passed to the template\nso it can show / hide the Edit + Delete buttons. They use the same\n``dashboard-<username>`` label format and ``cfg.role_mapping``\nlookup as :func:`session_audit_timeline` \u2014 keeping the two\nfragments single-sourced on identity resolution.",
+        "operationId": "session_comments_fragment_dashboard_sessions__session_id__comments_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Comments Fragment",
         "tags": [
           "dashboard"
         ]

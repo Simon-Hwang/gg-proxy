@@ -1,0 +1,65 @@
+{# Plan 8 Task 8 (D8.5) — comments fragment for the session detail page.
+
+   Renders the discussion thread (oldest-first, matching the
+   ``list_comments`` ORDER BY created_at ASC contract from Task 7) plus
+   the post-new-comment form. Mutations (POST / PATCH / DELETE) hit the
+   /api/v1/* endpoints directly — :class:`DashboardCookieMiddleware`
+   (Task 3) injects the synthetic ``X-API-Key`` header so the API
+   middleware sees the same ``dashboard-<username>`` label the
+   dashboard fragment was rendered with.
+
+   ``current_actor`` is the rendered viewer's ``dashboard-<username>``
+   label; ``current_role`` is the role looked up from
+   ``cfg.role_mapping``. Edit visibility checks author match; Delete
+   visibility checks author OR admin (matches the API endpoint's
+   authorization rule in :mod:`gg_relay.api.routers.comments`). The
+   endpoints themselves re-enforce these rules — the template
+   visibility is purely a UX hint.
+
+   ``body_html`` was pre-sanitised via :func:`render_safe` (bleach +
+   markdown-it) at write time, so ``|safe`` is correct here. ``author``
+   and ``current_actor`` are autoescaped by Jinja so a malicious
+   ``dashboard-<username>`` cannot inject markup. #}
+<div class="comments-list" id="comments-list-{{ session_id }}">
+  {% if items %}
+    <ul class="comments-ul">
+      {% for c in items %}
+        <li class="comment-item" id="comment-{{ c.id }}" data-author="{{ c.author }}">
+          <header class="comment-header">
+            <span class="comment-author">{{ c.author }}</span>
+            <time class="comment-ts" datetime="{{ c.created_at }}">{{ c.created_at }}</time>
+            {% if c.author == current_actor or current_role == 'admin' %}
+              <span class="comment-actions">
+                {% if c.author == current_actor %}
+                  <button class="btn-edit"
+                          hx-get="/dashboard/comments/{{ c.id }}/edit"
+                          hx-target="#comment-{{ c.id }}"
+                          hx-swap="outerHTML">Edit</button>
+                {% endif %}
+                <button class="btn-delete"
+                        hx-delete="/api/v1/comments/{{ c.id }}"
+                        hx-confirm="Delete this comment?"
+                        hx-target="#comment-{{ c.id }}"
+                        hx-swap="outerHTML"
+                        hx-on::after-request="if(event.detail.successful) this.closest('li').remove();">Delete</button>
+              </span>
+            {% endif %}
+          </header>
+          <div class="comment-body markdown-body">{{ c.body_html|safe }}</div>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="empty">No comments yet.</p>
+  {% endif %}
+
+  <form class="comment-form"
+        hx-post="/api/v1/sessions/{{ session_id }}/comments"
+        hx-ext="json-enc"
+        hx-target="#comments-list-{{ session_id }}"
+        hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) { htmx.find(this, 'textarea').value=''; htmx.ajax('GET', '/dashboard/sessions/{{ session_id }}/comments', '#comments-list-{{ session_id }}'); }">
+    <textarea name="body" placeholder="Markdown comment..." rows="3" required maxlength="8000"></textarea>
+    <button type="submit">Post comment</button>
+  </form>
+</div>

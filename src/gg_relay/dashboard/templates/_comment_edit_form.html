@@ -1,0 +1,34 @@
+{# Plan 8 Task 8 (D8.5) — inline edit form for one comment.
+
+   Replaces a single ``<li id="comment-{{ id }}">`` row when the
+   author clicks the Edit button. Save → PATCH ``/api/v1/comments/{id}``
+   then reloads the whole comments fragment so the rendered HTML
+   reflects the post-bleach output (the markdown→HTML pipeline lives
+   server-side; we never trust a client-rendered preview).
+
+   Cancel reloads the full list which discards the textarea contents
+   without an extra dedicated route — the fragment endpoint is cheap
+   and side-effect-free.
+
+   Author guard: this fragment is only ever served when
+   ``request.state.dashboard_user`` matches the comment's author (see
+   ``comment_edit_form`` in :mod:`gg_relay.dashboard.router`); a
+   non-author requesting it gets a 403 ``Forbidden.`` HTMX fragment
+   instead. The PATCH endpoint re-checks on the server, so even if a
+   client tampered with the DOM the API would 403. #}
+<li class="comment-item editing" id="comment-{{ comment.id }}">
+  <form hx-patch="/api/v1/comments/{{ comment.id }}"
+        hx-ext="json-enc"
+        hx-target="#comment-{{ comment.id }}"
+        hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) htmx.ajax('GET', '/dashboard/sessions/{{ comment.session_id }}/comments', '#comments-list-{{ comment.session_id }}');">
+    <textarea name="body" rows="3" required maxlength="8000">{{ comment.body_markdown }}</textarea>
+    <div class="actions">
+      <button type="submit">Save</button>
+      <button type="button"
+              hx-get="/dashboard/sessions/{{ comment.session_id }}/comments"
+              hx-target="#comments-list-{{ comment.session_id }}"
+              hx-swap="outerHTML">Cancel</button>
+    </div>
+  </form>
+</li>
