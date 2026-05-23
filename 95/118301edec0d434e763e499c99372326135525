@@ -1,0 +1,58 @@
+src/gg_relay/api/routers/templates.py
+  s_4b68c509ce6ff2::t_12715da4054615 1-404
+src/gg_relay/store/repository.py
+  s_4b68c509ce6ff2::t_67b680140ad7aa 44,54
+  s_4b68c509ce6ff2::t_174f297a010448 1624-1808
+src/gg_relay/dashboard/templates/templates.html
+  s_4b68c509ce6ff2::t_7ec9c004d00b75 1-93
+tests/integration/test_templates_e2e.py
+  s_4b68c509ce6ff2::t_caec89b49628dd 1-274
+src/gg_relay/api/routers/__init__.py
+  s_4b68c509ce6ff2::t_6141bb42d7cdbc 10,21
+tests/unit/store/test_templates_repository.py
+  s_4b68c509ce6ff2::t_dc8765892067ed 1-227
+src/gg_relay/store/__init__.py
+  s_4b68c509ce6ff2::t_68576c1681deb2 37,45,63,70
+src/gg_relay/store/migrations/versions/0010_add_prompt_templates.py
+  s_4b68c509ce6ff2::t_f0fbe6dbf4db17 1-96
+tests/integration/test_dashboard_templates_render.py
+  s_4b68c509ce6ff2::t_1aa84e530f12da 1-105
+src/gg_relay/store/schema.py
+  s_4b68c509ce6ff2::t_de4a4a0b14afcb 340-377,380-392
+  s_4b68c509ce6ff2::t_2718eb8d09263e 19
+  s_4b68c509ce6ff2::t_1d903b0e1e1277 378-379
+src/gg_relay/api/main.py
+  s_4b68c509ce6ff2::t_ee338e6854bd47 43
+  s_4b68c509ce6ff2::t_59da99ca6fc8d6 561-566
+src/gg_relay/core/__init__.py
+  s_4b68c509ce6ff2::t_84262dd7bbd1e3 38,72
+tests/integration/test_migrations_chain.py
+  s_4b68c509ce6ff2::t_d9bf3481b9d3c8 651-741
+src/gg_relay/store/protocol.py
+  s_4b68c509ce6ff2::t_ba4798bdfaaf5b 538-648,656
+tests/integration/test_plan8_baseline.py
+  s_4b68c509ce6ff2::t_1045d9daa29e75 82,90-91
+src/gg_relay/dashboard/router.py
+  s_4b68c509ce6ff2::t_78763e04d33eb7 981-1041
+src/gg_relay/core/exceptions.py
+  s_4b68c509ce6ff2::t_ad7b2262c12210 269
+  s_4b68c509ce6ff2::t_0ec48222fa250d 49-65
+docs/openapi.snapshot.json
+  s_4b68c509ce6ff2::t_6c97645bccc9f5 1054-1160,2507-2738,3612-3628
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "95118301edec0d434e763e499c99372326135525",
+  "prompts": {},
+  "sessions": {
+    "s_4b68c509ce6ff2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5edf35b6-c325-449b-88c4-72ae305ee6b8",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
