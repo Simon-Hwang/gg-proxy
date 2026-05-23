@@ -1,0 +1,50 @@
+docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md
+  s_a4f64b7e9d73b1::t_f0f2bf5787baed 778
+  s_a4f64b7e9d73b1::t_fab3d5a413206e 1119-1122
+  s_a4f64b7e9d73b1::t_5b6b7ef42e4b5b 993
+  s_a4f64b7e9d73b1::t_1ede7aeadcdc6e 547-717,726-733,761
+  s_a4f64b7e9d73b1::t_9e69af1432e687 449,461
+  s_a4f64b7e9d73b1::t_6c6c302a8e89c6 1040-1041
+  s_a4f64b7e9d73b1::t_045b71180aa232 1198,1202,1204
+  s_a4f64b7e9d73b1::t_dd27352c89bb86 1168,1174-1184
+  s_a4f64b7e9d73b1::t_0aafd22436afb3 89-93
+  s_a4f64b7e9d73b1::t_66b929a1908d0f 953-957,961-963,966,968,971-973,976
+  s_a4f64b7e9d73b1::t_b67818308623c3 3-16
+  s_a4f64b7e9d73b1::t_08681f28a4ff91 417-418
+  s_a4f64b7e9d73b1::t_8104fcf883f470 1112-1113,1115-1118
+  s_a4f64b7e9d73b1::t_5cb1299dce4073 926-952,958-960,964-965,967,969-970,974-975,977
+  s_a4f64b7e9d73b1::t_8e091d9483dc91 1195-1197
+  s_a4f64b7e9d73b1::t_2d7c1aa14e1b8a 146
+  s_a4f64b7e9d73b1::t_df4c391b798474 171-175
+  s_a4f64b7e9d73b1::t_2311d0ef2744d9 734-760
+  s_a4f64b7e9d73b1::t_2d8ef0c8518ad8 1143-1144
+  s_a4f64b7e9d73b1::t_419cab2b8aa954 479-480
+  s_a4f64b7e9d73b1::t_2090ce5a5376f4 545-546
+  s_a4f64b7e9d73b1::t_5303963f326190 1169-1173
+  s_a4f64b7e9d73b1::t_199c2777d3feaf 718-725
+  s_a4f64b7e9d73b1::t_89164a011b56c3 111,124
+  s_a4f64b7e9d73b1::t_2894c21c5ebed0 473-476
+  s_a4f64b7e9d73b1::t_06369390817cd9 1186
+  s_a4f64b7e9d73b1::t_43355567d23260 433-439
+  s_a4f64b7e9d73b1::t_67f36f65d1a690 17-32
+  s_a4f64b7e9d73b1::t_f8ef66013e9620 395
+  s_a4f64b7e9d73b1::t_b12ff052a6a5c4 1114
+  s_a4f64b7e9d73b1::t_73265dcae799b1 494-495
+  s_a4f64b7e9d73b1::t_40dc8bb5244bbb 762-763
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "db53d536f678d0c7dc36dfec42d4a24e1e24dce5",
+  "prompts": {},
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
