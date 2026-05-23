@@ -1,0 +1,52 @@
+src/gg_relay/api/routers/sessions.py
+  s_57fdc90b0f70e1::t_4221136ec8c139 128-129,131-148,153-175,189-194
+  s_57fdc90b0f70e1::t_70d05c40a813ad 13
+  s_57fdc90b0f70e1::t_b632dbfedc11cb 45
+tests/unit/store/test_store.py
+  s_57fdc90b0f70e1::t_d014639c47b862 302
+  s_57fdc90b0f70e1::t_60d40ad862c1d2 99,101
+tests/integration/test_api_sessions.py
+  s_57fdc90b0f70e1::t_c386ebd4f2dae7 189-197
+src/gg_relay/store/exceptions.py
+  s_57fdc90b0f70e1::t_d9bddd8d5a59f7 1-35
+src/gg_relay/store/__init__.py
+  s_57fdc90b0f70e1::t_a3e378ce59cb5b 14-18,21-24,30-31
+src/gg_relay/store/repository.py
+  s_57fdc90b0f70e1::t_952bcea0d686f8 237-263,265-289,292-303
+  s_57fdc90b0f70e1::t_e786f2384757fb 19-21,28,33-36,44-150
+src/gg_relay/dashboard/templates/_kanban_board.html
+  s_57fdc90b0f70e1::t_94c4537d52ec3f 23,26
+tests/unit/session/test_manager.py
+  s_57fdc90b0f70e1::t_ff3f8c6ebc37cf 195,197
+tests/integration/test_dashboard_kanban.py
+  s_57fdc90b0f70e1::t_d4791c08d4cd2e 7-10,24
+  s_57fdc90b0f70e1::t_a7e5b0da9d22aa 172-189,209-211,215,219-221,224,227-228,231-233,235
+tests/unit/store/test_cursor_pagination.py
+  s_57fdc90b0f70e1::t_832ff13c416bca 1-305
+src/gg_relay/session/manager.py
+  s_57fdc90b0f70e1::t_65e10096cf375c 296-306,310,312,325
+src/gg_relay/api/schemas.py
+  s_57fdc90b0f70e1::t_e5886a8360f17f 82-98,100
+src/gg_relay/dashboard/router.py
+  s_57fdc90b0f70e1::t_72865676f0476d 195,203,213,219,221-227,231-236,244
+  s_57fdc90b0f70e1::t_f26e994faff657 41-45
+  s_57fdc90b0f70e1::t_3bf2f6259f4fb5 118
+src/gg_relay/store/protocol.py
+  s_57fdc90b0f70e1::t_e896e1d4ba3ed5 70-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "e33fc06fc58aff4649762bb27d1718a5a2758a87",
+  "prompts": {},
+  "sessions": {
+    "s_57fdc90b0f70e1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "d859c9a7-05af-4a0e-ba5b-a4aca6a5be6a",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
