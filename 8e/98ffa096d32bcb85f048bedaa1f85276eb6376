@@ -1,0 +1,43 @@
+tests/integration/test_openapi_snapshot.py
+  s_6d09f7abcc85d2::t_2c7a54a076ee94 49-50
+src/gg_relay/api/main.py
+  s_6d09f7abcc85d2::t_bec79eee642b4d 368
+pyproject.toml
+  s_6d09f7abcc85d2::t_3166601b74ae53 7
+src/gg_relay/tracing/setup.py
+  s_6d09f7abcc85d2::t_389ea24e5f4404 38
+uv.lock
+  ai_agent 1018
+CHANGELOG.md
+  s_6d09f7abcc85d2::t_fa93476f1c4995 10-151
+tests/unit/redaction/test_secretstr_mask.py
+  s_6d09f7abcc85d2::t_88786ad2cd5f10 23-24
+scripts/check_oos.sh
+  s_6d09f7abcc85d2::t_1c90bfb689a9cb 1-69,71-124
+  s_6d09f7abcc85d2::t_1a39244d231c56 70
+tests/integration/test_sse_events.py
+  s_6d09f7abcc85d2::t_88786ad2cd5f10 42
+docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md
+  s_6d09f7abcc85d2::t_e4eb4b95feaeed 1461-1497
+README.md
+  s_6d09f7abcc85d2::t_3798595aca26ac 37-84
+  s_6d09f7abcc85d2::t_8161e8e857ad6b 163-164
+  s_6d09f7abcc85d2::t_5baf1f203d6bb9 3-6
+  s_6d09f7abcc85d2::t_af402305f77439 26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "8e98ffa096d32bcb85f048bedaa1f85276eb6376",
+  "prompts": {},
+  "sessions": {
+    "s_6d09f7abcc85d2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "1a6ce76b-879c-4202-b13b-302f08efce10",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
