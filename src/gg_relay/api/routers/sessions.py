@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
 from gg_relay.api.dependencies.require_role import (
@@ -395,6 +395,66 @@ async def search_sessions(
     )
 
 
+# ── Plan 8 D8.21 / Task 13: per-user session favorites ─────────────
+#
+# ``GET /sessions/favorites`` MUST be declared BEFORE the
+# ``GET /sessions/{session_id}`` route below — FastAPI matches in
+# registration order, and a literal sub-path ("favorites") only wins
+# over a path parameter ("{session_id}") when the literal is
+# registered first. The star / un-star endpoints further down use a
+# distinct method (POST / DELETE) so they don't collide with
+# ``GET /{session_id}`` regardless of order.
+
+
+@router.get("/favorites")
+async def list_my_favorites(
+    request: Request,
+    user: str | None = Query(default=None, max_length=64),
+    limit: int = Query(default=50, ge=1, le=200),
+) -> dict[str, Any]:
+    """List the caller's starred sessions (Plan 8 D8.21 / Task 13).
+
+    Returns ``{"items": [...], "user": "<resolved label>"}`` sorted
+    most-recently starred first. Each item carries enough session
+    metadata (``prompt``, ``owner``, ``status``) for the dashboard's
+    ``My Favorites`` table to render without a follow-up
+    ``GET /sessions/{sid}`` round-trip.
+
+    Role policy:
+      * **non-admin** — sees only their own favorites; the ``user``
+        query parameter is silently ignored.
+      * **admin** — may pass ``?user=<label>`` to inspect another
+        user's favorites (debugging / moderation).
+    """
+    store = request.app.state.store
+    label = getattr(request.state, "api_key_label", None) or "anon"
+    current_role = _resolve_role(request)
+    is_admin = (
+        ROLE_HIERARCHY.get(current_role, 0) >= ROLE_HIERARCHY["admin"]
+    )
+    target = user if (user and is_admin) else label
+    rows = await store.list_favorites(user_label=target, limit=limit)
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        s = r["session"]
+        starred_at = r["starred_at"]
+        items.append(
+            {
+                "favorite_id": r["favorite_id"],
+                "session_id": r["session_id"],
+                "starred_at": (
+                    starred_at.isoformat()
+                    if hasattr(starred_at, "isoformat")
+                    else starred_at
+                ),
+                "prompt": (s.get("spec_json") or {}).get("prompt", ""),
+                "owner": s.get("owner"),
+                "status": s.get("status"),
+            }
+        )
+    return {"items": items, "user": target}
+
+
 @router.get("/{session_id}", response_model=SessionDetailResponse)
 async def get_session(
     session_id: str,
@@ -409,6 +469,88 @@ async def get_session(
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
     return _detail_to_response(detail)
+
+
+@router.post(
+    "/{session_id}/favorite",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("submitter"))],
+)
+async def star_session(request: Request, session_id: str) -> None:
+    """Star a session — idempotent (Plan 8 D8.21 / Task 13).
+
+    Returns 204 on success. ``submitter+`` may star any session
+    (favorites are a per-user view, not an ownership-gated action).
+
+    Idempotency: a second star on the same session is a no-op and
+    does NOT write a second ``session_star`` audit row — the
+    repository signals "no state change" via ``add_favorite=False``
+    and we skip the audit call so the timeline stays clean.
+
+    Error mapping:
+      * 404 ``session_not_found`` — unknown id; structured detail
+        so machine clients can dispatch on ``code``.
+    """
+    store = request.app.state.store
+    audit = getattr(request.app.state, "audit_service", None)
+    label = getattr(request.state, "api_key_label", None) or "anon"
+
+    sess = await store.get_session(session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "session not found",
+                "code": "session_not_found",
+            },
+        )
+
+    added = await store.add_favorite(
+        session_id=session_id, user_label=label
+    )
+    if added and audit is not None:
+        try:
+            await audit.record(
+                actor=label,
+                action="session_star",
+                target_type="session",
+                target_id=session_id,
+            )
+        except Exception:  # pragma: no cover - defensive
+            pass
+    return None
+
+
+@router.delete(
+    "/{session_id}/favorite",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("submitter"))],
+)
+async def unstar_session(request: Request, session_id: str) -> None:
+    """Un-star a session — idempotent (Plan 8 D8.21 / Task 13).
+
+    Returns 204 regardless of whether the row existed; un-starring
+    a session that wasn't starred is a no-op. The audit row only
+    fires on actual state change.
+    """
+    store = request.app.state.store
+    audit = getattr(request.app.state, "audit_service", None)
+    label = getattr(request.state, "api_key_label", None) or "anon"
+
+    removed = await store.remove_favorite(
+        session_id=session_id, user_label=label
+    )
+    if removed and audit is not None:
+        try:
+            await audit.record(
+                actor=label,
+                action="session_unstar",
+                target_type="session",
+                target_id=session_id,
+            )
+        except Exception:  # pragma: no cover - defensive
+            pass
+    return None
 
 
 @router.post(

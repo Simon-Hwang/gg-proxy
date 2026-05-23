@@ -447,9 +447,98 @@ class CommentStore(Protocol):
         ...
 
 
+@runtime_checkable
+class FavoriteStore(Protocol):
+    """Async DAO surface for the ``session_favorites`` table (Plan 8 D8.21).
+
+    Implemented by :class:`gg_relay.store.repository.SqlAlchemyStore`.
+    Backs the star / un-star endpoints in
+    :mod:`gg_relay.api.routers.sessions` and the dashboard
+    ``/dashboard/favorites`` page (Task 13).
+
+    Idempotency contract: ``add_favorite`` and ``remove_favorite`` both
+    return ``True`` only when the underlying state actually changed.
+    The router uses this signal to decide whether to write the
+    matching ``session_star`` / ``session_unstar`` audit row, so a
+    double-star (or double-unstar) collapses to a no-op without
+    polluting the audit timeline.
+    """
+
+    async def add_favorite(
+        self,
+        *,
+        session_id: str,
+        user_label: str,
+        conn: Any = None,
+    ) -> bool:
+        """Star a session. Returns ``True`` on new row, ``False`` when
+        already starred.
+
+        Implementation collapses the unique-constraint
+        :class:`sqlalchemy.exc.IntegrityError` raised on a duplicate
+        ``(session_id, user_label)`` pair into ``False`` so the caller
+        sees a deterministic idempotent contract regardless of dialect.
+        """
+        ...
+
+    async def remove_favorite(
+        self,
+        *,
+        session_id: str,
+        user_label: str,
+        conn: Any = None,
+    ) -> bool:
+        """Un-star a session. Returns ``True`` on actual delete,
+        ``False`` when the row was not present.
+
+        A second un-star on the same pair returns ``False`` without
+        raising — the moderation path can rely on this for ``204``
+        responses on repeated DELETE calls.
+        """
+        ...
+
+    async def is_favorited(
+        self, *, session_id: str, user_label: str
+    ) -> bool:
+        """Return ``True`` iff ``(session_id, user_label)`` is starred.
+
+        Used by the dashboard kanban renderer to decide whether to
+        paint the star icon in the "starred" state.
+        """
+        ...
+
+    async def list_favorites(
+        self, *, user_label: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """List favorites for ``user_label`` most-recent first.
+
+        Returns a list of dicts shaped like::
+
+            [
+                {
+                    "favorite_id": int,
+                    "session_id": str,
+                    "starred_at": datetime,
+                    "session": Mapping[str, Any],
+                },
+                ...
+            ]
+
+        The ``session`` payload is the materialised row from
+        ``sessions`` for the matching ``session_id`` (the dashboard
+        and the API list endpoint both need the prompt / owner /
+        status alongside the favorite-id). Sessions that have since
+        been deleted are silently dropped — the FK ``ON DELETE
+        CASCADE`` keeps the favorite row in sync, but tests that
+        bypass the cascade should still get a tidy response.
+        """
+        ...
+
+
 __all__ = [
     "AuditStore",
     "CommentStore",
+    "FavoriteStore",
     "FrameStore",
     "HITLStore",
     "SessionStore",

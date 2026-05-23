@@ -287,3 +287,52 @@ session_comments = Table(
         "ix_session_comments_session_created", "session_id", "created_at"
     ),
 )
+
+# ── Plan 8 D8.21 (Task 13): per-user session favorites ──────────────
+# Lightweight "star" toggle scoped to ``(session_id, user_label)``.
+# The :class:`UniqueConstraint` guarantees idempotent star semantics —
+# a second star surfaces as :class:`sqlalchemy.exc.IntegrityError` in
+# :meth:`SqlAlchemyStore.add_favorite` and is collapsed to
+# ``added=False`` so the audit log is not polluted with no-op
+# ``session_star`` rows. Un-starring is similarly idempotent: the
+# DELETE row count tells the repository whether anything actually
+# changed.
+#
+# Indexes:
+#   * ``ix_session_favorites_user_created`` — composite
+#     ``(user_label, created_at)`` powers the canonical "list MY
+#     favorites, newest first" query in one index seek.
+#   * ``ix_session_favorites_session_id`` — created implicitly via the
+#     column's ``index=True`` so FK-locality scans (e.g. the
+#     ``ON DELETE CASCADE`` reverse-lookup) stay cheap.
+#   * ``ix_session_favorites_user_label`` — created implicitly via the
+#     column's ``index=True`` so bare equality scans on ``user_label``
+#     still hit an index even when the caller doesn't sort by
+#     ``created_at``.
+#
+# ``ON DELETE CASCADE`` on ``session_id`` is intentional: starring a
+# session that was later deleted is not meaningful, and the audit log
+# preserves the lineage (``session_star`` / ``session_unstar`` rows
+# carry the original ``target_id``).
+session_favorites = Table(
+    "session_favorites",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column(
+        "session_id",
+        String(36),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    ),
+    Column("user_label", String(64), nullable=False, index=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "session_id",
+        "user_label",
+        name="uq_session_favorites_session_user",
+    ),
+    Index(
+        "ix_session_favorites_user_created", "user_label", "created_at"
+    ),
+)

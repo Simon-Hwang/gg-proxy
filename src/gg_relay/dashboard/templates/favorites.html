@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}My Favorites — gg-relay{% endblock %}
+{% block content %}
+<section class="favorites-page">
+    <h2>My Favorites</h2>
+    {% if items %}
+    <table class="favorites-table" id="favorites-table">
+        <thead>
+            <tr>
+                <th>Session</th>
+                <th>Owner</th>
+                <th>Status</th>
+                <th>Starred</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for it in items %}
+            <tr id="fav-row-{{ it.session_id }}" class="favorite-row" data-session-id="{{ it.session_id }}">
+                <td>
+                    <a href="/dashboard/sessions/{{ it.session_id }}">
+                        {% if it.prompt %}{{ it.prompt[:80] }}{% if it.prompt|length > 80 %}…{% endif %}{% else %}{{ it.session_id }}{% endif %}
+                    </a>
+                </td>
+                <td>{{ it.owner or '—' }}</td>
+                <td><span class="badge badge-{{ it.status }}">{{ it.status }}</span></td>
+                <td><time datetime="{{ it.starred_at }}">{{ it.starred_at }}</time></td>
+                <td>
+                    <button
+                        class="unstar-btn"
+                        hx-delete="/api/v1/sessions/{{ it.session_id }}/favorite"
+                        hx-target="#fav-row-{{ it.session_id }}"
+                        hx-swap="outerHTML"
+                        hx-on::after-request="if(event.detail.successful) this.closest('tr').remove();"
+                        aria-label="Unstar {{ it.session_id }}"
+                        title="Unstar">Unstar</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No favorites yet. Star sessions from the kanban board.</p>
+    {% endif %}
+</section>
+{% endblock %}

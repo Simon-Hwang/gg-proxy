@@ -51,6 +51,7 @@ from gg_relay.store.schema import (
     frames,
     hitl_requests,
     session_comments,
+    session_favorites,
     sessions,
 )
 
@@ -1454,6 +1455,168 @@ class SqlAlchemyStore:
         async with self._engine.begin() as new_conn:
             result = await new_conn.execute(stmt)
             return int(result.rowcount or 0) > 0
+
+    # ── session_favorites (Plan 8 D8.21 / Task 13) ────────────────────
+
+    async def add_favorite(
+        self,
+        *,
+        session_id: str,
+        user_label: str,
+        conn: Any = None,
+    ) -> bool:
+        """Star a session — idempotent.
+
+        Plan 8 D8.21 / Task 13. Returns ``True`` when a new
+        favorite row landed, ``False`` when ``(session_id,
+        user_label)`` was already starred (the unique constraint
+        ``uq_session_favorites_session_user`` collapses the second
+        write into :class:`sqlalchemy.exc.IntegrityError`, which we
+        translate into the deterministic ``False`` contract so the
+        router can skip the audit write on no-ops).
+
+        ``conn`` follows the same-tx outbox pattern documented on
+        :meth:`create_comment`. The IntegrityError path tries the
+        external connection's SAVEPOINT-style nested transaction
+        (via ``conn.begin_nested()``) so a duplicate star inside a
+        larger transaction does NOT poison the surrounding writes
+        — without that, the outer transaction would have to roll
+        back after the IntegrityError fires. SQLite + Postgres both
+        support ``begin_nested`` / SAVEPOINT.
+        """
+        stmt = insert(session_favorites).values(
+            session_id=session_id,
+            user_label=user_label,
+            created_at=_utcnow(),
+        )
+        if conn is not None:
+            try:
+                async with conn.begin_nested():
+                    await conn.execute(stmt)
+                return True
+            except IntegrityError:
+                return False
+        async with self._engine.begin() as new_conn:
+            try:
+                await new_conn.execute(stmt)
+                return True
+            except IntegrityError:
+                return False
+
+    async def remove_favorite(
+        self,
+        *,
+        session_id: str,
+        user_label: str,
+        conn: Any = None,
+    ) -> bool:
+        """Un-star a session — idempotent.
+
+        Plan 8 D8.21 / Task 13. Returns ``True`` when a row was
+        deleted, ``False`` when the pair was not starred. The
+        router uses ``False`` to decide whether to skip the
+        ``session_unstar`` audit row so a double-unstar collapses
+        to a 204 no-op.
+
+        ``conn`` follows the same-tx outbox pattern documented on
+        :meth:`create_comment`.
+        """
+        stmt = delete(session_favorites).where(
+            and_(
+                session_favorites.c.session_id == session_id,
+                session_favorites.c.user_label == user_label,
+            )
+        )
+        if conn is not None:
+            result = await conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
+        async with self._engine.begin() as new_conn:
+            result = await new_conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
+
+    async def is_favorited(
+        self, *, session_id: str, user_label: str
+    ) -> bool:
+        """Return ``True`` iff ``(session_id, user_label)`` is starred.
+
+        Plan 8 D8.21 / Task 13. Cheap equality lookup hitting the
+        ``uq_session_favorites_session_user`` index.
+        """
+        stmt = (
+            select(session_favorites.c.id)
+            .where(
+                and_(
+                    session_favorites.c.session_id == session_id,
+                    session_favorites.c.user_label == user_label,
+                )
+            )
+            .limit(1)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            return result.first() is not None
+
+    async def list_favorites(
+        self, *, user_label: str, limit: int = 50
+    ) -> list[dict[str, Any]]:
+        """List ``user_label``'s favorites newest-first.
+
+        Plan 8 D8.21 / Task 13. Two-step "favorites then sessions"
+        join — chosen over a SQL ``JOIN`` so the same query path
+        works without adaptation across SQLite (dev/test) and
+        Postgres (prod). The ``ix_session_favorites_user_created``
+        composite index serves the first SELECT in one seek; the
+        second SELECT is a single ``IN (...)`` lookup against the
+        ``sessions`` PK.
+
+        Returns dicts shaped like::
+
+            [
+                {
+                    "favorite_id": int,
+                    "session_id": str,
+                    "starred_at": datetime,
+                    "session": {...session row...},
+                },
+                ...
+            ]
+
+        Sessions that have been deleted are silently dropped from
+        the response — the FK ``ON DELETE CASCADE`` keeps the
+        favorite row in sync in production, but tests that delete
+        sessions via a path that bypasses the cascade (or that
+        construct favorites manually) still get a tidy reply.
+        """
+        async with self._engine.connect() as conn:
+            fav_result = await conn.execute(
+                select(session_favorites)
+                .where(session_favorites.c.user_label == user_label)
+                .order_by(session_favorites.c.created_at.desc())
+                .limit(limit)
+            )
+            favs = [dict(r) for r in fav_result.mappings()]
+            if not favs:
+                return []
+            sids = [f["session_id"] for f in favs]
+            sess_result = await conn.execute(
+                select(sessions).where(sessions.c.id.in_(sids))
+            )
+            sess_map = {r["id"]: dict(r) for r in sess_result.mappings()}
+
+        out: list[dict[str, Any]] = []
+        for f in favs:
+            s = sess_map.get(f["session_id"])
+            if s is None:
+                continue
+            out.append(
+                {
+                    "favorite_id": int(f["id"]),
+                    "session_id": f["session_id"],
+                    "starred_at": f["created_at"],
+                    "session": s,
+                }
+            )
+        return out
 
 
 class SessionRepository(SqlAlchemyStore):

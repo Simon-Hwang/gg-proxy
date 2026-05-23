@@ -10,6 +10,19 @@
         data-session-id="{{ s.id }}"
         aria-label="Select session {{ s.id }}"
     />
+    {# Plan 8 Task 13 / D8.21: minimal star button. Add-only — the
+       full add/remove toggle UX is deferred to Task 15 (kanban
+       polish). A successful POST flips the ``starred`` CSS class
+       so the operator sees immediate feedback even before the
+       row state is refetched. #}
+    <button
+        type="button"
+        class="star-toggle"
+        hx-post="/api/v1/sessions/{{ s.id }}/favorite"
+        hx-swap="none"
+        hx-on::after-request="if(event.detail.successful) this.classList.add('starred');"
+        aria-label="Star session {{ s.id }}"
+        title="Star">★</button>
     <a href="/dashboard/sessions/{{ s.id }}" class="kanban-card-link">
         <div class="kanban-card-id">{{ s.id }}</div>
         <div class="kanban-card-meta">

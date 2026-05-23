@@ -30,6 +30,7 @@ from gg_relay.store.exceptions import (
 from gg_relay.store.protocol import (
     AuditStore,
     CommentStore,
+    FavoriteStore,
     FrameStore,
     HITLStore,
     SessionStore,
@@ -41,6 +42,7 @@ from gg_relay.store.schema import (
     hitl_requests,
     metadata,
     session_comments,
+    session_favorites,
     sessions,
 )
 
@@ -50,6 +52,7 @@ __all__ = [
     "ConcurrencyError",
     "CursorFilterMismatchError",
     "CursorInvalidError",
+    "FavoriteStore",
     "FrameStore",
     "HITLStore",
     "SessionRepository",
@@ -62,5 +65,6 @@ __all__ = [
     "make_async_engine",
     "metadata",
     "session_comments",
+    "session_favorites",
     "sessions",
 ]

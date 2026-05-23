@@ -564,3 +564,87 @@ async def test_downgrade_0008_to_0007_roundtrip(sqlite_db_url: str):
     assert "audit_log" in tables, (
         "0006 audit_log lost on 0008 downgrade"
     )
+
+
+# ── Plan 8 Task 13 / D8.21: session_favorites table (0009) ──────────
+
+
+async def test_chain_0001_to_0009_upgrade(sqlite_db_url: str):
+    """0001 → … → 0009 顺次 upgrade，session_favorites 表 + unique constraint
+    + composite index 就位.
+
+    Plan 8 D8.21 / Task 13. Verifies the per-user favorites table
+    landed with the full schema (id PK / session_id FK CASCADE /
+    user_label / created_at) and that both the unique constraint
+    ``uq_session_favorites_session_user`` and the composite
+    ``ix_session_favorites_user_created`` index are present.
+    Sanity: 0008 ``sessions.parent_session_id`` column is still
+    alive (we didn't accidentally rebuild ``sessions``).
+    """
+    _run_upgrade(sqlite_db_url, "head")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "session_favorites" in tables, (
+        f"session_favorites table missing after 0009: {tables}"
+    )
+
+    cols = await _columns(sqlite_db_url, "session_favorites")
+    expected = {"id", "session_id", "user_label", "created_at"}
+    assert expected <= cols, (
+        f"session_favorites columns missing: expected {expected}, got {cols}"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "session_favorites")
+    assert "ix_session_favorites_user_created" in indexes, (
+        f"ix_session_favorites_user_created missing: {indexes}"
+    )
+
+    # Unique constraint: SQLite surfaces it as a unique index named
+    # ``uq_session_favorites_session_user``. Inspect via
+    # :func:`sqlalchemy.inspect`'s ``get_unique_constraints``.
+    engine = make_async_engine(sqlite_db_url)
+    try:
+        async with engine.connect() as conn:
+
+            def _inspect(sync_conn):
+                return {
+                    uc["name"]
+                    for uc in inspect(sync_conn).get_unique_constraints(
+                        "session_favorites"
+                    )
+                }
+
+            uniques = await conn.run_sync(_inspect)
+    finally:
+        await engine.dispose()
+    assert "uq_session_favorites_session_user" in uniques, (
+        f"uq_session_favorites_session_user missing: {uniques}"
+    )
+
+    # Sanity — 0008 parent_session_id column still present.
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "parent_session_id" in sess_cols, (
+        "0008 parent_session_id lost after 0009 upgrade"
+    )
+
+
+async def test_downgrade_0009_to_0008_roundtrip(sqlite_db_url: str):
+    """upgrade head → downgrade -1 → session_favorites 表 + index 消失,
+    0008 parent_session_id 列仍保留 (验证只回滚 0009)."""
+    _run_upgrade(sqlite_db_url, "head")
+    _run_downgrade(sqlite_db_url, "0008")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "session_favorites" not in tables, (
+        f"session_favorites survived downgrade to 0008: {tables}"
+    )
+
+    # 0008 parent_session_id + earlier migrations must still be alive
+    # — only 0009 was rolled back.
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "parent_session_id" in sess_cols, (
+        "0008 parent_session_id lost on 0009 downgrade"
+    )
+    assert "session_comments" in tables, (
+        "0007 session_comments lost on 0009 downgrade"
+    )

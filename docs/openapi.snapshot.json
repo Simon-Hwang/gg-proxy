@@ -1556,6 +1556,71 @@
         ]
       }
     },
+    "/api/v1/sessions/favorites": {
+      "get": {
+        "description": "List the caller's starred sessions (Plan 8 D8.21 / Task 13).\n\nReturns ``{\"items\": [...], \"user\": \"<resolved label>\"}`` sorted\nmost-recently starred first. Each item carries enough session\nmetadata (``prompt``, ``owner``, ``status``) for the dashboard's\n``My Favorites`` table to render without a follow-up\n``GET /sessions/{sid}`` round-trip.\n\nRole policy:\n  * **non-admin** \u2014 sees only their own favorites; the ``user``\n    query parameter is silently ignored.\n  * **admin** \u2014 may pass ``?user=<label>`` to inspect another\n    user's favorites (debugging / moderation).",
+        "operationId": "list_my_favorites_api_v1_sessions_favorites_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "User"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List My Favorites Api V1 Sessions Favorites Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List My Favorites",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
     "/api/v1/sessions/search": {
       "get": {
         "description": "Search sessions with combined filters + cursor pagination.\n\nPlan 8 D8.20 / Task 12. Backed by\n:meth:`SqlAlchemyStore.search_sessions` \u2014 see that docstring for\nthe filter / cursor contract. Filters compose with AND across\nkwargs and OR within ``tags`` / ``status`` lists. ``q`` matches\nagainst the JSON spec payload (where the prompt lives) so search\nworks for both legacy rows (no top-level prompt column) and new\nrows alike.\n\nRBAC (inline, same pattern as ``GET /audit``): admin sees every\nrow; submitter / viewer are silently force-filtered to\n``owner=<self-label>``. An explicit cross-owner filter from a\nnon-admin caller surfaces ``403 forbidden_search_owner`` rather\nthan a silent rewrite \u2014 explicit-deny avoids the confusing \"I\nasked for bob's rows but got mine\" response shape.\n\nError mapping:\n  * 400 ``cursor_invalid`` / ``cursor_filter_mismatch`` \u2014 same\n    contract as :func:`list_sessions`.\n  * 403 ``forbidden_search_owner`` \u2014 non-admin asked for an owner\n    they don't match.",
@@ -2042,6 +2107,76 @@
         ]
       }
     },
+    "/api/v1/sessions/{session_id}/favorite": {
+      "delete": {
+        "description": "Un-star a session \u2014 idempotent (Plan 8 D8.21 / Task 13).\n\nReturns 204 regardless of whether the row existed; un-starring\na session that wasn't starred is a no-op. The audit row only\nfires on actual state change.",
+        "operationId": "unstar_session_api_v1_sessions__session_id__favorite_delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Unstar Session",
+        "tags": [
+          "sessions"
+        ]
+      },
+      "post": {
+        "description": "Star a session \u2014 idempotent (Plan 8 D8.21 / Task 13).\n\nReturns 204 on success. ``submitter+`` may star any session\n(favorites are a per-user view, not an ownership-gated action).\n\nIdempotency: a second star on the same session is a no-op and\ndoes NOT write a second ``session_star`` audit row \u2014 the\nrepository signals \"no state change\" via ``add_favorite=False``\nand we skip the audit call so the timeline stays clean.\n\nError mapping:\n  * 404 ``session_not_found`` \u2014 unknown id; structured detail\n    so machine clients can dispatch on ``code``.",
+        "operationId": "star_session_api_v1_sessions__session_id__favorite_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Star Session",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
     "/api/v1/sessions/{session_id}/hitl/pending": {
       "get": {
         "operationId": "list_pending_api_v1_sessions__session_id__hitl_pending_get",
@@ -2324,6 +2459,28 @@
           }
         },
         "summary": "Comment Edit Form",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/favorites": {
+      "get": {
+        "description": "Render the logged-in user's \"My Favorites\" table (Plan 8 D8.21 / Task 13).\n\nIdentity resolution mirrors :func:`session_audit_timeline` \u2014\n:func:`_dashboard_label` collapses the cookie session to the\n``dashboard-<username>`` label so the same identity used by the\nAPI ``POST /sessions/{sid}/favorite`` star action drives the\nlist query here. A missing label means the cookie middleware\ndidn't see a session; we render the empty state rather than\nsurface a confusing 401 because the upstream session-required\ndependency would already have redirected un-authed callers.",
+        "operationId": "favorites_page_dashboard_favorites_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Favorites Page",
         "tags": [
           "dashboard"
         ]

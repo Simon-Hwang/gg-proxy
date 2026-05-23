@@ -191,6 +191,52 @@ async def sessions_list(
     )
 
 
+@router.get("/favorites", response_class=HTMLResponse)
+async def favorites_page(
+    request: Request,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Render the logged-in user's "My Favorites" table (Plan 8 D8.21 / Task 13).
+
+    Identity resolution mirrors :func:`session_audit_timeline` —
+    :func:`_dashboard_label` collapses the cookie session to the
+    ``dashboard-<username>`` label so the same identity used by the
+    API ``POST /sessions/{sid}/favorite`` star action drives the
+    list query here. A missing label means the cookie middleware
+    didn't see a session; we render the empty state rather than
+    surface a confusing 401 because the upstream session-required
+    dependency would already have redirected un-authed callers.
+    """
+    store: SessionRepository = request.app.state.store
+    label = _dashboard_label(request)
+    items: list[dict[str, Any]] = []
+    if label:
+        rows = await store.list_favorites(user_label=label, limit=100)
+        for r in rows:
+            s = r["session"]
+            starred_at = r["starred_at"]
+            items.append(
+                {
+                    "session_id": r["session_id"],
+                    "prompt": (s.get("spec_json") or {}).get(
+                        "prompt", ""
+                    ),
+                    "owner": s.get("owner"),
+                    "status": s.get("status"),
+                    "starred_at": (
+                        starred_at.isoformat()
+                        if hasattr(starred_at, "isoformat")
+                        else starred_at
+                    ),
+                }
+            )
+    return templates.TemplateResponse(
+        request,
+        "favorites.html",
+        {"items": items, "current_actor": label},
+    )
+
+
 @router.get("/sessions/{session_id}", response_class=HTMLResponse)
 async def session_detail(
     request: Request,
