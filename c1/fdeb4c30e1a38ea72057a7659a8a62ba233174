@@ -1,0 +1,38 @@
+docs/architecture.md
+  s_81b992f84b25fa::t_7a1a0e7542726d 1-102
+tests/integration/test_dev_compose.py
+  s_81b992f84b25fa::t_689b5f0aa390ce 1-82
+docs/openapi.snapshot.json
+  s_81b992f84b25fa::t_e49243b0d994bd 1-1820
+deploy/docker-compose.dev.yml
+  s_81b992f84b25fa::t_9df4af9d8390e2 59-74
+  s_81b992f84b25fa::t_8654da6e09e24e 31-36
+docs/tracing.md
+  s_81b992f84b25fa::t_a658fff44861f5 1-107
+docs/api.md
+  s_81b992f84b25fa::t_3bc6d985068eb1 1-154
+docs/cluster.md
+  s_81b992f84b25fa::t_b2c688d0fdefb4 1-64
+scripts/dump_openapi.py
+  s_81b992f84b25fa::t_9b8d2c7bc29cf5 1-43
+Makefile
+  s_81b992f84b25fa::t_c50ff294c97994 8,18-24
+tests/integration/test_openapi_snapshot.py
+  s_81b992f84b25fa::t_381da496476caf 1-89
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "c1fdeb4c30e1a38ea72057a7659a8a62ba233174",
+  "prompts": {},
+  "sessions": {
+    "s_81b992f84b25fa": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "23c2c69d-a077-4290-8c31-f462878b88a8",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
