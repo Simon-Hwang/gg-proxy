@@ -1,6 +1,35 @@
 # Plan 8 — Team Collaboration & Optional Multi-Worker
 
-**作者**: gg-relay  **创建**: 2026-05-23  **修订**: v2.1 (Santa Round 1 + Round 2 整合)  **状态**: 🟢 **LOCKED** — Santa Method 双轮通过
+**作者**: gg-relay  **创建**: 2026-05-23  **修订**: v2.3 (v2.2 用户回炉 + micro-Santa 3 BLOCKER + 5 MAJOR 修复)  **状态**: 🟢 **LOCKED** — Santa Method 双轮 + v2.2 micro + v2.3 micro-Santa 修复
+
+> **v2.2 → v2.3 关键修复**（micro-Santa reviewer V 找出 3 BLOCKER + 5 MAJOR 全部吸收）：
+> 1. **BLOCKER 1 修复**：Plan 7 D7.15 APIKeyMiddleware signature 破坏 — AC 改为"行为契约兼容；Plan 7 测试 fixture 迁移到 mock KeyResolver；中间层提供 `from_keys_with_labels()` classmethod 兼容旧构造路径仅作 deprecated shim"
+> 2. **BLOCKER 2 修复**：DB role vs `Config.role_mapping` 语义锁定 — **默认 DB-authoritative**（dashboard 改 DB role 生效）；`role_mapping` 仅在**启动 bootstrap 时**为新 import 的 key 设置 default role（之后不再覆盖）；新增 Config `role_override_mode: Literal["db", "config"] = "db"`（emergency lockdown 模式可设 config 紧急覆盖；通常不用）
+> 3. **BLOCKER 3 修复**：D8.26 dashboard internal key 同步加入 Task 22 实施要点（step 10）+ AC 40 + 1 个测试
+> 4. **MAJOR 1**: DB outage fallback 改"保留 last-known-good DB cache snapshot + EnvKeyResolver fallback"；DBKeyResolver 维护一个 disk-backed `~/.cache/gg-relay/known-keys.json`（仅 key_hash + label + role + expires_at，不存明文）持久化最近 cache；DB recover 后下次请求自动重新 lookup + 更新 snapshot
+> 5. **MAJOR 2**: invalidate broadcast 明示 **事务 commit 之后** publish；事务 rollback 不广播
+> 6. **MAJOR 3**: Task 22 加 step 11: `KeyInvalidateSubscriber` lifespan 注册（仅 `event_bus_backend=redis` 启用；持有本 worker DBKeyResolver 实例）
+> 7. **MAJOR 4**: 文档明示"multi-worker Redis 漏接 invalidate event 最多延迟 10s (TTL) 后 cache miss → DB lookup → 收敛"
+> 8. **MAJOR 5**: Task 22 测试 12 → 17 (加 role 优先级 / dashboard internal key sync / DB outage stale cache / audit rollback / invalidate after commit / single-flight)
+> 9. **MINOR 1**: AC 35 typo `testaceae` → `test cases` 修正
+> 10. **MINOR 2**: §5 标题 "DRAFT" → "LOCKED"
+> 11. **MINOR 3**: Task 21 final gate OOS gate 描述同步 §12 精确 pattern
+
+> **v2.1 → v2.2 关键改动**（用户对"砍掉 D8.12 API key 自助"决策的回炉，加回 DB-backed 版本）：
+> - **+D8.29 NEW**: DB-backed API key 自助管理（不重蹈 v1 D8.12 文件锁覆辙）
+>   - Alembic 0011 `api_keys` 表（label / key_hash / role / created_at / expires_at NULL / revoked_at NULL / last_used_at NULL / created_by / notes）
+>   - `KeyResolver` Protocol + `EnvKeyResolver`（启动 bootstrap，env→DB sync）+ `DBKeyResolver`（运行时 lookup + 10s LRU TTL cache）
+>   - `APIKeyMiddleware` 改：从冻结 dict 改为 Protocol lookup（解决 v1 D8.12 "冻结 middleware 不能 reload" BLOCKER）
+>   - 3 admin endpoint：`POST /api/v1/admin/keys`（create, 输出明文一次性）+ `GET /api/v1/admin/keys`（list, 仅 hash[:8] + label + role + last_used_at + expires_at + revoked_at）+ `DELETE /api/v1/admin/keys/{label}`（revoke）+ 1 cache invalidate endpoint
+>   - dashboard `/dashboard/admin/keys` HTMX UI（list + create dialog + revoke confirm）
+>   - bootstrap-admin CLI 改：默认写 DB 而非 .env（仍保 `--write-env` 作 emergency fallback）
+>   - env (`RELAY_API_KEYS_RAW`) **仍为 bootstrap source-of-truth**（启动时同步到 DB if not exists，旧 client 100% 兼容）+ DB 为运行时 source-of-truth
+>   - **多 worker 一致性**：DB single source-of-truth 自然解决（v1 D8.12 文件锁问题不存在）
+>   - **revoke 即时性**：middleware cache 10s TTL；admin 可调 `POST /admin/keys/invalidate-cache` 强制刷新
+>   - **新增 risks**：DB 不可用 → middleware 拒所有请求（vs v0.7 env-based middleware Redis-down 仍可用）→ 缓解：启动时 env keys 已 cached + cache TTL 期间 DB outage 不影响已知 key 鉴权
+> - **+Task 22 (Plan 8 v2.2)**: D8.29 实现 (~15 test)
+> - **scope**: 19 → 20 tracked decisions / 21 → 22 task / ~165 → ~180 test
+> - **v2.1 → v2.2 不变**：Plan 7 v2.3 / Plan 8 v2.1 其他 19 decisions / 21 task 全部保留
 
 > **v2 → v2.1 关键修复**（Round 2 reviewer W 找出 2 BLOCKER + 4 MAJOR 全部吸收）：
 > 1. **BLOCKER 1 修复**：D8.26 dashboard label 与 D8.22 role / D8.28 bootstrap-admin 命名空间闭合 — bootstrap-admin 加 `--dashboard-user` 选项；role_mapping 必须用 explicit `dashboard-{user}` key；启动检查双 namespace 一致性
@@ -57,7 +86,11 @@
 - **Migration 顺序（v2.1 修正）**：`0006 audit_log → 0007 session_comments → 0008 parent_session_id → 0009 session_favorites → 0010 prompt_templates`（5 个 new migration，与 §6 module layout + §7 Task 5/7/9/13/14 完全一致；role_mapping 走 Config 不入表，alert_mutes / hitl_mutes 砍掉）
 - audit_log middleware 改为兜底，敏感 mutation 由业务路径显式写
 
-**最终 scope**：**15 main + 4 boundary = 19 tracked decisions + 21 task + ~165 test**（v1 的 14+27+155 大幅收缩 + 重排；v2.1 测试加密关键路径 152 → 165）
+**最终 scope (v2.2)**：**16 main + 4 boundary = 20 tracked decisions + 22 task + ~180 test**
+- v1 起点 14 + 27 task + 155 test
+- v2 大幅收缩 + 重排 → 15+4=19 decisions / 21 task / 152 test
+- v2.1 测试加密关键路径 → ~165 test
+- v2.2 用户回炉加 D8.29 DB-backed API key 自助 → 20 decisions / 22 task / ~180 test
 
 ---
 
@@ -75,7 +108,7 @@
 
 ## 2. Scope
 
-### In: 15 decisions / 21 tasks / ~125 tests
+### In: 16 main + 4 boundary = 20 decisions / 22 tasks / ~180 tests
 
 | ID | 主题 | Tier | 优先级 |
 |---|---|---|---|
@@ -88,6 +121,7 @@
 | D8.20 | Session 搜索（prompt LIKE / owner / tags / 时间窗口） | single | P0 |
 | D8.21 | Session 收藏 / star | single | P0 |
 | D8.22 | Simple label role：viewer / submitter / admin（label 命名约定 + Config 显式映射） | single | P0 |
+| **D8.29** | **DB-backed API key 自助（v2.2 NEW）：表 + KeyResolver Protocol + 热加载 + admin CRUD + dashboard UI + expires/revoke/last_used_at** | **single** | **P0** |
 | D8.24 | Prompt templates / saved prompts（团队共享） | single | P1 |
 | D8.10 | Postgres pool tuning（pool_size/overflow/pre_ping/slow_log） | single+multi | P0 |
 | D8.3 | Maintenance command + 推荐 external cron / 独立 container（不内嵌 worker） | single | P1 |
@@ -109,7 +143,7 @@
 - Session replay UI（推 Plan 10+，先用 frames API 排障）
 - SVG span tree（永不做，Jaeger 即可）
 - HITL mute auto-approve（永不做，安全敏感）
-- API key 自助 / 热加载（推 Plan 11+，env 文件 + restart 充足）
+- ~~API key 自助 / 热加载~~ → **v2.2 用户回炉决策加回为 D8.29**（DB-backed，不重蹈 v1 D8.12 文件锁覆辙）
 - HITL batch 决策 → **保留为 D8.6 一部分**（batch endpoint 支持 cancel/retry 同时也加 approve/reject）
 - 多租户 / cross-team RBAC
 - K8s / Helm / OIDC / mTLS / SBOM
@@ -134,7 +168,11 @@
 - Plan 7 D7.25 SDKError taxonomy → D8.7 alert 按 category 分流
 - Plan 7 D7.15 APIKeyMiddleware → D8.26 cookie auth 绑定 `dashboard-{user}` label
 
-## 4. Decisions — 15 个 (含 4 个 boundary)
+## 4. Decisions — 19 个 (15 main + 4 boundary，+ v2.2 micro 增 D8.29 详见 §6 后)
+
+> **v2.2 注**: D8.29 详细设计放在 §6 module layout 之后（避免本节过长）；§4 此处仅列摘要：
+> - **D8.29 — DB-backed API key 自助 (v2.2 NEW)**: Alembic 0011 `api_keys` 表 + `KeyResolver` Protocol (`EnvKeyResolver` bootstrap / `DBKeyResolver` runtime + 10s TTL cache + invalidate broadcast) + `APIKeyMiddleware` 改造 + admin CRUD endpoint + dashboard `/admin/keys` UI + bootstrap-admin CLI 默认 DB-backed + Plan 7 D7.26 兼容（env 仍为 bootstrap source）+ 多 worker 一致性自然解决（vs v1 D8.12 文件锁）+ DB 不可用 fallback EnvKeyResolver + observable degradation gauge
+
 
 ### D8.0 — Dashboard owner UX + CLI 子命令
 **已锁定**：
@@ -354,7 +392,7 @@
     ```
 - audit log 记 `action=bootstrap_admin`，actor=`cli-bootstrap`，metadata=`{label: alice, dashboard_user: alice, write_env: true}`
 
-## 5. Final decisions (DRAFT — pending Santa Round 2)
+## 5. Final decisions (LOCKED — Santa Round 1 + 2 + v2.2 micro + v2.3 micro 通过)
 
 | ID | 决策 | 推荐 | 终值 |
 |---|---|---|---|
@@ -376,7 +414,8 @@
 | D8.25 | User identity unified | A 全派生 api_key_label | TBD |
 | D8.26 | Dashboard cookie bound to system key | A 内部派生 + 透明注入 | TBD |
 | D8.27 | SSE 走 EventBusBackend | A 透明 multi-worker | TBD |
-| D8.28 | Admin bootstrap CLI | A warning + `bootstrap-admin --write-env` | TBD |
+| D8.28 | Admin bootstrap CLI | A warning + `bootstrap-admin --dashboard-user --write-env` (v2.2 默认改 DB) | TBD |
+| **D8.29** | **DB-backed API key 自助 (v2.2)** | **A Alembic 0011 + KeyResolver Protocol + admin CRUD + dashboard UI + 10s TTL cache + invalidate broadcast** | **TBD** |
 
 ## 6. Module layout
 
@@ -391,7 +430,13 @@ deploy/
 └── prometheus/prometheus.yml       # NEW
 
 src/gg_relay/
-├── cli.py                          # MODIFIED: add submit/tail/cancel/list/search/star/maintenance/bootstrap-admin
+├── auth/                           # NEW package (D8.29)
+│   ├── __init__.py
+│   ├── protocol.py                 # NEW (D8.29): KeyResolver Protocol + ResolvedKey
+│   ├── env_resolver.py             # NEW (D8.29): bootstrap env→DB sync
+│   ├── db_resolver.py              # NEW (D8.29): runtime DB lookup + 10s TTL cache + invalidate broadcast
+│   └── store.py                    # NEW (D8.29): ApiKeyStore CRUD (使用 store/repository pattern)
+├── cli.py                          # MODIFIED: add submit/tail/cancel/list/search/star/maintenance/bootstrap-admin (--write-env now fallback only)
 ├── config.py                       # MODIFIED: event_bus_backend / rate_limit_backend / db_pool_* / alert_rules / role_mapping / dashboard_users
 ├── core/
 │   ├── event_bus.py                # MODIFIED: facade
@@ -401,7 +446,7 @@ src/gg_relay/
 ├── api/
 │   ├── main.py                     # MODIFIED: wire backends + cookie middleware
 │   ├── middleware/
-│   │   ├── api_key_auth.py         # MODIFIED: Plan 7 D7.15 unchanged contract
+│   │   ├── api_key_auth.py         # MODIFIED (D8.29): 从冻结 dict 改为 KeyResolver Protocol lookup
 │   │   ├── dashboard_cookie.py     # NEW (D8.26): bind cookie to system key
 │   │   ├── audit.py                # NEW (D8.4): fallback middleware only
 │   │   ├── rate_limit.py           # MODIFIED: RateLimitStoreBackend Protocol
@@ -413,6 +458,7 @@ src/gg_relay/
 │   │   ├── comments.py             # NEW (D8.5)
 │   │   ├── alerts.py               # NEW (D8.7 minimal: rules read-only inspect)
 │   │   ├── templates.py            # NEW (D8.24)
+│   │   ├── admin_keys.py           # NEW (D8.29): POST/GET/DELETE /api/v1/admin/keys + invalidate-cache
 │   │   ├── hitl.py                 # MODIFIED: add batch endpoint
 │   │   └── ... (existing)
 │   ├── audit_service.py            # NEW (D8.4): explicit audit.record() helpers for managers
@@ -424,12 +470,14 @@ src/gg_relay/
 │   │   ├── 0007_add_session_comments.py     # NEW (D8.5)
 │   │   ├── 0008_add_parent_session_id.py    # NEW (D8.6 retry)
 │   │   ├── 0009_add_session_favorites.py    # NEW (D8.21)
-│   │   └── 0010_add_prompt_templates.py     # NEW (D8.24)
-│   ├── repository.py               # MODIFIED: audit/comments/favorites/templates CRUD + retry helper
-│   └── protocol.py                 # MODIFIED: AuditStore / CommentStore / FavoriteStore / TemplateStore Protocols
+│   │   ├── 0010_add_prompt_templates.py     # NEW (D8.24)
+│   │   └── 0011_add_api_keys_table.py       # NEW (D8.29)
+│   ├── repository.py               # MODIFIED: audit/comments/favorites/templates/api_keys CRUD + retry helper
+│   └── protocol.py                 # MODIFIED: AuditStore / CommentStore / FavoriteStore / TemplateStore / ApiKeyStore Protocols
 ├── subscribers/
 │   ├── failure_subscriber.py       # NEW (D8.7): fail/cancel/complete subscriber
-│   └── alert_router.py             # NEW (D8.7)
+│   ├── alert_router.py             # NEW (D8.7)
+│   └── key_invalidate_subscriber.py  # NEW (D8.29, v2.3): multi-worker tier only; subscribe ApiKeyInvalidated event → DBKeyResolver.invalidate_cache
 ├── session/
 │   └── manager.py                  # MODIFIED: retry method + explicit audit.record calls
 ├── dashboard/
@@ -443,7 +491,8 @@ src/gg_relay/
 │       ├── templates.html          # NEW (D8.24)
 │       ├── session_detail.html     # MODIFIED: comments + audit timeline + star toggle
 │       ├── alerts.html             # NEW (D8.7 minimal viewing alert rules)
-│       └── admin.html              # NEW (D8.28 bootstrap-admin status warning)
+│       ├── admin.html              # NEW (D8.28 bootstrap-admin status warning)
+│       └── admin_keys.html         # NEW (D8.29): list + create dialog + revoke confirm
 └── maintenance/
     ├── __init__.py                 # NEW
     └── retention.py                # NEW (D8.3): retention logic (no scheduler)
@@ -493,6 +542,225 @@ tests/
     └── test_alembic_chain_0001_to_0010.py          # NEW
 ```
 
+## 4b. D8.29 详细决策（v2.2 micro-补充，逻辑上属于 §4）
+
+### D8.29 — DB-backed API key 自助管理 (v2.2 NEW，回炉 v1 D8.12 砍掉的能力)
+
+**背景**：v1 D8.12 因"文件锁多 worker 不可靠 + admin role 字符串提权 + admin restart 容忍度高"被砍。v2.2 用户回炉，理由：单团队多人场景下新人入职/离职/key 泄漏 rotation/临时访客是高频真实需求，restart 中断全队 SSE 反而退化为"共享 key 反模式"。
+
+**已锁定**：
+
+#### 1. Alembic 0011 `api_keys` 表
+```python
+revision = "0011_add_api_keys_table"
+down_revision = "0010_add_prompt_templates"
+def upgrade():
+    op.create_table("api_keys",
+        sa.Column("id", _PK_BIG, primary_key=True, autoincrement=True),
+        sa.Column("label", sa.String(64), nullable=False, unique=True),
+        sa.Column("key_hash", sa.String(64), nullable=False, unique=True),  # sha256 hex
+        sa.Column("key_prefix", sa.String(8), nullable=False),               # 前 8 char (UI 显示用)
+        sa.Column("role", sa.String(16), nullable=False, server_default="submitter"),  # viewer/submitter/admin
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("created_by", sa.String(64), nullable=True),               # api_key_label of creator
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),  # None = never
+        sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),  # None = active
+        sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("notes", sa.String(256), nullable=True),                   # admin 备注
+    )
+    op.create_index("ix_api_keys_label", "api_keys", ["label"])
+    op.create_index("ix_api_keys_key_hash", "api_keys", ["key_hash"])
+    op.create_index("ix_api_keys_active", "api_keys",
+                    ["revoked_at", "expires_at"],
+                    postgresql_where=sa.text("revoked_at IS NULL"))
+```
+
+#### 2. `KeyResolver` Protocol + 2 impl
+```python
+# src/gg_relay/auth/protocol.py (NEW)
+class ResolvedKey(NamedTuple):
+    label: str
+    role: Literal["viewer", "submitter", "admin"]
+
+class KeyResolver(Protocol):
+    """Resolve raw API key string to (label, role). Returns None if invalid/revoked/expired.
+    Implementations MUST be thread-safe and async."""
+    async def resolve(self, raw_key: str) -> ResolvedKey | None: ...
+    async def invalidate_cache(self, label: str | None = None) -> None: ...
+
+# src/gg_relay/auth/env_resolver.py (NEW)
+class EnvKeyResolver(KeyResolver):
+    """Bootstrap-only resolver. Reads Config.api_keys_with_labels (Plan 7 D7.26).
+    Used at startup to sync env keys to DB. Not used for runtime lookup."""
+    ...
+
+# src/gg_relay/auth/db_resolver.py (NEW)
+class DBKeyResolver(KeyResolver):
+    """Runtime resolver. Looks up DB; caches result for 10s LRU TTL.
+    On revoke/create/update, admin endpoint calls invalidate_cache(label)."""
+    def __init__(self, *, store: ApiKeyStore, role_mapping: dict[str, str], cache_ttl_s: int = 10):
+        self._store = store
+        self._role_mapping = role_mapping  # Config.role_mapping (Plan 8 D8.22 已有)
+        self._cache: TTLCache[str, ResolvedKey | None] = TTLCache(maxsize=1000, ttl=cache_ttl_s)
+
+    async def resolve(self, raw_key: str) -> ResolvedKey | None:
+        if raw_key in self._cache:
+            return self._cache[raw_key]
+        key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+        row = await self._store.get_by_hash(key_hash)
+        if not row: result = None
+        elif row.revoked_at is not None: result = None
+        elif row.expires_at is not None and row.expires_at < utcnow(): result = None
+        else:
+            role = row.role
+            # role_mapping 覆盖 DB role (Config 优先级高，便于 emergency 锁权)
+            role = self._role_mapping.get(row.label, role)
+            result = ResolvedKey(label=row.label, role=role)
+            # last_used_at 节流更新（每 60s 最多 1 次）
+            asyncio.create_task(self._store.touch_last_used_throttled(row.id))
+        self._cache[raw_key] = result
+        return result
+
+    async def invalidate_cache(self, label: str | None = None) -> None:
+        if label is None:
+            self._cache.clear()
+        else:
+            # 单 label 失效（找出 cache 中对应该 label 的 raw_key entry 删）
+            await self._invalidate_by_label(label)
+```
+
+#### 3. `APIKeyMiddleware` 改造（替换 Plan 7 D7.15 冻结 dict）
+```python
+class APIKeyAuthMiddleware:
+    def __init__(self, app, *, resolver: KeyResolver):
+        self._resolver = resolver
+    async def dispatch(self, request, call_next):
+        header = request.headers.get("x-api-key", "")
+        if not header: return _401("missing")
+        result = await self._resolver.resolve(header)
+        if result is None: return _401("invalid_or_revoked")
+        request.state.api_key_label = result.label
+        request.state.api_key_id = hashlib.sha256(header.encode()).hexdigest()[:16]
+        request.state.role = result.role
+        return await call_next(request)
+```
+
+#### 4. 启动时 env→DB sync
+```python
+# api/main.py lifespan
+async def lifespan(app):
+    cfg = get_config()
+    async with engine.begin() as conn:
+        store = ApiKeyStore(conn)
+        for raw_key, label in cfg.api_keys_with_labels.items():
+            key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
+            existing = await store.get_by_hash(key_hash)
+            if not existing:
+                await store.create(
+                    label=label, key_hash=key_hash, key_prefix=raw_key[:8],
+                    role=cfg.role_mapping.get(label, "submitter"),
+                    created_by="env-bootstrap", notes="Auto-imported from RELAY_API_KEYS_RAW",
+                )
+                logger.info("env_key_bootstrapped", label=label)
+    resolver = DBKeyResolver(store=ApiKeyStore(engine), role_mapping=cfg.role_mapping)
+    app.add_middleware(APIKeyAuthMiddleware, resolver=resolver)
+    yield
+```
+
+#### 5. Admin endpoint (3 个 + 1 cache)
+| Endpoint | Body / Query | Role | Response |
+|---|---|---|---|
+| `POST /api/v1/admin/keys` | `{label, role, expires_in_days?, notes?}` | admin | `{label, key: "<plaintext-one-time>", warning: "Save now - hidden after this response"}` |
+| `GET /api/v1/admin/keys?include_revoked=false` | — | admin | `[{label, key_prefix, role, created_at, expires_at, revoked_at, last_used_at, notes}, ...]` |
+| `DELETE /api/v1/admin/keys/{label}` | `{reason?}` | admin | 204; sets `revoked_at = now()` + audit |
+| `POST /api/v1/admin/keys/invalidate-cache` | `{label?}` | admin | 204 |
+
+约束：
+- 不能 revoke 自己当前正在使用的 key（防自锁；返 400）
+- 不能 revoke 最后一个 admin role 的 key（防全队失锁；返 400 + 提示先创建新 admin）
+- `expires_in_days`：0 < days ≤ 365；用于临时访客
+- `label`：unique；create 时 label 已存在 → 409
+- 所有 mutation 走 D8.4 audit log（actor / action / target_label / metadata）
+
+#### 6. Dashboard `/dashboard/admin/keys` UI
+- 表格列：Label / Prefix (隐藏全 key) / Role badge / Created / Last used / Expires / Status (active/revoked/expired) / Actions
+- "+ Create key" 按钮 → HTMX dialog form → 成功后显示明文 key + "Copy to clipboard" 按钮 + "I've saved it" 关闭按钮
+- 每行 "Revoke" 按钮（仅 active 行可见）→ confirm dialog → DELETE
+- "Filter: active only / include revoked" toggle
+- 顶部 "⚠ N keys expiring in 7 days" 提示
+- 仅 D8.22 admin role 可见（其他 role 403 + dashboard 顶部菜单不显示链接）
+
+#### 7. bootstrap-admin CLI 改造（D8.28 更新）
+- 默认行为：DB-backed（启动后向 DB 写入新 admin key + 输出明文一次性）
+- `--write-env`：emergency fallback（DB 不可用时；同时写 env + 退化为冻结 dict 模式）
+- `--print-only`：仅输出 key（不写 DB / 不写 env），适合 dry-run
+- 输出示例：
+```
+✓ Generated admin API key:
+    Label: alice
+    Role: admin
+    Key:   key_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx   ← save securely, not shown again
+    Storage: DB (api_keys table)
+
+✓ Also recommend (for dashboard path same admin):
+    [dashboard_users]
+    alice = "$2b$..."                                ← bcrypt hash printed above
+
+    [role_mapping]
+    "dashboard-alice" = "admin"                      ← namespace闭合 (D8.22)
+
+⚠ Restart service NOT required (DB-backed; takes effect on next request).
+```
+
+#### 8. 与 Plan 7 D7.26 / Plan 8 D8.22 / D8.26 协同
+- Plan 7 D7.26 `api_keys_with_labels` (Config-based) 仍为**启动 bootstrap source**；运行时 100% 走 DB
+- 旧 `RELAY_API_KEYS_RAW="alice=key1,bob=key2"` 启动自动同步到 DB（label 已存在则 skip，key 变化则 warn）
+- **Config `role_mapping` 语义锁定 (v2.3 BLOCKER 2 修复)**：
+  - 默认 `role_override_mode="db"`：role_mapping 仅在**启动 bootstrap 时**为**新 import 的 key** 设置 default role 写入 DB；之后 dashboard 改 DB role 生效，role_mapping 不再覆盖
+  - 可选 `role_override_mode="config"`：emergency lockdown 模式；Config 始终覆盖 DB（仅在 admin 误改 / 需要紧急降权时启用）；启动时输出 warning "config-override mode active"
+  - 默认 DB-authoritative 解决 v2.3 BLOCKER 2 "dashboard 改 role 失效" 矛盾
+- **D8.26 dashboard cookie internal key sync (v2.3 BLOCKER 3 修复)**：
+  - dashboard 启动 lifespan 时为每个 `dashboard_users[user]` 派生 `dashboard-{user}` internal key 也 sync 到 DB（同 env→DB sync 流程）
+  - 重启时 internal key 重新生成 → 旧 internal key DB 中 revoke + 新 key insert（一致性保证）
+  - 不重启则 internal key 不变（dashboard cookie 仍可用）
+- D8.22 require_role decorator 不变（仍读 `request.state.role`）
+
+#### 9. 多 worker 一致性（解决 v1 D8.12 BLOCKER）
+- DB 单一 source-of-truth → 多 worker 一致
+- 每 worker 各自 `DBKeyResolver` + 10s TTL cache → 最多 10s 延迟生效
+- admin revoke 后调 `POST /admin/keys/invalidate-cache` 推送到所有 worker 即时生效（multi-worker tier 走 Redis pub/sub 广播；single tier 仅当前 worker；接受 10s 延迟）
+- multi-worker invalidate 广播复用 D8.1 RedisStreamEventBus 通道（new event type `ApiKeyInvalidated`）
+
+#### 10. DB 不可用降级 (v2.3 MAJOR 1 修复)
+- DBKeyResolver 维护 **disk-backed `~/.cache/gg-relay/known-keys.json` snapshot**（仅 key_hash + label + role + expires_at，**不存明文 key**；启动时 load 作 cache 初始化；运行时每次 DB lookup 成功后更新）
+- DB 不可用 → 三级 fallback：
+  1. **In-memory cache hit**（10s TTL 内）→ 仍返回
+  2. **Disk snapshot hit**（key_hash 匹配）→ 返回 + warn "stale read"
+  3. **EnvKeyResolver** 作最后兜底（env 中匹配）→ 返回 + warn
+  4. 全 miss → 401
+- `gg_relay_backend_degraded{backend="key_resolver"} 1` Prometheus gauge + dashboard banner
+- DB 恢复后下次请求 cache miss 时重试 DB；成功则自动切回 + snapshot 刷新
+- 启动 if DB 完全不可用 + disk snapshot 不存在 + env keys 也空 → abort（无 key 可用）
+
+#### 11. invalidate broadcast 时序保证 (v2.3 MAJOR 2 修复)
+- admin POST/DELETE `/admin/keys` 流程：
+  1. `BEGIN` 事务
+  2. INSERT/UPDATE `api_keys` 表
+  3. INSERT `audit_log`（D8.4 同事务）
+  4. `COMMIT`（or `ROLLBACK` on any failure）
+  5. **commit 成功后** → `await event_bus.publish(ApiKeyInvalidated(label=...))`
+  6. 当前 worker `await resolver.invalidate_cache(label)` 立即失效
+- 事务失败（DB constraint / disk full）→ 不广播 + 不失效；client 收 500；audit log 也未写（同事务回滚）
+- 测试：mock store.create raise → 不应有 publish call；mock store.create OK + commit raise → 不应有 publish call
+
+#### 12. multi-worker invalidate subscriber 启动点 (v2.3 MAJOR 3 修复)
+- `subscribers/key_invalidate_subscriber.py` 实现 `KeyInvalidateSubscriber(event_bus, resolver)`
+- `api/main.py` lifespan：仅在 `cfg.event_bus_backend == "redis"` 时注册（single tier 不需要 broadcast）
+- 持有 worker 本地 `DBKeyResolver` 实例引用 → 收到 `ApiKeyInvalidated` event → 调 `resolver.invalidate_cache(label)`
+- 漏接语义（v2.3 MAJOR 4 修复）：RedisStream XREAD live fan-out 无 ack；worker 重启 / Redis 短暂不可达 → 漏接 event；但因 cache TTL 10s → 最多 10s 延迟后 cache miss → DB lookup → 收敛到正确状态；文档明示"漏接 invalidate event 最多延迟 10s 收敛"
+
+## 4c. D8.5 bleach 配置详情（v2.1 Round 2 MINOR 补充）
+
 ### D8.5 — Comments bleach 配置详情 (v2.1 Round 2 MINOR)
 - v2.1 修正 bleach 调用：
   ```python
@@ -507,7 +775,7 @@ tests/
   ```
 - 测试 XSS payload 含：`<script>alert(1)</script>` / `<img onerror>` / `<a href="javascript:...">` / `<a href="data:text/html...">` 全部应被 strip 或 protocol filter
 
-## 7. Task breakdown — 21 tasks（按依赖排序）
+## 7. Task breakdown — 22 tasks（按依赖排序，v2.2 增 Task 22）
 
 ### Phase 0: Reconciliation (Task 0)
 
@@ -655,6 +923,58 @@ tests/
 - Integration test: 2 worker docker compose + Redis Streams → worker A 提交 / worker B SSE 收到
 - **Tests** (~5): SSE backend swap / Last-Event-ID seq / multi-worker fan-out @requires_redis @requires_docker / order preservation / disconnect resume
 
+### Phase 4b: API key 自助 (Task 22, v2.2)
+
+#### Task 22 — D8.29 DB-backed API key 自助 (Alembic 0011 + KeyResolver + admin endpoints + dashboard UI)
+
+**Files**:
+- `migrations/versions/0011_add_api_keys_table.py` (NEW)
+- `auth/__init__.py` + `auth/protocol.py` + `auth/env_resolver.py` + `auth/db_resolver.py` + `auth/store.py` (NEW package)
+- `api/middleware/api_key_auth.py` (MODIFY: 接 KeyResolver Protocol；移除冻结 dict)
+- `api/main.py` (MODIFY: lifespan 加 env→DB sync + DBKeyResolver wire)
+- `api/routers/admin_keys.py` (NEW): POST/GET/DELETE + invalidate-cache
+- `api/schemas.py` (MODIFY: ApiKeyCreate / ApiKeyResponse / ApiKeyListItem)
+- `cli.py` (MODIFY: bootstrap-admin 默认 DB-backed + --write-env fallback)
+- `dashboard/router.py` (MODIFY: add /dashboard/admin/keys)
+- `dashboard/templates/admin_keys.html` (NEW)
+- `subscribers/key_invalidate_subscriber.py` (NEW, multi-worker tier 只用): 订阅 RedisStreamEventBus 的 `ApiKeyInvalidated` event → 调 DBKeyResolver.invalidate_cache
+
+**实现要点**:
+1. KeyResolver Protocol 在 auth/protocol.py
+2. EnvKeyResolver: bootstrap 时 iter Config.api_keys_with_labels → INSERT IGNORE 到 DB（idempotent）
+3. DBKeyResolver: TTLCache (cachetools)，默认 10s TTL；`resolve()` cache miss → DB lookup；命中后 fire-and-forget `touch_last_used_throttled` (60s throttle)
+4. APIKeyMiddleware：单一 `resolver.resolve()` 调用；不再有 `_keys_with_labels` 字典
+5. admin endpoint：require_role("admin") + 业务路径显式 audit (D8.4 v2.1 同事务)
+6. 防自锁：DELETE /admin/keys/{label}：if `label == request.state.api_key_label` → 400 "Cannot revoke your own active key. Create another admin key first, switch, then revoke."
+7. 防全队失锁：if `label` 是最后一个 active admin → 400 "At least one admin key must remain active."
+8. cache invalidate broadcast (multi-worker): admin POST/DELETE 后 publish `ApiKeyInvalidated` event 到 EventBusBackend；KeyInvalidateSubscriber 在每 worker 监听 → 调本地 DBKeyResolver.invalidate_cache
+9. Plan 7 D7.26 `Config.api_keys` set 兼容视图保留（仍读 env，无 DB lookup；用于 check-secrets CLI）
+
+**实现要点 (v2.3 补 step 10-11)**:
+10. **Dashboard internal key sync (v2.3 BLOCKER 3)**: lifespan 中为每个 `dashboard_users[user]` 派生 `dashboard-{user}` internal key (`secrets.token_urlsafe(32)`) → 写 DB `api_keys` 表 (label=`dashboard-{user}`, key_hash=sha256, role 从 role_mapping 取或 submitter 默认, notes="Auto-generated internal key for dashboard cookie auth")；旧 internal key revoke (label match)；该 key 仅 DashboardCookieMiddleware 内部使用，不暴露给 user
+11. **KeyInvalidateSubscriber lifespan wiring (v2.3 MAJOR 3)**: 仅 `cfg.event_bus_backend == "redis"` 时 `app.state.key_invalidate_sub = KeyInvalidateSubscriber(event_bus, resolver)`; lifespan startup `await sub.start()` + shutdown `await sub.stop()`
+
+**Tests (~17, v2.3 扩 12 → 17)**:
+- migration 0011 upgrade/downgrade roundtrip + index 存在
+- ApiKeyStore CRUD：create/get_by_hash/get_by_label/list/touch_last_used/revoke
+- EnvKeyResolver：iter env keys → DB；env key 变化后启动 warn；env key 缺失但 DB 仍有 → 保留
+- DBKeyResolver：cache miss DB lookup / cache hit DB 不查 / 10s TTL 过期 / revoked → None / expired → None
+- **v2.3 新增 1**: DBKeyResolver role 优先级模式：`role_override_mode="db"` 默认 → DB role 生效；`role_override_mode="config"` → Config role_mapping 覆盖
+- APIKeyMiddleware：valid → 200；revoked → 401 invalid_or_revoked；expired → 401；未知 → 401；缺 header → 401（行为契约兼容，fixture 迁移到 mock KeyResolver）
+- admin endpoint：create → 明文一次性；create label 冲突 → 409；list 隐藏 plaintext；revoke 自己 → 400；revoke 最后 admin → 400；revoke 非自己 admin → 204
+- invalidate-cache：单 worker 立即生效；multi-worker tier @requires_redis → publish event → 其他 worker cache 失效
+- **v2.3 新增 2**: invalidate broadcast 在事务 commit 后发生 — mock store.create raise → 不应 publish；mock commit raise → 不应 publish
+- audit log：每个 key mutation 都写 audit (actor=admin label, action=key_create/revoke, target_label=victim)
+- **v2.3 新增 3**: audit rollback — mock audit.record raise → 事务回滚 + 不修改 api_keys + 不广播
+- dashboard UI：list 渲染 / create dialog HTMX / revoke confirm
+- bootstrap-admin CLI：默认 DB-backed → DB 有新 row；--write-env → fallback 写 env + DB / --print-only 不写
+- DB 不可用三级 fallback：cache hit 仍返回 / disk snapshot hit 返回 + warn / EnvKeyResolver 兜底 / 全 miss → 401；gauge=1
+- **v2.3 新增 4**: dashboard internal key sync — lifespan 启动后 DB `api_keys` 表存在 `dashboard-alice` 行；旧 internal key 重启时 revoke；DashboardCookieMiddleware 注入 header 后能通过 DBKeyResolver
+- **v2.3 新增 5**: DBKeyResolver 并发 single-flight — 同 raw_key 多个请求同时 cache miss → 仅一次 DB lookup（用 asyncio.Lock per key）
+- integration: 完整流程 alice (admin) create bob (submitter) → bob 提交 session → alice revoke bob → bob 401
+
+**DOD**: D8.29 完整 12 个子项落地；test 全绿；与 Plan 7 D7.26 `RELAY_API_KEYS_RAW` 100% 行为兼容（fixture 迁移）；多 worker tier cache invalidate 跨 worker 漏接最多 10s 收敛；DB outage 三级 fallback；invalidate 仅在事务 commit 后广播
+
 ### Phase 5: 运维 + 发布 (Tasks 20-21)
 
 #### Task 20 — D8.3 maintenance cmd + D8.13 Grafana + D8.28 bootstrap-admin
@@ -670,7 +990,7 @@ tests/
 - pyproject version 0.8.0 + `__init__.py` 沿用 importlib.metadata (与 Plan 7 一致)
 - README "Team usage" 段 + `docs/team-deployment.md`：single-worker default + multi-worker tier 切换步骤 + admin bootstrap 流程 + alert_rules 模板 + retention cron 推荐方式
 - 全 gate：ruff + mypy strict + pytest cov 88% + alembic 0001→0010 roundtrip + `scripts/check_oos.sh` 新 patterns
-- OOS gate 加：`session_replay` / `span_tree_svg` / `hitl_mute` / `runtime_keys` / `kubernetes_asyncio` / `OIDC` / `tenant_id` / `release-please`
+- OOS gate 加：`session_replay` / `span_tree_svg` / `hitl_mute` / `runtime_keys\.json` / `fcntl\.flock.*runtime_keys` / `kubernetes_asyncio` / `OIDC` / `tenant_id` / `release-please` (v2.3 修正：`runtime_keys` 概念名不禁，仅禁 v1 D8.12 文件锁实现 pattern；与 §12 同步)
 - **Tests** (~4): spec consistency / CHANGELOG presence / version match / alembic chain / OOS gate
 
 ## 8. Test strategy summary
@@ -717,7 +1037,8 @@ tests/
 | **v2.1 增**: role own-session 例外 + 权限提升攻击 | +4 | Task 4 |
 | **v2.1 增**: audit 强一致（同事务 commit/rollback） | +3 | Task 5 |
 | **v2.1 增**: backend degraded gauge + dashboard banner | +2 | Task 17/18 |
-| **Total Plan 8 v2.1** | **~165** | + Plan 7 v2.3 ≈ ~833 baseline = ~998 |
+| **v2.2 增**: D8.29 DB-backed API key 自助 (migration+resolver+middleware+endpoints+UI+CLI+DB outage 三级 fallback+invalidate broadcast) | **+17** | **Task 22 (v2.3 12→17)** |
+| **Total Plan 8 v2.3** | **~182** | + Plan 7 v2.3 ≈ ~833 baseline = ~1015 |
 
 > v1 → v2 测试变化：v1 ~155 → v2 ~152（数量近似但分布大改）；v1 包含 8 replay/9 SVG/12 runtime_keys/19 hitl_mutes/8 admin_keys 等被砍项；v2 补 4 search/5 favorites/6 templates/6 role/6 cookie/12 CLI/4 alembic/4 doc 等贴合协作的测试。
 
@@ -788,6 +1109,17 @@ tests/
 30. ✅ **v2.1 observable degradation**：fallback 时 `gg_relay_backend_degraded` gauge=1；dashboard 顶部红 banner；`strict_backend=True` 配置下 Redis 不可用 → 启动 abort
 31. ✅ **v2.1 search per-dialect SQL**：SQLite `json_extract(spec_json, '$.prompt') LIKE ? COLLATE NOCASE` 测试；Postgres `spec_json->>'prompt' ILIKE` 测试；两种 dialect 用同一 fixture 数据集结果一致
 32. ✅ **v2.1 bleach 配置完整**：a tag protocol filter（http/https/mailto only）；javascript: / data: URL 全 strip 测试通过
+33. ✅ **v2.2 D8.29 Alembic 0011 `api_keys` 表**：label unique + key_hash unique + role + created_at + expires_at + revoked_at + last_used_at + created_by + notes 列；0001→0011 chain roundtrip；`ix_api_keys_active` partial index (Postgres) 存在
+34. ✅ **v2.2 D8.29 KeyResolver Protocol**：`EnvKeyResolver` 启动时同步 env keys 到 DB（idempotent on label/key_hash）；`DBKeyResolver` cache miss → DB / hit → 不查 / 10s TTL 过期重查 / revoked/expired → None / `role_mapping` 覆盖 DB role
+35. ✅ **v2.2 D8.29 `APIKeyMiddleware` 改造**：不再持有冻结 dict；仅调 resolver.resolve；行为契约兼容 Plan 7 D7.15（constant-time compare 由 resolver 内部维持 + 401 missing/invalid）；Plan 7 测试 fixture 迁移到 mock KeyResolver（v2.3 修正：不再宣称 "100% 测试仍绿"，而是行为兼容 + fixture 迁移）
+36. ✅ **v2.2 D8.29 admin endpoints**：create 返明文一次性 + audit；list 隐藏明文仅 key_prefix；revoke own key → 400 self-lock；revoke last admin → 400 protect；require_role("admin") + dashboard 仅 admin 看到链
+37. ✅ **v2.2 D8.29 cache invalidate**：single tier 立即生效；multi-worker tier 通过 EventBusBackend 广播 `ApiKeyInvalidated` event，其他 worker 收到 → DBKeyResolver.invalidate_cache 即时
+38. ✅ **v2.2 D8.29 兼容性**：`RELAY_API_KEYS_RAW="alice=key1,bob=key2"` 启动 import 到 DB；旧 client 用 env key 100% 仍 work；Config `role_mapping` 覆盖优先级 > DB role；DB 不可用 → fallback EnvKeyResolver + `gg_relay_backend_degraded{backend="key_resolver"} 1` gauge + dashboard banner
+39. ✅ **v2.2 D8.29 bootstrap-admin 升级**：默认 DB-backed（不需重启）；`--write-env` 退化 fallback；`--print-only` dry-run；`--dashboard-user` 仍闭合 namespace
+40. ✅ **v2.3 D8.29 D8.26 dashboard internal key sync (BLOCKER 3)**：lifespan 启动后 DB `api_keys` 表存在所有 `dashboard-{user}` 行；旧 internal key 重启时 revoke；DashboardCookieMiddleware 注入 header 后 DBKeyResolver 能成功 resolve；dashboard cookie 路径 audit actor = `dashboard-{user}`
+41. ✅ **v2.3 D8.29 role authoritative source 模式 (BLOCKER 2)**：默认 `role_override_mode="db"` → dashboard 改 DB role 立即生效；`role_mapping` 仅 bootstrap default；`role_override_mode="config"` emergency 模式启动 warn
+42. ✅ **v2.3 D8.29 三级 DB outage fallback (MAJOR 1)**：cache hit 仍返回 / disk snapshot `~/.cache/gg-relay/known-keys.json` hit 返回 + warn / EnvKeyResolver 兜底 / 全 miss 401；DB 恢复自动切回 + snapshot 刷新；snapshot 仅含 hash 不含明文
+43. ✅ **v2.3 D8.29 invalidate broadcast 时序 (MAJOR 2)**：事务 commit 后才 publish；事务 rollback 不广播；测试 mock store.create raise / commit raise 验证
 
 ## 12. Out-of-scope verification
 
@@ -808,7 +1140,8 @@ PATTERNS+=(
   'class +SessionReplay' 'session_replay'
   'class +SpanTreeSVG' 'span_tree_svg'
   'class +HITLMute' 'hitl_mute' 'hitl_mutes'
-  'class +RuntimeKeys' 'runtime_keys' 'runtime_keys\.json'
+  # v2.2: D8.29 加回 DB-backed API key 自助；'runtime_keys' 文件锁方式仍禁
+  'runtime_keys\.json' 'fcntl\.flock.*runtime_keys'
   # 自动 release 工具 推后 Plan 11
   'release-please' 'conventional_commits'
   # Redis cluster 推后 Plan 11
@@ -832,9 +1165,25 @@ PATTERNS+=(
   - MAJOR 3: D8.4 audit 同事务强一致 `await audit.record(session=...)`
   - MAJOR 4: D8.1/D8.2 fallback observable degradation (gauge + banner + strict_backend opt)
   - 关键路径测试加密 152 → 165
-- 🟢 **LOCKED**：Plan 8 v2.1 + Plan 7 v2.3 双轮 Santa 通过，可一起 commit + 执行
+- ✅ **v2.2 micro-增量 (用户回炉)**：
+  - 用户决策：API key 自助是单团队多人维护场景的真实高频需求（新人/离职/泄漏/访客），v1 D8.12 砍得过激
+  - 新加 D8.29 DB-backed 方案（不重蹈 v1 文件锁覆辙）：Alembic 0011 + KeyResolver Protocol + 10s TTL cache + invalidate broadcast + DB outage fallback EnvKeyResolver
+  - 多 worker 一致性自然解决（DB single source-of-truth + 10s TTL cache + 跨 worker invalidate event）
+  - 复用 v2.1 D8.4 audit 强一致 + D8.22 require_role + D8.28 bootstrap 流程
+  - Scope: 19 → 20 decisions / 21 → 22 task / ~165 → ~180 test
+- ✅ **v2.3 micro-Santa 修复 (1 reviewer V, 3 BLOCKER + 5 MAJOR + 3 MINOR 全修)**：
+  - BLOCKER 1: APIKeyMiddleware signature 变更破坏 Plan 7 D7.15 测试契约 → AC 改为"行为兼容 + fixture 迁移"
+  - BLOCKER 2: DB role vs Config role_mapping 优先级矛盾 → 锁定 `role_override_mode="db"` 默认 (dashboard 改 role 生效)
+  - BLOCKER 3: D8.26 dashboard internal key sync 漏 → Task 22 step 10 + AC 40 + test
+  - MAJOR 1: DB outage fallback 改三级 (cache → disk snapshot → EnvKeyResolver)
+  - MAJOR 2: invalidate broadcast 事务 commit 后发生
+  - MAJOR 3: KeyInvalidateSubscriber lifespan wiring (仅 redis tier)
+  - MAJOR 4: Redis 漏接 invalidate 10s 收敛文档明示
+  - MAJOR 5: Task 22 测试 12 → 17
+  - MINOR: typo / status / OOS gate 同步
+- 🟢 **LOCKED**：Plan 8 v2.3 + Plan 7 v2.3 双轮 Santa + v2.2 micro + v2.3 micro 全通过，可一起 commit + 执行
 
-## 14. Plan 8 v2.1 总结
+## 14. Plan 8 v2.3 总结
 
 **对单团队多人维护场景的贴合度自检**：
 
@@ -843,13 +1192,14 @@ PATTERNS+=(
 - ✅ **责任追溯**：audit log 同事务强一致（D8.4 v2.1）+ IM 通知（D8.7 fail+cancel+complete）+ role 双 namespace 闭合（D8.22 v2.1）
 - ✅ **运维简单**：maintenance 外部 cron（D8.3）/ Grafana 预设（D8.13）/ Postgres pool（D8.10）
 - ✅ **可选 multi-worker tier 可观测降级**：D8.1 Redis Streams / D8.2 Redis lua / D8.27 SSE 透明 fan-out；fallback 时 Prometheus gauge + dashboard banner + `strict_backend` 可选 fail-fast（v2.1）
-- ✅ **团队自治闭合**：D8.28 bootstrap-admin `--dashboard-user` 双 namespace + D8.22 role；env + config-based 简单管理
-- ❌ **不 over-engineer**：砍掉 D8.8 replay UI / D8.9 SVG span tree / D8.11 mute / D8.12 hot reload（这些都推 Plan 10+/Plan 11）
-- ✅ **Santa Method 双轮通过**：Round 1 (3 reviewer) + Round 2 (1 reviewer) 全 BLOCKER + MAJOR 修完，Plan 7 v2.3 + Plan 8 v2.1 双 plan lock
+- ✅ **团队自治闭合**：D8.28 bootstrap-admin `--dashboard-user` 双 namespace + D8.22 role + **D8.29 API key 自助 (v2.2)**；env + DB-based 双源运行
+- ✅ **API key 全生命周期 (v2.2)**：create/list/revoke/rotate/expires/last_used_at 全 dashboard 自助；不需 SSH + 不需 restart + 新人入职/离职/泄漏 rotation/临时访客全覆盖；多 worker 一致性 DB-backed 自然解决；DB outage fallback EnvKeyResolver
+- ❌ **不 over-engineer**：砍掉 D8.8 replay UI / D8.9 SVG span tree / D8.11 mute（这些都推 Plan 10+/Plan 11）；v1 D8.12 文件锁方案被 v2.2 D8.29 DB-backed 取代（避免重蹈覆辙）
+- ✅ **Santa Method 双轮通过 + v2.2 用户回炉 + v2.3 micro 修复**：Round 1 (3 reviewer) + Round 2 (1 reviewer) + v2.2 user reopen + v2.3 micro-Santa (1 reviewer V, 3 BLOCKER + 5 MAJOR + 3 MINOR 全修)；Plan 7 v2.3 + Plan 8 v2.3 双 plan lock
 
 ---
 
-**下一步**: commit Plan 7 v2.3 + Plan 8 v2.1，进入实施阶段。建议 squash PR：
+**下一步**: commit Plan 7 v2.3 + Plan 8 v2.3，进入实施阶段。建议 squash PR：
 1. Plan 7 squash PR `feat: Plan 7 — Foundation Recovery & Production Readiness (v0.7.0)` — 19 task / ~126 test
-2. Plan 8 squash PR `feat: Plan 8 — Team Collaboration & Optional Multi-Worker (v0.8.0)` — 21 task / ~165 test
+2. Plan 8 squash PR `feat: Plan 8 — Team Collaboration & Optional Multi-Worker + API Key Self-Service (v0.8.0)` — 22 task / ~182 test
 3. 两个 PR 不重叠（Plan 8 严格依赖 Plan 7 main 合并），按顺序执行
