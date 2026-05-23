@@ -1,0 +1,23 @@
+tests/integration/test_release_workflow.py
+  s_f5da2e612e00fa::t_ee50ae26b1bb61 1-71
+.github/workflows/release.yml
+  s_f5da2e612e00fa::t_58efdfd69c5c48 1-95
+scripts/check_licenses.py
+  s_f5da2e612e00fa::t_312f4a3308598f 1-101
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "f10c3966043f674645bc481f8df9e132a7036f32",
+  "prompts": {},
+  "sessions": {
+    "s_f5da2e612e00fa": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "59ed8f8a-c6cb-4563-a611-04efe50d1049",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
