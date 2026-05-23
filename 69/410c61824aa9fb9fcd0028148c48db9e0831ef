@@ -1,0 +1,42 @@
+tests/unit/api/test_rate_limit_middleware.py
+  s_4155f550b342f1::t_d074b8ec458d8e 1-127,129-136,142-156,158,161-165,167-232
+  s_4155f550b342f1::t_57cece716bf5b2 157,159-160,166
+  s_57fdc90b0f70e1::t_fc21ef2b9fb658 128,137-141
+src/gg_relay/api/main.py
+  s_4155f550b342f1::t_339eee247d7fbb 26-29,242-246,250-251,274-278,292-301
+src/gg_relay/config.py
+  s_4155f550b342f1::t_339eee247d7fbb 96-123
+tests/unit/api/test_middleware_order.py
+  s_4155f550b342f1::t_9d7c1dc4b4ee0d 1-83
+src/gg_relay/api/middleware/api_key_auth.py
+  s_4155f550b342f1::t_339eee247d7fbb 8-13,17,28-32,73
+src/gg_relay/api/middleware/rate_limit.py
+  s_4155f550b342f1::t_c2fc8cceb0b5b4 1-213
+tests/integration/test_rate_limit_e2e.py
+  s_4155f550b342f1::t_cebf59d58c8680 1-107,116-119,123-135,139-141
+  s_4155f550b342f1::t_c1811629bbbab2 108-115,120-122,136-138,142-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "69410c61824aa9fb9fcd0028148c48db9e0831ef",
+  "prompts": {},
+  "sessions": {
+    "s_4155f550b342f1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "0b82f16e-fe78-45e3-adb4-177c1d4cf018",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_57fdc90b0f70e1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "d859c9a7-05af-4a0e-ba5b-a4aca6a5be6a",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
