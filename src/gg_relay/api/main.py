@@ -23,6 +23,10 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from gg_relay.api.middleware.api_key_auth import APIKeyAuthMiddleware
 from gg_relay.api.middleware.logging import StructuredLoggingMiddleware
+from gg_relay.api.middleware.rate_limit import (
+    RateLimitMiddleware,
+    TokenBucketRateLimiter,
+)
 from gg_relay.api.routers import (
     events_router,
     health_router,
@@ -235,9 +239,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             asyncio.create_task(im_subscriber.run(), name="im-subscriber")
         )
     app.state.bg_tasks = bg_tasks
+    rate_limiter: TokenBucketRateLimiter | None = getattr(
+        app.state, "rate_limiter", None
+    )
+    if rate_limiter is not None:
+        rate_limiter.start_sweep()
     try:
         yield
     finally:
+        if rate_limiter is not None:
+            await rate_limiter.stop()
         # Stop accepting new submits, give in-flight sessions grace, then cancel.
         await manager.shutdown(grace_period_s=cfg.grace_period_s)
         if im_subscriber is not None:
@@ -260,7 +271,11 @@ def create_app(config: Config | None = None) -> FastAPI:
     app = FastAPI(title="gg-relay", lifespan=lifespan)
     if config is not None:
         app.state.config = config
-    # Middleware (added in reverse order of execution).
+    cfg = config or Config()  # type: ignore[call-arg]
+    # Middleware add order is the *reverse* of dispatch order: the last
+    # one added is the outermost layer and runs first. We want
+    #   APIKey → RateLimit → Logging → Session → router
+    # so we add Session first (innermost) and APIKey last (outermost).
     keys = [k.get_secret_value() for k in (config.api_keys if config else [])]
     session_secret = (
         config.dashboard_session_secret.get_secret_value()
@@ -274,13 +289,22 @@ def create_app(config: Config | None = None) -> FastAPI:
         session_cookie="gg_relay_session",
         same_site="lax",
     )
+    app.add_middleware(StructuredLoggingMiddleware)
+    if cfg.rate_limit_enabled:
+        rate_limiter = TokenBucketRateLimiter(
+            rate_per_min=cfg.rate_limit_per_min,
+            burst=cfg.rate_limit_burst,
+            lru_cap=cfg.rate_limit_lru_cap,
+            ttl_s=cfg.rate_limit_ttl_s,
+        )
+        app.state.rate_limiter = rate_limiter
+        app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
     app.add_middleware(
         APIKeyAuthMiddleware,
         expected_keys=keys,
         protected_prefix="/api/v1",
         allow_no_keys=not keys,
     )
-    app.add_middleware(StructuredLoggingMiddleware)
     # Routers.
     app.include_router(sessions_router, prefix="/api/v1")
     app.include_router(events_router, prefix="/api/v1")

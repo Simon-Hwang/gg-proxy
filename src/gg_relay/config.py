@@ -93,6 +93,34 @@ class Config(BaseSettings):
     semaphore slot before raising :class:`ResumeQueueTimeout` (D6.2 /
     §10 risk row). Routes map this to HTTP 429 + Retry-After."""
 
+    # ── rate limiting (Plan 7 Task 10 / D7.7+D7.8) ─────────────────────
+    rate_limit_enabled: bool = True
+    """Master switch for :class:`RateLimitMiddleware`. When ``False`` the
+    middleware is not wired, so per-request bucket logic is skipped
+    entirely. Plan 8 D8.2 will swap the in-process limiter for a
+    Redis-backed one; the flag stays so deployments can disable rate
+    limiting if a fronting proxy already provides it."""
+
+    rate_limit_per_min: int = 60
+    """Token-bucket refill rate in tokens-per-minute, per API key id.
+    Default 60/min ≈ 1 rps which matches typical Anthropic-tier quotas."""
+
+    rate_limit_burst: int = 60
+    """Maximum tokens a single bucket can hold (= initial allowance for
+    a fresh key). Defaults match :attr:`rate_limit_per_min`, so a fresh
+    key can spend its full minute of allowance immediately, then refills
+    smoothly."""
+
+    rate_limit_lru_cap: int = 10_000
+    """Hard cap on how many distinct buckets the in-process limiter
+    keeps in memory. When exceeded the LRU bucket is evicted (and its
+    matching ``asyncio.Lock`` released) to bound memory use."""
+
+    rate_limit_ttl_s: int = 3600
+    """How long an idle bucket survives before the periodic sweeper
+    drops it (and the matching lock). Default 1 hour — chosen so a key
+    that goes silent recovers a full burst on its next request."""
+
     max_concurrent_sessions: int | None = None
     """Plan-6-only alias for :attr:`max_concurrent`; preserved so the
     config can be tuned independently for tests that need to drive

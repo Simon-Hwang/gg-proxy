@@ -5,9 +5,16 @@ guarded; dashboard, healthz, and IM webhook endpoints have their own auth
 (or are intentionally public). The middleware accepts ANY of the supplied
 keys — operators rotate by adding a new key, draining traffic, then
 removing the old one.
+
+On a successful auth, ``request.state.api_key_id`` is set to a 16-char
+sha256 prefix of the raw key (Plan 7 D7.15 partial). Downstream
+middlewares (notably the rate limiter) consume this opaque identifier
+without ever seeing the secret. Task 11 will replace the inline hash
+with a structured key-id store.
 """
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Awaitable, Callable, Iterable
 
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -16,6 +23,11 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 _CallNext = Callable[[Request], Awaitable[Response]]
+
+
+def _hash_key(key: str) -> str:
+    """Return a stable opaque id for an API key without leaking it."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
 
 
 class APIKeyAuthMiddleware(BaseHTTPMiddleware):
@@ -58,5 +70,6 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 {"detail": "invalid_api_key"}, status_code=401
             )
+        request.state.api_key_id = _hash_key(header)
         response = await call_next(request)
         return response
