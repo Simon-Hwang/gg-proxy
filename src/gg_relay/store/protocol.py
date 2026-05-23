@@ -67,9 +67,19 @@ class SessionStore(Protocol):
         status: str | None = None,
         tag: str | None = None,
         limit: int = 50,
-        offset: int = 0,
-    ) -> Sequence[Mapping[str, Any]]:
-        """List sessions newest-first, optionally filtered."""
+        after: str | None = None,
+    ) -> tuple[Sequence[Mapping[str, Any]], str | None]:
+        """List sessions newest-first with cursor pagination.
+
+        Plan 7 D7.6 / Task 9. Returns ``(rows, next_cursor)`` where
+        ``next_cursor`` is ``None`` once the result set is exhausted.
+        The ``after`` cursor MUST come from a previous call against
+        the same ``status`` + ``tag`` combination; alternative
+        implementations should raise
+        :class:`gg_relay.store.exceptions.CursorInvalidError` /
+        :class:`gg_relay.store.exceptions.CursorFilterMismatchError`
+        to keep the API router's 400-response path uniform.
+        """
         ...
 
     async def get_session(

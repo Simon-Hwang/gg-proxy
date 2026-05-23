@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -41,6 +42,7 @@ from gg_relay.session.spec import (
     SessionRuntimeContext,
     SessionSpec,
 )
+from gg_relay.store import CursorFilterMismatchError, CursorInvalidError
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -123,20 +125,54 @@ async def submit_session(
 async def list_sessions(
     status: str | None = Query(default=None),
     tag: str | None = Query(default=None),
-    limit: int = Query(default=50, ge=1, le=500),
-    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=100),
+    after: str | None = Query(default=None),
     manager: SessionManager = ManagerDep,
-) -> SessionListResponse:
+) -> Any:
+    """List sessions newest-first with cursor pagination.
+
+    Plan 7 D7.6 / Task 9. Pass ``after=<next_cursor>`` from a previous
+    response to fetch the next page; ``limit`` is capped at 100 to keep
+    page sizes bounded. The response body carries both the new
+    cursor-shaped fields (``items`` + ``next_cursor``) and the
+    deprecated v0.6 fields (``sessions`` alias + ``total=-1`` sentinel)
+    so existing clients keep working until 0.8.0.
+
+    Error mapping — body is a flat ``{"detail": msg, "code": ...}`` JSON
+    object (no nesting) so machine clients can dispatch on ``code``:
+      * 400 ``invalid_status``           — unknown ``status`` value
+      * 400 ``cursor_invalid``           — malformed ``after`` token
+      * 400 ``cursor_filter_mismatch``   — cursor was minted under a
+        different ``status`` / ``tag`` combination than the current
+        query (re-mint by dropping ``after`` and starting over)
+    """
     state: SessionState | None = None
     if status:
         try:
             state = SessionState(status)
-        except ValueError as exc:
-            raise HTTPException(
-                status_code=400, detail=f"invalid status: {status!r}"
-            ) from exc
-    rows = await manager.list(status=state, tag=tag, limit=limit, offset=offset)
-    sessions = [
+        except ValueError:
+            return JSONResponse(
+                {
+                    "detail": f"invalid status: {status!r}",
+                    "code": "invalid_status",
+                },
+                status_code=400,
+            )
+    try:
+        rows, next_cursor = await manager.list(
+            status=state, tag=tag, limit=limit, after=after
+        )
+    except CursorFilterMismatchError as exc:
+        return JSONResponse(
+            {"detail": str(exc), "code": "cursor_filter_mismatch"},
+            status_code=400,
+        )
+    except CursorInvalidError as exc:
+        return JSONResponse(
+            {"detail": str(exc), "code": "cursor_invalid"},
+            status_code=400,
+        )
+    items = [
         SessionResponse(
             id=r.id,
             status=r.status.value,
@@ -150,7 +186,12 @@ async def list_sessions(
         )
         for r in rows
     ]
-    return SessionListResponse(sessions=sessions, total=len(sessions))
+    return SessionListResponse(
+        items=items,
+        next_cursor=next_cursor,
+        sessions=items,
+        total=-1,
+    )
 
 
 @router.get("/{session_id}", response_model=SessionDetailResponse)

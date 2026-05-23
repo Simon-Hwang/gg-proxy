@@ -192,9 +192,9 @@ class TestListAndGet:
     ):
         sid = await manager.submit(make_spec(tmp_path))
         await _wait_for_status(manager, sid, {SessionState.COMPLETED})
-        done = await manager.list(status=SessionState.COMPLETED)
+        done, _ = await manager.list(status=SessionState.COMPLETED)
         assert any(s.id == sid for s in done)
-        queued = await manager.list(status=SessionState.QUEUED)
+        queued, _ = await manager.list(status=SessionState.QUEUED)
         assert all(s.id != sid for s in queued)
 
     async def test_get_unknown_raises(self, manager: SessionManager):

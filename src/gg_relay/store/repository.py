@@ -16,22 +16,138 @@ shim until 0.8.0.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import warnings
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy import RowMapping, and_, delete, insert, select, update
+from sqlalchemy import RowMapping, and_, delete, insert, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from gg_relay.store.exceptions import (
+    CursorFilterMismatchError,
+    CursorInvalidError,
+)
 from gg_relay.store.schema import frames, hitl_requests, sessions
 
 
 def _utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+# ── Cursor pagination helpers (Plan 7 D7.6 / Task 9) ─────────────────
+# Cursors are opaque urlsafe-base64-encoded JSON payloads carrying the
+# ``submitted_at`` + ``id`` of the last row in the previous page plus
+# a short hash of the filter combination they were issued under. The
+# hash lets the server reject a cursor that was minted against a
+# different ``status`` / ``tag`` combo rather than silently returning
+# misleading rows. Cursors are NOT signed — Plan 11 will add HMAC
+# tamper detection; for now we treat them as advisory pagination
+# tokens (a tampered cursor at worst causes a 400 or skips/repeats a
+# row from the requester's own view, not a privilege escalation).
+
+
+def _filter_hash(*, status: str | None, tag: str | None) -> str:
+    """Compact deterministic identifier for the active filter combo.
+
+    SHA1 + ``[:12]`` keeps cursors short while remaining collision-
+    resistant for the tiny domain we care about (a handful of
+    status/tag values per deployment). The same inputs always
+    produce the same hash so a client paging without changing
+    filters keeps flowing through cursors deterministically.
+    """
+    return hashlib.sha1(
+        f"{status or '*'}|{tag or '*'}".encode()
+    ).hexdigest()[:12]
+
+
+def _encode_cursor(
+    *, submitted_at: datetime, id: str, filter_hash: str
+) -> str:
+    """Pack ``submitted_at`` + ``id`` + ``filter_hash`` into an opaque token.
+
+    The payload is JSON for forward-compat (Plan 11 may add an HMAC
+    field) and the wire encoding is urlsafe-base64 without padding so
+    the cursor can ride in a query string verbatim.
+    """
+    raw = json.dumps(
+        {"ts": submitted_at.isoformat(), "id": id, "fh": filter_hash}
+    )
+    return base64.urlsafe_b64encode(raw.encode()).rstrip(b"=").decode()
+
+
+def _decode_cursor(
+    cursor: str, *, expected_filter_hash: str
+) -> tuple[datetime, str]:
+    """Recover the ``(submitted_at, id)`` anchor from a cursor blob.
+
+    Raises :class:`CursorInvalidError` for malformed input and
+    :class:`CursorFilterMismatchError` when the embedded filter
+    hash does not match the active query — both subclass
+    :class:`ValueError` so legacy ``except ValueError`` blocks keep
+    working.
+    """
+    pad = "=" * (-len(cursor) % 4)
+    try:
+        obj = json.loads(base64.urlsafe_b64decode(cursor + pad))
+    except Exception as exc:
+        raise CursorInvalidError(f"invalid cursor: {exc}") from exc
+    if not isinstance(obj, dict) or "ts" not in obj or "id" not in obj:
+        raise CursorInvalidError("invalid cursor: missing ts/id fields")
+    if obj.get("fh") != expected_filter_hash:
+        raise CursorFilterMismatchError(
+            f"cursor filter hash mismatch "
+            f"(cursor={obj.get('fh')!r}, "
+            f"current_filter={expected_filter_hash!r})"
+        )
+    try:
+        ts = datetime.fromisoformat(obj["ts"])
+    except (TypeError, ValueError) as exc:
+        raise CursorInvalidError(
+            f"invalid cursor: ts not iso8601 ({obj.get('ts')!r})"
+        ) from exc
+    return ts, str(obj["id"])
+
+
+def _tag_filter_clause(
+    tag: str, *, dialect: str
+) -> sa.ColumnElement[bool]:
+    """SQL-side JSON-array containment check for the ``tags`` column.
+
+    SQLAlchemy's default ``JSON.contains()`` falls back to ``LIKE`` on
+    SQLite which never matches array elements, so we branch on the
+    dialect:
+
+      * **SQLite** — ``EXISTS (SELECT 1 FROM json_each(sessions.tags)
+        WHERE value = :tag_param)`` via the JSON1 extension that
+        ships with stock SQLite 3.38+ (default-on in ``aiosqlite``).
+      * **Postgres** — ``sessions.tags::jsonb @> jsonb_build_array(:tag)``
+        via the JSONB containment operator. We cast on the fly so
+        the column can stay typed as ``JSON`` (not ``JSONB``) and
+        still get index-friendly containment when the deployment
+        adds a GIN index.
+
+    Other dialects raise :class:`NotImplementedError` — gg-relay only
+    supports SQLite (dev/test) + Postgres (prod) per Plan 4 §8.
+    """
+    if dialect == "sqlite":
+        return sa.text(
+            "EXISTS (SELECT 1 FROM json_each(sessions.tags) AS je "
+            "WHERE je.value = :tag_param)"
+        ).bindparams(tag_param=tag)
+    if dialect in {"postgresql", "postgres"}:
+        return sa.text(
+            "sessions.tags::jsonb @> jsonb_build_array(:tag_param)"
+        ).bindparams(tag_param=tag)
+    raise NotImplementedError(
+        f"tag filter not implemented for dialect {dialect!r}"
+    )
 
 
 class SqlAlchemyStore:
@@ -118,19 +234,73 @@ class SqlAlchemyStore:
         status: str | None = None,
         tag: str | None = None,
         limit: int = 50,
-        offset: int = 0,
-    ) -> list[RowMapping]:
-        """List sessions newest-first, optionally filtered by status."""
-        stmt = select(sessions).order_by(sessions.c.submitted_at.desc())
+        after: str | None = None,
+    ) -> tuple[list[RowMapping], str | None]:
+        """List sessions newest-first with cursor pagination.
+
+        Plan 7 D7.6 / Task 9. Returns ``(rows, next_cursor)`` where
+        ``rows`` is up to ``limit`` rows ordered ``submitted_at`` /
+        ``id`` descending (newest first; ``id`` is the stable
+        tiebreaker so pages don't jitter when two rows share a
+        ``submitted_at``) and ``next_cursor`` is either:
+
+          * a urlsafe-base64 token to pass back as ``after=`` for the
+            next page, OR
+          * ``None`` when the current page exhausts the result set.
+
+        The ``after`` cursor MUST have been minted under the same
+        ``status`` + ``tag`` combination — :func:`_decode_cursor`
+        compares the embedded filter hash and raises
+        :class:`CursorFilterMismatchError` otherwise. Garbage cursors
+        raise :class:`CursorInvalidError`. Routers map both to
+        HTTP 400.
+
+        ``tag`` filtering runs SQL-side via :func:`_tag_filter_clause`
+        so pagination math stays correct (Python-side filtering would
+        let pages drop rows and the cursor would point past them).
+        """
+        fh = _filter_hash(status=status, tag=tag)
+        where: list[sa.ColumnElement[bool]] = []
         if status is not None:
-            stmt = stmt.where(sessions.c.status == status)
-        stmt = stmt.limit(limit).offset(offset)
+            where.append(sessions.c.status == status)
+        if tag is not None:
+            where.append(
+                _tag_filter_clause(tag, dialect=self._engine.dialect.name)
+            )
+        if after is not None:
+            ts, anchor_id = _decode_cursor(after, expected_filter_hash=fh)
+            where.append(
+                or_(
+                    sessions.c.submitted_at < ts,
+                    and_(
+                        sessions.c.submitted_at == ts,
+                        sessions.c.id < anchor_id,
+                    ),
+                )
+            )
+        stmt = (
+            select(sessions)
+            .where(*where)
+            .order_by(
+                sessions.c.submitted_at.desc(),
+                sessions.c.id.desc(),
+            )
+            .limit(limit + 1)
+        )
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
-            rows = result.mappings().all()
-        if tag is None:
-            return list(rows)
-        return [r for r in rows if tag in (r["tags"] or [])]
+            rows = list(result.mappings().all())
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        next_cursor: str | None = None
+        if has_more and rows:
+            last = rows[-1]
+            next_cursor = _encode_cursor(
+                submitted_at=last["submitted_at"],
+                id=last["id"],
+                filter_hash=fh,
+            )
+        return rows, next_cursor
 
     async def get_session(self, session_id: str) -> RowMapping | None:
         async with self._engine.connect() as conn:

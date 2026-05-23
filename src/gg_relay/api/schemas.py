@@ -79,8 +79,25 @@ class SessionResponse(BaseModel):
 
 
 class SessionListResponse(BaseModel):
+    """``GET /api/v1/sessions`` response with cursor pagination.
+
+    Plan 7 D7.6 / Task 9. Carries two payload field families side-by-side
+    so the wire-shape upgrade is non-breaking:
+
+    * **New / preferred** — ``items`` + ``next_cursor``. Pass
+      ``next_cursor`` back as ``?after=...`` to fetch the next page;
+      ``None`` once the result set is exhausted.
+    * **Deprecated (kept until 0.8.0)** — ``sessions`` is a verbatim
+      alias of ``items``; ``total`` is a ``-1`` sentinel meaning
+      "not computed" (the cursor design intentionally avoids the
+      ``COUNT(*)`` scan that ``total`` used to require). Clients
+      should migrate to ``items`` + ``next_cursor`` before 0.8.0.
+    """
+
+    items: list[SessionResponse]
+    next_cursor: str | None = None
     sessions: list[SessionResponse]
-    total: int
+    total: int = -1
 
 
 class FrameOut(BaseModel):

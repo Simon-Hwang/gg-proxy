@@ -96,9 +96,9 @@ class TestSessionsCrud:
                 id=f"q{i}", spec_json={}, trace_id=None, backend="inprocess"
             )
         await repo.update_session_status("q0", status="running")
-        rows = await repo.list_sessions(status="queued")
+        rows, _next = await repo.list_sessions(status="queued")
         assert {r["id"] for r in rows} == {"q1", "q2"}
-        rows_running = await repo.list_sessions(status="running")
+        rows_running, _next = await repo.list_sessions(status="running")
         assert {r["id"] for r in rows_running} == {"q0"}
 
 
@@ -299,5 +299,5 @@ class TestRetentionAndRecovery:
             await repo.create_session(
                 id="tx", spec_json={}, trace_id=None, backend="inprocess"
             )
-        rows = await repo.list_sessions()
+        rows, _next = await repo.list_sessions()
         assert sum(1 for r in rows if r["id"] == "tx") == 1

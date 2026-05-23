@@ -11,13 +11,24 @@ Public surface used by SessionManager + API routers:
   - :class:`SessionRepository`      — deprecated alias for
                                       :class:`SqlAlchemyStore` (warns on
                                       instantiation; removed in 0.8.0)
+  - :class:`CursorInvalidError` /
+    :class:`CursorFilterMismatchError`
+                                    — Plan 7 D7.6 cursor pagination
+                                      errors raised by
+                                      ``list_sessions(after=...)``
 """
 from gg_relay.store.engine import create_all_tables, make_async_engine
+from gg_relay.store.exceptions import (
+    CursorFilterMismatchError,
+    CursorInvalidError,
+)
 from gg_relay.store.protocol import FrameStore, HITLStore, SessionStore
 from gg_relay.store.repository import SessionRepository, SqlAlchemyStore
 from gg_relay.store.schema import frames, hitl_requests, metadata, sessions
 
 __all__ = [
+    "CursorFilterMismatchError",
+    "CursorInvalidError",
     "FrameStore",
     "HITLStore",
     "SessionRepository",

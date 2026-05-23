@@ -186,7 +186,15 @@ class TestListAndGet:
     async def test_list_empty(self, client: AsyncClient):
         r = await client.get("/api/v1/sessions", headers=HEADERS)
         assert r.status_code == 200
-        assert r.json() == {"sessions": [], "total": 0}
+        # Plan 7 D7.6 / Task 9: response now carries items + next_cursor
+        # (new) plus sessions alias + total=-1 sentinel (deprecated).
+        body = r.json()
+        assert body == {
+            "items": [],
+            "next_cursor": None,
+            "sessions": [],
+            "total": -1,
+        }
 
     async def test_list_returns_submitted(
         self, client: AsyncClient, tmp_path: Path

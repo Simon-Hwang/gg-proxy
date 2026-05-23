@@ -293,15 +293,23 @@ class SessionManager:
         status: SessionState | None = None,
         tag: str | None = None,
         limit: int = 50,
-        offset: int = 0,
-    ) -> list[SessionSummary]:
-        rows = await self._store.list_sessions(
+        after: str | None = None,
+    ) -> tuple[list[SessionSummary], str | None]:
+        """List sessions newest-first with cursor pagination.
+
+        Plan 7 D7.6 / Task 9. Thin wrapper around
+        :meth:`SessionStore.list_sessions` that converts the rows to
+        immutable :class:`SessionSummary` instances and forwards the
+        cursor through unchanged. Returns ``(summaries, next_cursor)``;
+        ``next_cursor`` is ``None`` once the result set is exhausted.
+        """
+        rows, next_cursor = await self._store.list_sessions(
             status=status.value if status else None,
             tag=tag,
             limit=limit,
-            offset=offset,
+            after=after,
         )
-        return [
+        summaries = [
             SessionSummary(
                 id=r["id"],
                 status=SessionState(r["status"]),
@@ -314,6 +322,7 @@ class SessionManager:
             )
             for r in rows
         ]
+        return summaries, next_cursor
 
     async def get(
         self, sid: str, *, frames_limit: int = 100, frames_offset: int = 0

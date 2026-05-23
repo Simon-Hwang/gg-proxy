@@ -4,8 +4,10 @@ Covers Plan 6 D6.3 (HTMX + SSE + 5s polling fallback) plus D6.16 pagination
 and D6.13 read-only navigation. Tests the four new routes:
 
 * ``GET /dashboard/kanban`` — full page chrome
-* ``GET /dashboard/kanban/board?offset=N`` — HTMX partial (also serves
-  the polling-fallback target and the next-page lazy loader)
+* ``GET /dashboard/kanban/board?after=<cursor>`` — HTMX partial (also
+  serves the polling-fallback target and the next-page lazy loader).
+  Plan 7 D7.6 / Task 9 switched pagination from numeric ``offset`` to
+  opaque cursor.
 * ``GET /dashboard/kanban/stream`` — SSE event stream emitting
   ``event: kanban-update`` whenever ``SessionCreated`` /
   ``SessionStateChanged`` / ``SessionCompleted`` fires on the bus
@@ -19,6 +21,7 @@ template groups (queued / running / paused / terminal).
 from __future__ import annotations
 
 import asyncio
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -166,6 +169,24 @@ class TestKanbanPage:
         assert r.headers["location"] == "/dashboard/login"
 
 
+_NEXT_CURSOR_RE = re.compile(
+    r'hx-get="/dashboard/kanban/board\?after=([A-Za-z0-9_-]+)"'
+)
+
+
+def _extract_next_cursor(body: str) -> str:
+    """Pull the ``after=<cursor>`` token out of the lazy-load div.
+
+    Plan 7 D7.6 / Task 9: the kanban partial emits a ``hx-get`` URL
+    pointing at ``?after=<urlsafe-base64>`` whenever the current page
+    is full. Tests use this helper to chain page 1 → page 2 without
+    pre-computing the cursor.
+    """
+    m = _NEXT_CURSOR_RE.search(body)
+    assert m is not None, "expected kanban-next-page hx-get with cursor"
+    return m.group(1)
+
+
 class TestKanbanBoardPartial:
     async def test_partial_groups_sessions_into_columns(
         self, client: tuple[AsyncClient, object]
@@ -185,27 +206,33 @@ class TestKanbanBoardPartial:
         assert "sid-r" in body
         assert "sid-p" in body
         assert "sid-c" in body
-        # Page 2 carries the queued card.
-        r2 = await ac.get("/dashboard/kanban/board?offset=3")
+        # Page 2 carries the queued card — follow the cursor link.
+        cursor = _extract_next_cursor(body)
+        r2 = await ac.get(f"/dashboard/kanban/board?after={cursor}")
         assert r2.status_code == 200
         assert "sid-q" in r2.text
 
-    async def test_pagination_offset_and_size(
+    async def test_pagination_cursor_and_size(
         self, client: tuple[AsyncClient, object]
     ) -> None:
         """page_size=3 + 4 sessions seeded → first page has 3 cards
-        and emits the ``revealed`` next-page loader; second page
-        carries the last card and no further pagination."""
+        and emits the ``revealed`` next-page loader with an opaque
+        cursor; the cursor-linked second page carries the last card
+        and emits no further pagination (Plan 7 D7.6 / Task 9)."""
         ac, _ = client
         await _login(ac)
-        r1 = await ac.get("/dashboard/kanban/board?offset=0")
+        r1 = await ac.get("/dashboard/kanban/board")
         assert r1.status_code == 200
         # First page is full (page_size=3 ≤ total 4) so the next-page
-        # lazy-load div MUST be present.
+        # lazy-load div MUST be present with an ``?after=<cursor>``
+        # hx-get URL (no numeric offset).
         assert "kanban-next-page" in r1.text
         assert 'hx-trigger="revealed"' in r1.text
+        assert "?after=" in r1.text
+        assert "?offset=" not in r1.text
+        cursor = _extract_next_cursor(r1.text)
         # Second page picks up the remaining 1 row, no further page.
-        r2 = await ac.get("/dashboard/kanban/board?offset=3")
+        r2 = await ac.get(f"/dashboard/kanban/board?after={cursor}")
         assert r2.status_code == 200
         assert "kanban-next-page" not in r2.text
 

@@ -20,10 +20,10 @@
     </section>
     {% endfor %}
 
-    {% if next_offset is not none %}
+    {% if next_cursor %}
     <div
         class="kanban-next-page"
-        hx-get="/dashboard/kanban/board?offset={{ next_offset }}"
+        hx-get="/dashboard/kanban/board?after={{ next_cursor }}"
         hx-trigger="revealed"
         hx-target="#kanban-board"
         hx-swap="outerHTML"

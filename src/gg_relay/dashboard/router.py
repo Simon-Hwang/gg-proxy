@@ -38,7 +38,11 @@ from gg_relay.api.deps import get_coordinator, get_manager
 from gg_relay.core import EventBus, SessionCreated, SessionStateChanged
 from gg_relay.session.hitl.coordinator import HITLCoordinator, HITLNotPending
 from gg_relay.session.manager import SessionManager, SessionNotFound
-from gg_relay.store import SessionRepository
+from gg_relay.store import (
+    CursorFilterMismatchError,
+    CursorInvalidError,
+    SessionRepository,
+)
 
 _HERE = Path(__file__).resolve().parent
 TEMPLATES_DIR = _HERE / "templates"
@@ -111,7 +115,7 @@ async def sessions_list(
     _: None = _RequireSessionDep,
     manager: SessionManager = _ManagerDep,
 ) -> HTMLResponse:
-    rows = await manager.list(limit=200)
+    rows, _next_cursor = await manager.list(limit=200)
     return templates.TemplateResponse(
         request, "sessions_list.html", {"sessions": rows}
     )
@@ -188,7 +192,7 @@ async def kanban_page(
     only re-render the data, not the surrounding navigation."""
     cfg = request.app.state.config
     page_size = int(getattr(cfg, "kanban_default_page_size", 50))
-    sessions = await manager.list(limit=page_size, offset=0)
+    sessions, next_cursor = await manager.list(limit=page_size)
     columns = _kanban_columns(list(sessions))
     return templates.TemplateResponse(
         request,
@@ -196,7 +200,7 @@ async def kanban_page(
         {
             "columns": columns,
             "page_size": page_size,
-            "next_offset": page_size if len(sessions) == page_size else None,
+            "next_cursor": next_cursor,
             "chart_js_cdn": getattr(cfg, "chart_js_cdn", ""),
             "chart_js_offline": bool(getattr(cfg, "chart_js_offline", False)),
         },
@@ -206,32 +210,38 @@ async def kanban_page(
 @router.get("/kanban/board", response_class=HTMLResponse)
 async def kanban_board_partial(
     request: Request,
-    offset: int = Query(0, ge=0),
+    after: str | None = Query(None),
     _: None = _RequireSessionDep,
     manager: SessionManager = _ManagerDep,
 ) -> HTMLResponse:
     """HTMX target: returns just the inner ``_kanban_board.html``
     fragment — used both by the 5s ``hx-trigger='every 5s'`` polling
-    fallback AND by the ``revealed`` pagination loader.
+    fallback AND by the ``revealed`` cursor lazy-loader.
 
-    ``offset`` lets the next-page loader skip the cards already
-    rendered. Pagination is D6.16 — server picks ``page_size`` from
-    ``Config.kanban_default_page_size`` so operators can tune without
-    a deploy.
+    Plan 7 D7.6 / Task 9: pagination switched from numeric ``offset``
+    to opaque ``after`` cursor so the dashboard cannot drop or duplicate
+    rows when a new session lands between two scroll-loads.
+
+    Garbage cursors return a 400 — the page-1 polling fallback recovers
+    immediately on the next ``hx-trigger='every 5s'`` tick, so a single
+    bad lazy-load is self-healing.
     """
     cfg = request.app.state.config
     page_size = int(getattr(cfg, "kanban_default_page_size", 50))
-    sessions = await manager.list(limit=page_size, offset=offset)
+    try:
+        sessions, next_cursor = await manager.list(
+            limit=page_size, after=after
+        )
+    except (CursorFilterMismatchError, CursorInvalidError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     columns = _kanban_columns(list(sessions))
-    next_offset = (offset + page_size) if len(sessions) == page_size else None
     return templates.TemplateResponse(
         request,
         "_kanban_board.html",
         {
             "columns": columns,
             "page_size": page_size,
-            "offset": offset,
-            "next_offset": next_offset,
+            "next_cursor": next_cursor,
         },
     )
 
