@@ -1,0 +1,57 @@
+tests/integration/test_favorites_e2e.py
+  s_73ea27d9447e10::t_3ea81738954d88 1-341
+src/gg_relay/store/__init__.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 33,45,55,68
+src/gg_relay/store/schema.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 290-338
+tests/integration/test_migrations_chain.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 567-650
+src/gg_relay/api/routers/sessions.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 16,398-457,474-553
+src/gg_relay/store/repository.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 54,1459-1619
+src/gg_relay/dashboard/templates/favorites.html
+  s_73ea27d9447e10::t_3ea81738954d88 1-46
+tests/integration/test_dashboard_favorites_render.py
+  s_73ea27d9447e10::t_3ea81738954d88 2-112,114-115,117-147
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 1,113,116
+src/gg_relay/dashboard/templates/base.html
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 23
+tests/unit/store/test_favorites_repository.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 169
+  s_73ea27d9447e10::t_3ea81738954d88 1-168,170-246
+src/gg_relay/dashboard/router.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 194-239
+src/gg_relay/dashboard/templates/_kanban_card.html
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 13-25
+src/gg_relay/store/migrations/versions/0009_add_session_favorites.py
+  s_73ea27d9447e10::t_3ea81738954d88 1-87
+src/gg_relay/store/protocol.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 450-537,541
+tests/integration/test_plan8_baseline.py
+  s_9ebaa6fed0f427::t_f63fcc11ebeff0 82,90-91
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "340dffb96ea171006ca758bf5e960b44caf2eb8f",
+  "prompts": {},
+  "sessions": {
+    "s_73ea27d9447e10": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "e303e800-3ffb-43cc-97e3-a7d63fcf36ce",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_9ebaa6fed0f427": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5c3e015b-1e72-42be-bcaa-dcbd250dd09d",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
