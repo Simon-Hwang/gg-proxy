@@ -1,0 +1,29 @@
+src/gg_relay/store/engine.py
+  s_30ca3033361a7a::t_aa05674882ddb9 7-17,21-26,31,33-45,57-72,74-140
+docs/team-deployment.md
+  s_30ca3033361a7a::t_ecfd075ddc9ccb 1-120
+src/gg_relay/store/migrations/env.py
+  s_30ca3033361a7a::t_f45addcb58a7da 24-31
+src/gg_relay/api/main.py
+  s_30ca3033361a7a::t_da9ccbe5d7b126 187-198
+tests/unit/store/test_engine_pool_tuning.py
+  s_30ca3033361a7a::t_717b2e736430e8 104-112
+  s_30ca3033361a7a::t_301db061c750ac 157-160
+  s_30ca3033361a7a::t_a370160a79d6f0 1-103,113-156,161-205
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "9a39e719e768e7bf3eb41903674dfe7d51b3cb85",
+  "prompts": {},
+  "sessions": {
+    "s_30ca3033361a7a": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "5f75f631-8b2c-43a1-8704-c3af48f96728",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
