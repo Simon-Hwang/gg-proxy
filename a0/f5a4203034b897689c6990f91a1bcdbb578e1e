@@ -1,0 +1,29 @@
+src/gg_relay/store/protocol.py
+  s_10fb21fb816278::t_a2f569ef794181 1-176
+pyproject.toml
+  ai_agent 92-99
+src/gg_relay/store/__init__.py
+  s_10fb21fb816278::t_154ec0078e0326 8-13,16-17,21-22,24-25
+tests/unit/store/test_protocol_conformance.py
+  s_10fb21fb816278::t_06d234939832c4 1-136
+src/gg_relay/api/deps.py
+  ai_agent 5-11,19,26
+src/gg_relay/store/repository.py
+  ai_agent 1,3,9-15,19,37,43-47,447-470
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "a0f5a4203034b897689c6990f91a1bcdbb578e1e",
+  "prompts": {},
+  "sessions": {
+    "s_10fb21fb816278": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "783dd5c1-0506-4ac9-9bac-785b64e93dec",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
