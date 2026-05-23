@@ -1,0 +1,63 @@
+tests/integration/test_migrations_chain.py
+  s_d4578dc03276cf::t_e58f63599030bf 369-443
+tests/unit/store/test_protocol_conformance.py
+  s_d4578dc03276cf::t_6b566df6a74cc7 65-70
+  s_d4578dc03276cf::t_8ac34132c4d43f 115
+  s_d4578dc03276cf::t_0bdae25337d6af 84
+  s_d4578dc03276cf::t_e36dba3cb4dffc 25
+src/gg_relay/api/audit_service.py
+  s_d4578dc03276cf::t_3abc211044c43f 1-97
+src/gg_relay/session/manager.py
+  s_d4578dc03276cf::t_99822195749392 311-333
+  s_d4578dc03276cf::t_f08e164151b013 603-609
+  s_d4578dc03276cf::t_08485186f579c7 245-251
+  s_d4578dc03276cf::t_7d92bff803d400 670-710,714,722,726-727
+  s_d4578dc03276cf::t_cd3f9074ca0b37 521-527
+  s_d4578dc03276cf::t_a549db687c1bf4 207,219-224
+  s_d4578dc03276cf::t_9645314dc68a7b 429-432,434-440
+  s_d4578dc03276cf::t_018fa1413c0e10 711-713,715-721,723-725
+  s_d4578dc03276cf::t_6cc1846b65fc25 857
+  s_d4578dc03276cf::t_810efe283169f8 343
+src/gg_relay/store/repository.py
+  s_d4578dc03276cf::t_e1c355145ead95 154-228,230,238-240
+  s_d4578dc03276cf::t_ae53d87a2708dc 923-940,942-954,957-958,961-962
+  s_d4578dc03276cf::t_99d843c1139e9d 38
+  s_d4578dc03276cf::t_a875b0e816274a 887-922,941,955-956,959-960,963-1042
+tests/unit/api/test_audit_middleware_fallback.py
+  s_d4578dc03276cf::t_8522e397c1bc33 1-254
+src/gg_relay/api/middleware/audit.py
+  s_d4578dc03276cf::t_c16201104aae8d 1-118,120-121,148-160,164-173,175-187,189-201,203-227
+  s_d4578dc03276cf::t_936d587f3a07b5 119,122-147,161-163,174,188,202
+src/gg_relay/store/schema.py
+  s_d4578dc03276cf::t_c5d5672168241f 203-236
+tests/unit/store/test_audit_repository.py
+  s_d4578dc03276cf::t_1f382103ee2958 1-264
+src/gg_relay/store/protocol.py
+  s_d4578dc03276cf::t_0b2e9d987978c0 198-261
+  s_d4578dc03276cf::t_0d565c6197e81a 310
+src/gg_relay/store/migrations/versions/0006_add_audit_log.py
+  s_d4578dc03276cf::t_d19e418eebfd4c 1-61
+src/gg_relay/store/__init__.py
+  s_d4578dc03276cf::t_2dc891d3b4bf88 30-35,37-43,46,55
+tests/unit/api/test_explicit_audit_record.py
+  s_d4578dc03276cf::t_4964ca06d83412 1-306
+tests/integration/test_plan8_baseline.py
+  s_d4578dc03276cf::t_deeff3470d9ee9 76-83,90-91
+  s_d4578dc03276cf::t_5cd0bad776d1e1 13-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "2d07bd579e9954ddabeb127a43765df5a39749b7",
+  "prompts": {},
+  "sessions": {
+    "s_d4578dc03276cf": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "94cfa8ba-f0c0-4dba-90b7-0c91124d155d",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
