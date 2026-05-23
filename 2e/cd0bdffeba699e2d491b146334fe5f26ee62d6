@@ -1,0 +1,57 @@
+src/gg_relay/store/repository.py
+  s_13492e9130ac8c::t_e92409451665bd 38-44,1050-1223
+src/gg_relay/api/routers/__init__.py
+  s_b57a04c1333ff5::t_45c42156d0f67f 3,12
+src/gg_relay/api/main.py
+  s_b57a04c1333ff5::t_86320bca66e209 536-540
+  s_b57a04c1333ff5::t_e36cf3294f0629 36
+src/gg_relay/store/__init__.py
+  s_13492e9130ac8c::t_e92409451665bd 32,43,49,64
+tests/integration/test_migrations_chain.py
+  s_13492e9130ac8c::t_e92409451665bd 444-507
+tests/integration/test_plan8_baseline.py
+  s_13492e9130ac8c::t_e92409451665bd 82,90-91
+tests/unit/store/test_comments_repository.py
+  s_b57a04c1333ff5::t_8efb007888d85b 220-226
+src/gg_relay/api/routers/comments.py
+  ai_agent 1-345
+src/gg_relay/store/protocol.py
+  s_13492e9130ac8c::t_e92409451665bd 310-410
+tests/unit/comments/test_sanitizer.py
+  s_b57a04c1333ff5::t_8b0d4711c50e0f 26-34
+  s_b57a04c1333ff5::t_9e65db27416d23 67-97
+src/gg_relay/comments/__init__.py
+  ai_agent 1-22
+tests/integration/test_comments_e2e.py
+  s_b57a04c1333ff5::t_27f924a989b77e 202-230
+src/gg_relay/store/schema.py
+  s_13492e9130ac8c::t_e92409451665bd 28,238-278
+docs/openapi.snapshot.json
+  s_b57a04c1333ff5::t_5b7fe7d6b2c701 58-89,909-997,1305-1409
+src/gg_relay/comments/sanitizer.py
+  ai_agent 1-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "2ecd0bdffeba699e2d491b146334fe5f26ee62d6",
+  "prompts": {},
+  "sessions": {
+    "s_13492e9130ac8c": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "9c6e1b97-4c69-4ec0-95fa-ede51f9b9d1d",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_b57a04c1333ff5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "56567ac8-04d2-45ba-a965-13166d515c46",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
