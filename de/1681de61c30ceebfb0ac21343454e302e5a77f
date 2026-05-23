@@ -1,0 +1,25 @@
+src/gg_relay/store/migrations/versions/0004_add_events_table.py
+  s_603c868faa71f8::t_4e3be406c9453b 1-68
+src/gg_relay/store/schema.py
+  s_603c868faa71f8::t_eb4930627a8d27 166-190
+tests/integration/test_migrations_chain.py
+  s_603c868faa71f8::t_f30d8ae1813b82 1-15
+  s_603c868faa71f8::t_f613aff56abb34 61-86
+  s_603c868faa71f8::t_26342bb42fb268 225-307
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "de1681de61c30ceebfb0ac21343454e302e5a77f",
+  "prompts": {},
+  "sessions": {
+    "s_603c868faa71f8": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "98279933-577a-4643-829b-aa5d2efce02f",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
