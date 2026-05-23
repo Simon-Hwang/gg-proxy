@@ -130,6 +130,33 @@ class SessionStore(Protocol):
         """
         ...
 
+    async def search_sessions(
+        self,
+        *,
+        q: str | None = None,
+        owner: str | None = None,
+        tags: list[str] | None = None,
+        status: list[str] | None = None,
+        after_ts: datetime | None = None,
+        before_ts: datetime | None = None,
+        after: str | None = None,
+        limit: int = 50,
+    ) -> tuple[Sequence[Mapping[str, Any]], str | None]:
+        """Search sessions with combined filters + cursor pagination.
+
+        Plan 8 D8.20 / Task 12. Like :meth:`list_sessions` but with the
+        wider filter surface required by the search endpoint and
+        dashboard: ``q`` LIKE-matches the JSON ``spec_json`` payload
+        (case-insensitive), ``owner`` is exact-equality, ``tags`` /
+        ``status`` are OR-of-any lists, and ``after_ts`` / ``before_ts``
+        bracket ``submitted_at``. Cursor semantics mirror
+        :meth:`list_sessions` — invalid or filter-mismatched cursors
+        raise the same ``CursorInvalidError`` /
+        ``CursorFilterMismatchError`` so router error mapping stays
+        uniform.
+        """
+        ...
+
     async def get_session(
         self, session_id: str
     ) -> Mapping[str, Any] | None:

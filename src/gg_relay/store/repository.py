@@ -25,7 +25,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 import sqlalchemy as sa
-from sqlalchemy import RowMapping, and_, delete, insert, or_, select, update
+from sqlalchemy import (
+    RowMapping,
+    String,
+    and_,
+    cast,
+    delete,
+    func,
+    insert,
+    or_,
+    select,
+    update,
+)
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -230,6 +241,83 @@ def _decode_audit_cursor(
             f"invalid audit cursor: id not integer ({obj.get('id')!r})"
         ) from exc
     return ts, id_
+
+
+# ── Search cursor helpers (Plan 8 D8.20 / Task 12) ───────────────────
+# Mirror :func:`_filter_hash` / :func:`_encode_cursor` /
+# :func:`_decode_cursor` for the session-search endpoint. The search
+# filter combo is wider than the list_sessions one (q / owner / tags /
+# status[] / before_ts / after_ts), so we serialize the whole kwargs
+# dict into a sorted ``key=val`` string before hashing. The anchor pair
+# is ``(submitted_at, id)`` — same shape as :func:`_encode_cursor` —
+# because search results share the ORDER BY column with list_sessions
+# (``submitted_at DESC, id DESC``).
+
+
+def _filter_hash_search(
+    *,
+    q: str | None,
+    owner: str | None,
+    tags: list[str] | None,
+    status: list[str] | None,
+    after_ts: datetime | None,
+    before_ts: datetime | None,
+) -> str:
+    """Compact deterministic identifier for the active search filter combo.
+
+    SHA1-truncated identical to :func:`_filter_hash` so paging through
+    the same search keeps a stable cursor hash. Lists are sorted before
+    hashing so callers that pass ``tags=['b', 'a']`` and ``tags=['a',
+    'b']`` produce the same hash (order-insensitive filter).
+    """
+    raw: dict[str, Any] = {
+        "q": q,
+        "owner": owner,
+        "tags": sorted(tags) if tags else None,
+        "status": sorted(status) if status else None,
+        "after_ts": after_ts.isoformat() if after_ts else None,
+        "before_ts": before_ts.isoformat() if before_ts else None,
+    }
+    parts = [
+        f"{k}={raw[k] if raw[k] is not None else '*'}" for k in sorted(raw)
+    ]
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:12]
+
+
+def _encode_search_cursor(
+    *, submitted_at: datetime, id: str, filter_hash: str
+) -> str:
+    raw = json.dumps(
+        {"ts": submitted_at.isoformat(), "id": id, "fh": filter_hash}
+    )
+    return base64.urlsafe_b64encode(raw.encode()).rstrip(b"=").decode()
+
+
+def _decode_search_cursor(
+    cursor: str, *, expected_filter_hash: str
+) -> tuple[datetime, str]:
+    pad = "=" * (-len(cursor) % 4)
+    try:
+        obj = json.loads(base64.urlsafe_b64decode(cursor + pad))
+    except Exception as exc:
+        raise CursorInvalidError(f"invalid search cursor: {exc}") from exc
+    if not isinstance(obj, dict) or "ts" not in obj or "id" not in obj:
+        raise CursorInvalidError(
+            "invalid search cursor: missing ts/id fields"
+        )
+    if obj.get("fh") != expected_filter_hash:
+        raise CursorFilterMismatchError(
+            f"search cursor filter hash mismatch "
+            f"(cursor={obj.get('fh')!r}, "
+            f"current_filter={expected_filter_hash!r})"
+        )
+    try:
+        ts = datetime.fromisoformat(obj["ts"])
+    except (TypeError, ValueError) as exc:
+        raise CursorInvalidError(
+            f"invalid search cursor: ts not iso8601 ({obj.get('ts')!r})"
+        ) from exc
+    return ts, str(obj["id"])
 
 
 class SqlAlchemyStore:
@@ -495,6 +583,118 @@ class SqlAlchemyStore:
         if has_more and rows:
             last = rows[-1]
             next_cursor = _encode_cursor(
+                submitted_at=last["submitted_at"],
+                id=last["id"],
+                filter_hash=fh,
+            )
+        return rows, next_cursor
+
+    async def search_sessions(
+        self,
+        *,
+        q: str | None = None,
+        owner: str | None = None,
+        tags: list[str] | None = None,
+        status: list[str] | None = None,
+        after_ts: datetime | None = None,
+        before_ts: datetime | None = None,
+        after: str | None = None,
+        limit: int = 50,
+    ) -> tuple[list[RowMapping], str | None]:
+        """Search sessions with combined filters + cursor pagination.
+
+        Plan 8 D8.20 / Task 12. Returns ``(rows, next_cursor)`` ordered
+        newest-first by ``(submitted_at DESC, id DESC)`` — same shape as
+        :meth:`list_sessions` so dashboards can reuse the same rendering
+        path. Filters compose with AND across kwargs and OR within the
+        ``tags`` / ``status`` lists:
+
+        * ``q``         — case-insensitive LIKE on the JSON ``spec_json``
+          payload (which is where the original prompt and short args
+          live). Cross-dialect we ``func.lower(cast(spec_json, String))
+          LIKE lower('%' + q + '%')`` so SQLite (stores JSON as text) and
+          Postgres (stores JSONB, cast to text) both match the same
+          substrings. The single ``c%`` LIKE walks the row sequentially
+          but the dataset cap (single-team scale, <10k sessions) keeps
+          cost acceptable; Plan 9+ adds a tsvector + GIN index for the
+          Postgres prod tier.
+        * ``owner``     — equality match against ``sessions.owner``
+          (indexed via ``ix_sessions_owner``).
+        * ``tags``      — OR-of-any: cast ``sessions.tags`` (JSON array)
+          to text and LIKE each ``"<tag>"`` literal. Cross-dialect (no
+          JSON1-only dependency) at the cost of a per-row scan; the
+          ``ix_sessions_status`` / ``ix_sessions_owner`` indexes usually
+          carry most of the selectivity before tags filter runs.
+        * ``status``    — OR-of-any across the supplied lifecycle states.
+        * ``after_ts``  / ``before_ts``  — half-open range on
+          ``submitted_at``; ``after_ts`` is inclusive (``>=``),
+          ``before_ts`` inclusive (``<=``).
+
+        ``after`` cursors are bound to the active filter combo via a
+        short SHA1 hash (:func:`_filter_hash_search`) so paging across a
+        filter change raises :class:`CursorFilterMismatchError` (router
+        → 400) rather than silently mixing rows.
+        """
+        fh = _filter_hash_search(
+            q=q,
+            owner=owner,
+            tags=tags,
+            status=status,
+            after_ts=after_ts,
+            before_ts=before_ts,
+        )
+        where: list[sa.ColumnElement[bool]] = []
+
+        if q:
+            needle = f"%{q.lower()}%"
+            where.append(
+                func.lower(cast(sessions.c.spec_json, String)).like(needle)
+            )
+        if owner is not None:
+            where.append(sessions.c.owner == owner)
+        if status:
+            where.append(sessions.c.status.in_(status))
+        if after_ts is not None:
+            where.append(sessions.c.submitted_at >= after_ts)
+        if before_ts is not None:
+            where.append(sessions.c.submitted_at <= before_ts)
+        if tags:
+            tag_conds = [
+                cast(sessions.c.tags, String).like(f'%"{t}"%') for t in tags
+            ]
+            where.append(or_(*tag_conds))
+        if after is not None:
+            ts_after, id_after = _decode_search_cursor(
+                after, expected_filter_hash=fh
+            )
+            where.append(
+                or_(
+                    sessions.c.submitted_at < ts_after,
+                    and_(
+                        sessions.c.submitted_at == ts_after,
+                        sessions.c.id < id_after,
+                    ),
+                )
+            )
+
+        stmt = (
+            select(sessions)
+            .where(*where)
+            .order_by(
+                sessions.c.submitted_at.desc(),
+                sessions.c.id.desc(),
+            )
+            .limit(limit + 1)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            rows = list(result.mappings().all())
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        next_cursor: str | None = None
+        if has_more and rows:
+            last = rows[-1]
+            next_cursor = _encode_search_cursor(
                 submitted_at=last["submitted_at"],
                 id=last["id"],
                 filter_hash=fh,

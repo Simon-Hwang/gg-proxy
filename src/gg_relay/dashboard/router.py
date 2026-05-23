@@ -40,6 +40,7 @@ import asyncio
 import contextlib
 import json
 import secrets
+import urllib.parse
 from collections.abc import AsyncIterator
 from dataclasses import asdict
 from pathlib import Path
@@ -595,6 +596,152 @@ def _dashboard_label(request: Request) -> str | None:
     if not isinstance(username, str) or not username:
         return None
     return f"dashboard-{username}"
+
+
+# ── Plan 8 D8.20 / Task 12 — search page + HTMX results fragment ──────
+
+
+def _dashboard_role(request: Request) -> str:
+    """Resolve the dashboard user's role using the same lookup as the
+    audit / comments fragments. Falls back to ``viewer`` when no cookie
+    or no role mapping is configured — keeping the safe default
+    consistent with :func:`gg_relay.api.dependencies.require_role._resolve_role`.
+    """
+    cfg = request.app.state.config
+    label = _dashboard_label(request)
+    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
+    if not label:
+        return "viewer"
+    return role_map.get(label, "viewer")
+
+
+@router.get("/search", response_class=HTMLResponse)
+async def search_page(
+    request: Request,
+    q: str | None = Query(None, max_length=200),
+    owner: str | None = Query(None, max_length=64),
+    tags: str | None = Query(None, max_length=512),
+    status: str | None = Query(None, max_length=32),
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Render the search chrome (form + empty results target).
+
+    Plan 8 D8.20 / Task 12. The page itself never runs the query — the
+    form submits via HTMX to ``/dashboard/search/results``, which
+    renders the result fragment in place. This keeps the initial page
+    snappy and lets the form re-target on every change without a full
+    reload.
+
+    ``owner`` is rendered into the form ONLY for admin callers; for
+    non-admin users the input is omitted (the server-side handler
+    rejects cross-owner filters anyway, but trimming the field in the
+    UI avoids the false-affordance of "you typed it but it gets
+    overridden").
+    """
+    role = _dashboard_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+    return templates.TemplateResponse(
+        request,
+        "search.html",
+        {
+            "q": q,
+            "owner": owner if is_admin else None,
+            "tags_str": tags,
+            "status": status,
+            "is_admin": is_admin,
+        },
+    )
+
+
+@router.get("/search/results", response_class=HTMLResponse)
+async def search_results(
+    request: Request,
+    q: str | None = Query(None, max_length=200),
+    owner: str | None = Query(None, max_length=64),
+    tags: str | None = Query(None, max_length=512),
+    status: str | None = Query(None, max_length=32),
+    after: str | None = Query(None, max_length=512),
+    limit: int = Query(50, ge=1, le=200),
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """HTMX fragment rendering the search result table + load-more link.
+
+    Plan 8 D8.20 / Task 12. RBAC mirrors the API endpoint: non-admin
+    callers are silently force-filtered to ``owner=<self-label>``
+    (the UI never lets them type a foreign owner anyway — see
+    :func:`search_page`). Cursor errors render as a small inline
+    ``<div class='error'>`` rather than a redirect so the HTMX swap
+    surfaces the failure inside the panel.
+    """
+    store: SessionRepository = request.app.state.store
+    label = _dashboard_label(request)
+    role = _dashboard_role(request)
+
+    if ROLE_HIERARCHY.get(role, 0) < ROLE_HIERARCHY["admin"]:
+        owner = label
+    elif owner == "":
+        owner = None
+
+    tags_list = [t.strip() for t in (tags or "").split(",") if t.strip()] or None
+    status_list = [status] if status else None
+
+    try:
+        rows, next_cursor = await store.search_sessions(
+            q=q or None,
+            owner=owner,
+            tags=tags_list,
+            status=status_list,
+            after=after,
+            limit=limit,
+        )
+    except (CursorInvalidError, CursorFilterMismatchError):
+        return HTMLResponse(
+            "<div class='error'>Invalid cursor.</div>", status_code=400
+        )
+
+    qs_dict = {
+        k: v
+        for k, v in {
+            "q": q,
+            "owner": owner,
+            "tags": tags,
+            "status": status,
+            "limit": str(limit) if limit != 50 else None,
+        }.items()
+        if v
+    }
+    querystring = urllib.parse.urlencode(qs_dict)
+
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        spec = r.get("spec_json") if hasattr(r, "get") else None
+        prompt_val = ""
+        if isinstance(spec, dict):
+            prompt_val = str(spec.get("prompt") or "")
+        submitted = r.get("submitted_at") if hasattr(r, "get") else None
+        items.append(
+            {
+                "id": r["id"],
+                "prompt": prompt_val,
+                "owner": r.get("owner") if hasattr(r, "get") else None,
+                "status": r["status"],
+                "tags": list(r["tags"] or []),
+                "submitted_at": (
+                    submitted.isoformat()
+                    if hasattr(submitted, "isoformat")
+                    else str(submitted)
+                ),
+            }
+        )
+    return templates.TemplateResponse(
+        request,
+        "_search_results.html",
+        {
+            "items": items,
+            "next_cursor": next_cursor,
+            "querystring": querystring,
+        },
+    )
 
 
 @router.get("/sessions/{session_id}/audit", response_class=HTMLResponse)

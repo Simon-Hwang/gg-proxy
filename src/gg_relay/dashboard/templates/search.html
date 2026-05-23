@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Search sessions{% endblock %}
+{% block content %}
+<div class="search-page">
+  <h1>Search sessions</h1>
+  <form class="search-form"
+        hx-get="/dashboard/search/results"
+        hx-target="#search-results"
+        hx-swap="innerHTML"
+        hx-trigger="submit, change from:select">
+    <input type="text" name="q"
+           placeholder="Search prompt..."
+           value="{{ q or '' }}"
+           maxlength="200" />
+    {% if is_admin %}
+    <input type="text" name="owner"
+           placeholder="Owner label (admin only)"
+           value="{{ owner or '' }}"
+           maxlength="64" />
+    {% endif %}
+    <input type="text" name="tags"
+           placeholder="tag1,tag2 (comma-sep, OR-of-any)"
+           value="{{ tags_str or '' }}" />
+    <select name="status">
+      <option value="" {% if not status %}selected{% endif %}>all status</option>
+      <option value="queued"     {% if status == 'queued' %}selected{% endif %}>queued</option>
+      <option value="running"    {% if status == 'running' %}selected{% endif %}>running</option>
+      <option value="paused"     {% if status == 'paused' %}selected{% endif %}>paused</option>
+      <option value="completed"  {% if status == 'completed' %}selected{% endif %}>completed</option>
+      <option value="failed"     {% if status == 'failed' %}selected{% endif %}>failed</option>
+      <option value="cancelled"  {% if status == 'cancelled' %}selected{% endif %}>cancelled</option>
+      <option value="interrupted"{% if status == 'interrupted' %}selected{% endif %}>interrupted</option>
+    </select>
+    <button type="submit">Search</button>
+  </form>
+  <div id="search-results"></div>
+</div>
+{% endblock %}

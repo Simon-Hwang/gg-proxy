@@ -121,6 +121,46 @@ class SessionListResponse(BaseModel):
     total: int = -1
 
 
+# ── Plan 8 D8.20 / Task 12 — session search ──────────────────────────
+
+
+class SearchSessionItem(BaseModel):
+    """One row in :class:`SearchSessionsResponse.items`.
+
+    Plan 8 D8.20 / Task 12. Carries the subset of the session row the
+    search UI cares about — no frames, no spec dump — so the response
+    stays compact even at the 200-row cap. ``prompt`` is the original
+    spec prompt extracted from ``spec_json`` (best-effort: empty
+    string when the row predates the prompt field).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    prompt: str = ""
+    owner: str | None = None
+    description: str | None = None
+    status: str
+    tags: list[str] = Field(default_factory=list)
+    submitted_at: datetime
+    ended_at: datetime | None = None
+
+
+class SearchSessionsResponse(BaseModel):
+    """``GET /api/v1/sessions/search`` response with cursor pagination.
+
+    Mirrors the audit endpoint's ``items`` + ``next_cursor`` +
+    ``has_more`` shape (Plan 8 Task 6 / D8.4) so dashboards reuse the
+    same lazy-load infinite-scroll component.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[SearchSessionItem]
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
 class FrameOut(BaseModel):
     seq: int
     ts: datetime

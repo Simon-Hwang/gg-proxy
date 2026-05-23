@@ -9,8 +9,9 @@ runtime context, never serialised back out.
 from __future__ import annotations
 
 import contextlib
+from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -30,6 +31,8 @@ from gg_relay.api.schemas import (
     FrameOut,
     PauseRequest,
     ResumeRequest,
+    SearchSessionItem,
+    SearchSessionsResponse,
     SessionDetailResponse,
     SessionListResponse,
     SessionResponse,
@@ -278,6 +281,117 @@ async def list_sessions(
         next_cursor=next_cursor,
         sessions=items,
         total=-1,
+    )
+
+
+# ── Plan 8 D8.20 / Task 12 — session search endpoint ─────────────────
+# IMPORTANT: ``/search`` is a *literal* path segment that must be
+# declared BEFORE ``/{session_id}`` — FastAPI matches routes in
+# declaration order, and a path-param route declared first would
+# swallow ``GET /sessions/search`` as ``session_id='search'``.
+
+
+@router.get("/search", response_model=SearchSessionsResponse)
+async def search_sessions(
+    request: Request,
+    q: Annotated[str | None, Query(min_length=1, max_length=200)] = None,
+    owner: Annotated[str | None, Query(max_length=64)] = None,
+    tags: Annotated[list[str] | None, Query()] = None,
+    status: Annotated[list[str] | None, Query()] = None,
+    after_ts: Annotated[datetime | None, Query()] = None,
+    before_ts: Annotated[datetime | None, Query()] = None,
+    after: Annotated[str | None, Query(max_length=512)] = None,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> SearchSessionsResponse:
+    """Search sessions with combined filters + cursor pagination.
+
+    Plan 8 D8.20 / Task 12. Backed by
+    :meth:`SqlAlchemyStore.search_sessions` — see that docstring for
+    the filter / cursor contract. Filters compose with AND across
+    kwargs and OR within ``tags`` / ``status`` lists. ``q`` matches
+    against the JSON spec payload (where the prompt lives) so search
+    works for both legacy rows (no top-level prompt column) and new
+    rows alike.
+
+    RBAC (inline, same pattern as ``GET /audit``): admin sees every
+    row; submitter / viewer are silently force-filtered to
+    ``owner=<self-label>``. An explicit cross-owner filter from a
+    non-admin caller surfaces ``403 forbidden_search_owner`` rather
+    than a silent rewrite — explicit-deny avoids the confusing "I
+    asked for bob's rows but got mine" response shape.
+
+    Error mapping:
+      * 400 ``cursor_invalid`` / ``cursor_filter_mismatch`` — same
+        contract as :func:`list_sessions`.
+      * 403 ``forbidden_search_owner`` — non-admin asked for an owner
+        they don't match.
+    """
+    store = request.app.state.store
+    label = getattr(request.state, "api_key_label", None)
+    role = _resolve_role(request)
+
+    if ROLE_HIERARCHY.get(role, 0) < ROLE_HIERARCHY["admin"]:
+        if owner is not None and owner != label:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "cannot search by other owner",
+                    "code": "forbidden_search_owner",
+                    "required_role": "admin",
+                    "current_role": role,
+                },
+            )
+        owner = label
+
+    try:
+        rows, next_cursor = await store.search_sessions(
+            q=q,
+            owner=owner,
+            tags=tags,
+            status=status,
+            after_ts=after_ts,
+            before_ts=before_ts,
+            after=after,
+            limit=limit,
+        )
+    except CursorFilterMismatchError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": str(exc),
+                "code": "cursor_filter_mismatch",
+            },
+        ) from exc
+    except CursorInvalidError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": str(exc), "code": "cursor_invalid"},
+        ) from exc
+
+    items: list[SearchSessionItem] = []
+    for r in rows:
+        spec = r.get("spec_json") if hasattr(r, "get") else None
+        prompt_val = ""
+        if isinstance(spec, dict):
+            prompt_val = str(spec.get("prompt") or "")
+        items.append(
+            SearchSessionItem(
+                id=r["id"],
+                prompt=prompt_val,
+                owner=r.get("owner") if hasattr(r, "get") else None,
+                description=(
+                    r.get("description") if hasattr(r, "get") else None
+                ),
+                status=r["status"],
+                tags=list(r["tags"] or []),
+                submitted_at=r["submitted_at"],
+                ended_at=r.get("ended_at") if hasattr(r, "get") else None,
+            )
+        )
+    return SearchSessionsResponse(
+        items=items,
+        next_cursor=next_cursor,
+        has_more=next_cursor is not None,
     )
 
 

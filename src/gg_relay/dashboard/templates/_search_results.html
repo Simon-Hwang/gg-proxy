@@ -1,0 +1,37 @@
+{% if items %}
+<table class="search-table">
+  <thead>
+    <tr>
+      <th>Prompt</th>
+      <th>Owner</th>
+      <th>Status</th>
+      <th>Tags</th>
+      <th>Submitted</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for it in items %}
+    <tr>
+      <td>
+        <a href="/dashboard/sessions/{{ it.id }}">{% if it.prompt %}{{ it.prompt[:80] }}{% if it.prompt|length > 80 %}…{% endif %}{% else %}{{ it.id }}{% endif %}</a>
+      </td>
+      <td>{{ it.owner or '—' }}</td>
+      <td><span class="status status-{{ it.status }}">{{ it.status }}</span></td>
+      <td>
+        {% for t in it.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+      </td>
+      <td>{{ it.submitted_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if next_cursor %}
+<div class="search-load-more"
+     hx-get="/dashboard/search/results?{{ querystring }}&after={{ next_cursor }}"
+     hx-trigger="revealed"
+     hx-target="this"
+     hx-swap="outerHTML">Loading more…</div>
+{% endif %}
+{% else %}
+<p class="empty">No matching sessions.</p>
+{% endif %}

@@ -561,6 +561,112 @@
         "title": "ResumeRequest",
         "type": "object"
       },
+      "SearchSessionItem": {
+        "additionalProperties": false,
+        "description": "One row in :class:`SearchSessionsResponse.items`.\n\nPlan 8 D8.20 / Task 12. Carries the subset of the session row the\nsearch UI cares about \u2014 no frames, no spec dump \u2014 so the response\nstays compact even at the 200-row cap. ``prompt`` is the original\nspec prompt extracted from ``spec_json`` (best-effort: empty\nstring when the row predates the prompt field).",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "prompt": {
+            "default": "",
+            "title": "Prompt",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tags",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "submitted_at"
+        ],
+        "title": "SearchSessionItem",
+        "type": "object"
+      },
+      "SearchSessionsResponse": {
+        "additionalProperties": false,
+        "description": "``GET /api/v1/sessions/search`` response with cursor pagination.\n\nMirrors the audit endpoint's ``items`` + ``next_cursor`` +\n``has_more`` shape (Plan 8 Task 6 / D8.4) so dashboards reuse the\nsame lazy-load infinite-scroll component.",
+        "properties": {
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SearchSessionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SearchSessionsResponse",
+        "type": "object"
+      },
       "SessionDetailResponse": {
         "additionalProperties": false,
         "properties": {
@@ -1450,6 +1556,176 @@
         ]
       }
     },
+    "/api/v1/sessions/search": {
+      "get": {
+        "description": "Search sessions with combined filters + cursor pagination.\n\nPlan 8 D8.20 / Task 12. Backed by\n:meth:`SqlAlchemyStore.search_sessions` \u2014 see that docstring for\nthe filter / cursor contract. Filters compose with AND across\nkwargs and OR within ``tags`` / ``status`` lists. ``q`` matches\nagainst the JSON spec payload (where the prompt lives) so search\nworks for both legacy rows (no top-level prompt column) and new\nrows alike.\n\nRBAC (inline, same pattern as ``GET /audit``): admin sees every\nrow; submitter / viewer are silently force-filtered to\n``owner=<self-label>``. An explicit cross-owner filter from a\nnon-admin caller surfaces ``403 forbidden_search_owner`` rather\nthan a silent rewrite \u2014 explicit-deny avoids the confusing \"I\nasked for bob's rows but got mine\" response shape.\n\nError mapping:\n  * 400 ``cursor_invalid`` / ``cursor_filter_mismatch`` \u2014 same\n    contract as :func:`list_sessions`.\n  * 403 ``forbidden_search_owner`` \u2014 non-admin asked for an owner\n    they don't match.",
+        "operationId": "search_sessions_api_v1_sessions_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after_ts",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After Ts"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_ts",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Ts"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchSessionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Sessions",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
     "/api/v1/sessions/{session_id}": {
       "delete": {
         "description": "Idempotent cancel (Plan 6 D6.9=A).\n\n``DELETE /sessions/{id}`` \u2261 ``POST /sessions/{id}/cancel`` with an\nempty body. Always returns 202 \u2014 calling DELETE on an unknown or\nalready-cancelled session is a no-op (we swallow\n:class:`SessionNotFound` rather than the standard 404 so clients\ncan retry blindly on network flakes without special-casing the\nresponse).",
@@ -2280,6 +2556,239 @@
           }
         },
         "summary": "Logout",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/search": {
+      "get": {
+        "description": "Render the search chrome (form + empty results target).\n\nPlan 8 D8.20 / Task 12. The page itself never runs the query \u2014 the\nform submits via HTMX to ``/dashboard/search/results``, which\nrenders the result fragment in place. This keeps the initial page\nsnappy and lets the form re-target on every change without a full\nreload.\n\n``owner`` is rendered into the form ONLY for admin callers; for\nnon-admin users the input is omitted (the server-side handler\nrejects cross-owner filters anyway, but trimming the field in the\nUI avoids the false-affordance of \"you typed it but it gets\noverridden\").",
+        "operationId": "search_page_dashboard_search_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Page",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/search/results": {
+      "get": {
+        "description": "HTMX fragment rendering the search result table + load-more link.\n\nPlan 8 D8.20 / Task 12. RBAC mirrors the API endpoint: non-admin\ncallers are silently force-filtered to ``owner=<self-label>``\n(the UI never lets them type a foreign owner anyway \u2014 see\n:func:`search_page`). Cursor errors render as a small inline\n``<div class='error'>`` rather than a redirect so the HTMX swap\nsurfaces the failure inside the panel.",
+        "operationId": "search_results_dashboard_search_results_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Search Results",
         "tags": [
           "dashboard"
         ]
