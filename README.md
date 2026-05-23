@@ -82,6 +82,29 @@ Plan-8 roadmap:
 
 ---
 
+## What's next (Plan 8, in progress)
+
+Plan 8 ships team-collaboration features on top of v0.7.0:
+
+- **Collaboration**: owner badges, search, favorites, comments
+  (Markdown + XSS sanitized), batch ops, prompt templates.
+- **Accountability**: durable audit log + dashboard timeline + IM
+  notify on fail / cancel / (filtered) complete.
+- **Cost attribution**: per-owner aggregation endpoints + per-role
+  default dashboard view + Grafana panels.
+- **Self-service auth**: DB-backed API key admin (create / list /
+  revoke); env still bootstrap source-of-truth.
+- **Operations**: Postgres pool tuning + retention CLI + Grafana
+  dashboard preset.
+- **Optional multi-worker tier**: Redis Streams EventBus + Redis lua
+  rate limit + APScheduler-free maintenance container (single-worker
+  default; multi-worker opt-in via env).
+
+Target: v0.8.0. Spec:
+[`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`](docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md).
+
+---
+
 ## Quick start
 
 ```bash

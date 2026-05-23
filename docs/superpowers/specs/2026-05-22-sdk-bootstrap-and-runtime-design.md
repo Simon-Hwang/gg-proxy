@@ -1495,3 +1495,24 @@ team-scale features (cost attribution dashboards, prompt templates,
 optional Redis durable tier). See
 `docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`.
 
+### 17.8 Plan 8 Team Collaboration & Optional Multi-Worker (2026-05-23, in progress)
+
+Plan 8 v2.4 — 21 tracked decisions (D8.0–D8.30 with gaps) / 23 tasks / ~190 tests.
+Locked spec: [`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`](../plans/2026-05-23-plan-8-team-scale-and-collab.md).
+
+**Highlights (preview; full mapping at completion):**
+
+| Spec area                                    | Plan 8 decisions                | Target |
+|----------------------------------------------|---------------------------------|--------|
+| §5 `KeyResolver` Protocol (NEW)              | D8.29                           | DB-backed API key self-service; env still bootstrap SOT |
+| §5 `EventBusBackend` Protocol (NEW)          | D8.1, D8.27                     | InMemory default; Redis Streams optional tier |
+| §5 `RateLimitStoreBackend` Protocol (NEW)    | D8.2                            | In-memory default; Redis lua optional tier |
+| §6 Alembic 0006–0011                         | D8.4–7, D8.21, D8.24, D8.29     | audit_log / comments / parent_session / favorites / templates / api_keys |
+| §7 dashboard cookie auth                     | D8.26                           | derive internal `dashboard-{user}` API key + audit actor consistency |
+| §10 cost attribution                         | D8.30                           | per-owner aggregation endpoints + per-role dashboard default view |
+| §11 Security                                 | D8.22, D8.28                    | viewer/submitter/admin role; bootstrap-admin CLI |
+| §13 OOS                                      | Plan 8 §12                      | OOS gate extended (session_replay / span_tree_svg / runtime_keys file-lock / etc.) |
+
+Forward: Plan 9 K8s/HPA; Plan 10 advanced UX (Grafana embed / span tree); Plan 11 mTLS+OIDC.
+Marked "in progress" until v0.8.0 release; on completion §17.8 will receive a final D8.x → commit table similar to §17.7.
+

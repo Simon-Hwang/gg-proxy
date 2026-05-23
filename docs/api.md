@@ -152,3 +152,21 @@ curl -fsS http://localhost:8000/readyz   # DB ping + manager warm
 - OTel attrs on each API span: [`tracing.md`](tracing.md)
 - Multi-worker rate-limit caveat: [`cluster.md`](cluster.md)
 - Security (HMAC, API key labels): [`security.md`](security.md)
+
+## API snapshot baselines
+
+Two OpenAPI snapshot files live in `docs/` for different purposes:
+
+- [`docs/api-snapshot-v0.7.0.json`](api-snapshot-v0.7.0.json) — **frozen
+  v0.7.0 (Plan 7) baseline.** Captured by Plan 8 Phase 0 Task 0 from the
+  Plan 7 release HEAD. Never modified; used as the immutable diff base
+  while Plan 8 evolves the runtime API surface.
+- [`docs/openapi.snapshot.json`](openapi.snapshot.json) — **current
+  `main` HEAD.** Refreshed via `make update-openapi-snapshot` (or the
+  `scripts/dump_openapi.py` runner) whenever a task changes an endpoint;
+  the CI drift gate compares this file against the live FastAPI app and
+  fails if they diverge.
+
+On a future release (e.g. v0.8.0) a new permanent baseline
+`docs/api-snapshot-v0.8.0.json` will be frozen the same way and this
+list will grow.
