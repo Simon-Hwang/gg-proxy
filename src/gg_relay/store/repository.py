@@ -35,7 +35,7 @@ from gg_relay.store.exceptions import (
     CursorFilterMismatchError,
     CursorInvalidError,
 )
-from gg_relay.store.schema import frames, hitl_requests, sessions
+from gg_relay.store.schema import audit_log, frames, hitl_requests, sessions
 
 
 def _utcnow() -> datetime:
@@ -151,8 +151,83 @@ def _tag_filter_clause(
     )
 
 
+# ── Audit cursor helpers (Plan 8 D8.4) ───────────────────────────────
+# Mirror :func:`_filter_hash` / :func:`_encode_cursor` /
+# :func:`_decode_cursor` for the audit list endpoint. Same bind-the-
+# filter-into-the-cursor pattern so paging across a filter change is
+# rejected with a clear error rather than silently returning a confusing
+# mix of rows. The audit anchor is ``(ts, id)`` instead of
+# ``(submitted_at, id)`` because audit_log doesn't carry a session-style
+# ``submitted_at`` column — its row id IS the natural insertion order
+# tiebreaker on ts ties.
+
+
+def _audit_filter_hash(
+    *,
+    actor: str | None,
+    action: str | None,
+    target_type: str | None,
+    target_id: str | None,
+) -> str:
+    """Compact deterministic identifier for the active audit filter.
+
+    SHA1-truncated identical to :func:`_filter_hash` — paging through
+    audit rows with the same filter combo always reproduces the hash;
+    swapping any filter shifts the hash and the next ``after=...``
+    surfaces :class:`CursorFilterMismatchError`.
+    """
+    parts = sorted(
+        f"{k}={v or '*'}"
+        for k, v in {
+            "actor": actor,
+            "action": action,
+            "target_type": target_type,
+            "target_id": target_id,
+        }.items()
+    )
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()[:12]
+
+
+def _encode_audit_cursor(
+    *, ts: datetime, id: int, filter_hash: str
+) -> str:
+    raw = json.dumps({"ts": ts.isoformat(), "id": int(id), "fh": filter_hash})
+    return base64.urlsafe_b64encode(raw.encode()).rstrip(b"=").decode()
+
+
+def _decode_audit_cursor(
+    cursor: str, *, expected_filter_hash: str
+) -> tuple[datetime, int]:
+    pad = "=" * (-len(cursor) % 4)
+    try:
+        obj = json.loads(base64.urlsafe_b64decode(cursor + pad))
+    except Exception as exc:
+        raise CursorInvalidError(f"invalid audit cursor: {exc}") from exc
+    if not isinstance(obj, dict) or "ts" not in obj or "id" not in obj:
+        raise CursorInvalidError("invalid audit cursor: missing ts/id fields")
+    if obj.get("fh") != expected_filter_hash:
+        raise CursorFilterMismatchError(
+            f"audit cursor filter hash mismatch "
+            f"(cursor={obj.get('fh')!r}, "
+            f"current_filter={expected_filter_hash!r})"
+        )
+    try:
+        ts = datetime.fromisoformat(obj["ts"])
+    except (TypeError, ValueError) as exc:
+        raise CursorInvalidError(
+            f"invalid audit cursor: ts not iso8601 ({obj.get('ts')!r})"
+        ) from exc
+    try:
+        id_ = int(obj["id"])
+    except (TypeError, ValueError) as exc:
+        raise CursorInvalidError(
+            f"invalid audit cursor: id not integer ({obj.get('id')!r})"
+        ) from exc
+    return ts, id_
+
+
 class SqlAlchemyStore:
-    """Async DAO over the three persistence tables.
+    """Async DAO over the persistence tables.
 
     Construct once with the shared :class:`AsyncEngine` and reuse across
     handlers — methods open + close a per-call connection (SQLAlchemy
@@ -160,8 +235,9 @@ class SqlAlchemyStore:
 
     Structurally implements
     :class:`gg_relay.store.protocol.SessionStore`,
-    :class:`gg_relay.store.protocol.FrameStore`, and
-    :class:`gg_relay.store.protocol.HITLStore`.
+    :class:`gg_relay.store.protocol.FrameStore`,
+    :class:`gg_relay.store.protocol.HITLStore`, and (Plan 8 D8.4)
+    :class:`gg_relay.store.protocol.AuditStore`.
     """
 
     def __init__(self, engine: AsyncEngine) -> None:
@@ -807,6 +883,162 @@ class SqlAlchemyStore:
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
             return list(result.mappings().all())
+
+    # ── audit (Plan 8 D8.4) ───────────────────────────────────────────
+
+    async def record_audit(
+        self,
+        *,
+        actor: str,
+        action: str,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        request_id: str | None = None,
+        ts: datetime | None = None,
+        conn: Any = None,
+    ) -> int:
+        """Append a single audit row, return the new row's ``id``.
+
+        Plan 8 D8.4 / Task 5. ``actor`` is required (the schema CHECK
+        is non-NULL); the API layer collapses unknown identities to
+        ``"anon"`` so the column is always populated.
+
+        ``conn`` (optional) is an externally-managed
+        :class:`sqlalchemy.ext.asyncio.AsyncConnection`. When supplied
+        the INSERT runs on that connection without opening a new
+        transaction so the caller can wrap the audit write inside the
+        same transaction as the business mutation it audits — that's
+        the v2.1 MAJOR 3 durable-outbox pattern. Without ``conn`` the
+        method opens its own short-lived transaction; that's the
+        fallback path used by :class:`AuditFallbackMiddleware` (no
+        access to the manager's transaction).
+
+        ``metadata`` is stored verbatim; callers MUST pre-redact any
+        sensitive values (the surrounding store code never inspects
+        the dict).
+        """
+        if ts is None:
+            ts = _utcnow()
+        values = {
+            "ts": ts,
+            "actor": actor,
+            "action": action,
+            "target_type": target_type,
+            "target_id": target_id,
+            "metadata_json": dict(metadata) if metadata else None,
+            "request_id": request_id,
+        }
+        # ``RETURNING id`` is the canonical Postgres path; SQLite needs
+        # the ``inserted_primary_key`` lastrowid fallback because the
+        # bundled sqlite3 in the test image predates SQLite 3.35
+        # RETURNING support. We branch on the dialect rather than
+        # try/except so the happy path stays cheap.
+        dialect = self._engine.dialect.name
+        if dialect in {"postgresql", "postgres"}:
+            stmt = (
+                insert(audit_log).values(**values).returning(audit_log.c.id)
+            )
+            if conn is not None:
+                result = await conn.execute(stmt)
+                row = result.first()
+                return int(row[0]) if row is not None else 0
+            async with self._engine.begin() as new_conn:
+                result = await new_conn.execute(stmt)
+                row = result.first()
+                return int(row[0]) if row is not None else 0
+        # SQLite (and any other dialect that lacks RETURNING) — read
+        # the autoincrement id from ``inserted_primary_key`` after the
+        # INSERT executes. SQLAlchemy populates that on the
+        # CursorResult regardless of dialect.
+        stmt = insert(audit_log).values(**values)
+        if conn is not None:
+            result = await conn.execute(stmt)
+            pk = result.inserted_primary_key
+            return int(pk[0]) if pk and pk[0] is not None else 0
+        async with self._engine.begin() as new_conn:
+            result = await new_conn.execute(stmt)
+            pk = result.inserted_primary_key
+            return int(pk[0]) if pk and pk[0] is not None else 0
+
+    async def list_audit(
+        self,
+        *,
+        session_id: str | None = None,
+        actor: str | None = None,
+        action: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        after: str | None = None,
+        limit: int = 50,
+    ) -> tuple[list[RowMapping], str | None]:
+        """List audit rows newest-first with cursor pagination.
+
+        Plan 8 D8.4 / Task 5. Cursor semantics mirror
+        :meth:`list_sessions` (Plan 7 D7.6) — see
+        :func:`_audit_filter_hash` / :func:`_encode_audit_cursor` for
+        the cursor binding contract. Order is ``ts DESC, id DESC`` so
+        ties on ``ts`` (multiple writes inside the same Postgres
+        microsecond) page deterministically.
+
+        ``session_id`` is a convenience alias that auto-resolves to
+        ``target_type='session'`` + ``target_id=<sid>``. Passing both
+        ``session_id`` and an explicit ``target_type`` / ``target_id``
+        kwarg lets the explicit values win — useful when the caller
+        wants to audit non-session targets (HITL row, comment row,
+        …) under the same listing surface.
+        """
+        if session_id is not None:
+            if target_type is None:
+                target_type = "session"
+            if target_id is None:
+                target_id = session_id
+        fh = _audit_filter_hash(
+            actor=actor,
+            action=action,
+            target_type=target_type,
+            target_id=target_id,
+        )
+        where: list[sa.ColumnElement[bool]] = []
+        if actor is not None:
+            where.append(audit_log.c.actor == actor)
+        if action is not None:
+            where.append(audit_log.c.action == action)
+        if target_type is not None:
+            where.append(audit_log.c.target_type == target_type)
+        if target_id is not None:
+            where.append(audit_log.c.target_id == target_id)
+        if after is not None:
+            ts_after, id_after = _decode_audit_cursor(
+                after, expected_filter_hash=fh
+            )
+            where.append(
+                or_(
+                    audit_log.c.ts < ts_after,
+                    and_(
+                        audit_log.c.ts == ts_after,
+                        audit_log.c.id < id_after,
+                    ),
+                )
+            )
+        stmt = (
+            select(audit_log)
+            .where(*where)
+            .order_by(audit_log.c.ts.desc(), audit_log.c.id.desc())
+            .limit(limit + 1)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            rows = list(result.mappings().all())
+        has_more = len(rows) > limit
+        rows = rows[:limit]
+        next_cursor: str | None = None
+        if has_more and rows:
+            last = rows[-1]
+            next_cursor = _encode_audit_cursor(
+                ts=last["ts"], id=int(last["id"]), filter_hash=fh
+            )
+        return rows, next_cursor
 
 
 class SessionRepository(SqlAlchemyStore):

@@ -200,3 +200,37 @@ events = Table(
     Index("ix_events_ts", "ts"),
     Index("ix_events_session_id", "session_id"),
 )
+
+# ── Plan 8 D8.4 (Task 5): durable audit log for sensitive mutations ──
+# Every business mutation (session create / cancel / pause / resume /
+# delete) writes a row here, ideally in the same transaction as the
+# business update (durable outbox pattern; v2.1 MAJOR 3). Routes that
+# forgot fall back to :class:`AuditFallbackMiddleware`, which writes an
+# ``unknown_mutation`` row fire-and-forget after the response is sent.
+#
+# Indexes chosen to power the three canonical queries the dashboard and
+# the upcoming Plan 8 audit endpoint need:
+#   * ``ix_audit_log_ts``         — newest-first global scan
+#   * ``ix_audit_log_actor_ts``   — "every action by alice"
+#   * ``ix_audit_log_target``     — composite ``(target_type, target_id)``
+#                                   for "audit history of session sid-xyz"
+#
+# ``id`` is a plain ``Integer`` autoincrement PK — audit volume is bounded
+# by API mutation rate (small) so we don't pay the Postgres BIGINT cost.
+# ``metadata_json`` mirrors the redacted-JSON convention used by other
+# tables: callers MUST pre-redact before passing values down.
+audit_log = Table(
+    "audit_log",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("ts", DateTime(timezone=True), nullable=False),
+    Column("actor", String(64), nullable=False),
+    Column("action", String(64), nullable=False),
+    Column("target_type", String(32), nullable=True),
+    Column("target_id", String(128), nullable=True),
+    Column("metadata_json", JSON, nullable=True),
+    Column("request_id", String(36), nullable=True),
+    Index("ix_audit_log_ts", "ts"),
+    Index("ix_audit_log_actor_ts", "actor", "ts"),
+    Index("ix_audit_log_target", "target_type", "target_id"),
+)

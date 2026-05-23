@@ -204,6 +204,7 @@ class SessionManager:
         max_paused: int = 50,
         max_paused_per_api_key: int = 20,
         resume_timeout_s: float = 60.0,
+        audit_service: Any = None,
     ) -> None:
         self._executor_factory = executor_factory
         self._assembler = assembler
@@ -215,6 +216,12 @@ class SessionManager:
         self._install_dir_root = install_dir_root
         self._default_timeout_s = default_timeout_s
         self._grace_period_s = grace_period_s
+        # Plan 8 D8.4 / Task 5 — durable audit log. Optional so legacy
+        # in-process callers (existing unit tests, future programmatic
+        # clients) keep working without an audit sink. When ``None``
+        # the explicit audit hooks below skip silently — the fallback
+        # middleware still picks up the mutation in the API path.
+        self._audit = audit_service
         self._sem = asyncio.Semaphore(max_concurrent)
         self._max_concurrent = max_concurrent
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
@@ -235,6 +242,13 @@ class SessionManager:
         self._paused_timers: dict[str, asyncio.Task[None]] = {}
         self._paused_holds_slot: set[str] = set()
         self._paused_by_key: dict[str, int] = {}
+        # Plan 8 D8.4 / Task 5 — per-session owner label tracked in
+        # memory so cancel/pause/resume can attribute audit rows
+        # without a DB round-trip. Populated at submit; cleaned up by
+        # ``_run``'s finally alongside the rest of the per-session
+        # state. ``None`` means "API key had no label" — falls back to
+        # ``"anon"`` at audit time.
+        self._owner_by_session: dict[str, str | None] = {}
 
     @property
     def accepting_new(self) -> bool:
@@ -294,6 +308,29 @@ class SessionManager:
             owner=owner,
             description=description,
         )
+        # Plan 8 D8.4 / Task 5 — explicit audit row for every session
+        # creation. NOT yet inside the same transaction as
+        # ``create_session`` (the store doesn't accept an external
+        # ``conn`` for that path); a v2.5 polish task will unify the
+        # two writes. Until then we accept a tiny window where the
+        # session row exists without an audit row (mutation succeeded
+        # but audit insert raced into a transient DB error). The
+        # fallback middleware does NOT cover this case (it skips
+        # ``unknown_mutation`` on success because the explicit hook
+        # already ran for the typical happy path).
+        await self._audit_record(
+            actor=owner or "anon",
+            action="session_create",
+            target_type="session",
+            target_id=sid,
+            metadata={
+                "backend": spec.executor,
+                "tags": list(spec.tags),
+                "trace_id": runtime_ctx.trace_id or None,
+                "has_description": description is not None,
+                "prompt_len": len(str(spec_redacted.get("prompt", ""))),
+            },
+        )
         await self._bus.publish(
             SessionCreated(
                 session_id=sid,
@@ -303,6 +340,7 @@ class SessionManager:
         )
         self._metrics[sid] = _RunMetrics()
         self._api_key_by_session[sid] = api_key_id
+        self._owner_by_session[sid] = owner
         task = asyncio.create_task(
             self._run(sid, spec, runtime_ctx), name=f"session-{sid}"
         )
@@ -388,7 +426,18 @@ class SessionManager:
         paused-timeout timer and releases pause bookkeeping (the
         semaphore slot was already released at pause time, so nothing
         to re-acquire). No-op if the session is not currently tracked.
+
+        Plan 8 D8.4 / Task 5 — emits a ``session_cancel`` audit row
+        before tearing down so the audit trail captures the operator
+        intent even if the cleanup path raises.
         """
+        await self._audit_record(
+            actor=self._owner_of(sid),
+            action="session_cancel",
+            target_type="session",
+            target_id=sid,
+            metadata={"reason": reason},
+        )
         self._cancel_paused_timer(sid)
         if sid in self._paused_set:
             self._release_pause_bookkeeping(sid)
@@ -469,6 +518,13 @@ class SessionManager:
             status=SessionState.PAUSED.value,
             paused_at=self._paused_at[sid],
         )
+        await self._audit_record(
+            actor=self._owner_of(sid),
+            action="session_pause",
+            target_type="session",
+            target_id=sid,
+            metadata={"reason": reason},
+        )
         await self._bus.publish(
             SessionStateChanged(
                 session_id=sid,
@@ -544,6 +600,13 @@ class SessionManager:
             expected_version=expected_v,
             status=SessionState.RUNNING.value,
         )
+        await self._audit_record(
+            actor=self._owner_of(sid),
+            action="session_resume",
+            target_type="session",
+            target_id=sid,
+            metadata={"hint": hint},
+        )
         await self._bus.publish(
             SessionStateChanged(
                 session_id=sid,
@@ -603,6 +666,64 @@ class SessionManager:
             self._cancel_paused_timer(sid)
 
     # ── internal ─────────────────────────────────────────────────────
+
+    async def _audit_record(
+        self,
+        *,
+        actor: str,
+        action: str,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> None:
+        """Plan 8 D8.4 / Task 5 — best-effort audit write.
+
+        Skips when ``self._audit`` is ``None`` (legacy in-process
+        callers without an audit sink). Failures are logged at WARN
+        and swallowed: the audit row is observability, NOT a
+        precondition for the business mutation. The fallback
+        middleware will not double-write — explicit hooks always emit
+        a meaningful ``action`` rather than ``unknown_mutation``.
+        """
+        if self._audit is None:
+            return
+        try:
+            await self._audit.record(
+                actor=actor,
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                metadata=metadata,
+            )
+        except Exception:
+            logger.warning(
+                "session %s audit write failed (action=%s, actor=%s)",
+                target_id or "?",
+                action,
+                actor,
+                exc_info=True,
+            )
+
+    def _owner_of(self, sid: str) -> str:
+        """Resolve the actor label for an in-flight session.
+
+        Used by :meth:`cancel` / :meth:`pause` / :meth:`resume` to
+        attribute the audit row to the same identity that submitted
+        the session in the first place. Falls back to ``"anon"`` so
+        the schema's non-NULL constraint is always satisfied.
+
+        Read order:
+          1. In-memory ``_owner_by_session`` populated at submit
+             (cheap dict lookup; matches the API key label written to
+             ``sessions.owner``).
+          2. ``"anon"`` when the session was submitted before the
+             label-aware owner accounting landed (legacy in-process
+             callers, recovered-from-disk sessions).
+        """
+        owner = self._owner_by_session.get(sid)
+        if owner:
+            return str(owner)
+        return "anon"
 
     async def _run(
         self,
@@ -733,6 +854,7 @@ class SessionManager:
             self._release_pause_bookkeeping(sid)
             self._bridges.pop(sid, None)
             self._api_key_by_session.pop(sid, None)
+            self._owner_by_session.pop(sid, None)
             # Plan 7 D7.5: terminal-state write is optimistically
             # locked but ConcurrencyError is suppressed — if cancel /
             # pause raced into a terminal state already, that outcome

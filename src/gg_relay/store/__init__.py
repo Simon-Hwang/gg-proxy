@@ -27,11 +27,23 @@ from gg_relay.store.exceptions import (
     CursorFilterMismatchError,
     CursorInvalidError,
 )
-from gg_relay.store.protocol import FrameStore, HITLStore, SessionStore
+from gg_relay.store.protocol import (
+    AuditStore,
+    FrameStore,
+    HITLStore,
+    SessionStore,
+)
 from gg_relay.store.repository import SessionRepository, SqlAlchemyStore
-from gg_relay.store.schema import frames, hitl_requests, metadata, sessions
+from gg_relay.store.schema import (
+    audit_log,
+    frames,
+    hitl_requests,
+    metadata,
+    sessions,
+)
 
 __all__ = [
+    "AuditStore",
     "ConcurrencyError",
     "CursorFilterMismatchError",
     "CursorInvalidError",
@@ -40,6 +52,7 @@ __all__ = [
     "SessionRepository",
     "SessionStore",
     "SqlAlchemyStore",
+    "audit_log",
     "create_all_tables",
     "frames",
     "hitl_requests",

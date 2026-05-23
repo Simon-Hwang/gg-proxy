@@ -366,3 +366,78 @@ async def test_downgrade_0005_to_0004_roundtrip(sqlite_db_url: str):
     assert "paused_at" in sess_cols, (
         "0003 paused_at column lost on 0005 downgrade"
     )
+
+
+# ── Plan 8 Task 5 / D8.4: audit_log table (0006) ────────────────────
+
+
+async def test_chain_0001_to_0006_upgrade(sqlite_db_url: str):
+    """0001 → … → 0006 顺次 upgrade，audit_log 表 + 3 个 index 就位.
+
+    Plan 8 D8.4 / Task 5. Verifies ``audit_log`` was created with the
+    full schema (id PK / ts / actor / action / target_type+id /
+    metadata_json / request_id) and the three composite indexes
+    (``ix_audit_log_ts`` / ``ix_audit_log_actor_ts`` /
+    ``ix_audit_log_target``) exist. Sanity: 0005 collaboration columns
+    survived (we didn't accidentally rebuild ``sessions``).
+    """
+    _run_upgrade(sqlite_db_url, "head")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "audit_log" in tables, (
+        f"audit_log table missing after 0006: {tables}"
+    )
+
+    cols = await _columns(sqlite_db_url, "audit_log")
+    expected = {
+        "id",
+        "ts",
+        "actor",
+        "action",
+        "target_type",
+        "target_id",
+        "metadata_json",
+        "request_id",
+    }
+    assert expected <= cols, (
+        f"audit_log columns missing: expected {expected}, got {cols}"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "audit_log")
+    assert "ix_audit_log_ts" in indexes, (
+        f"ix_audit_log_ts missing: {indexes}"
+    )
+    assert "ix_audit_log_actor_ts" in indexes, (
+        f"ix_audit_log_actor_ts missing: {indexes}"
+    )
+    assert "ix_audit_log_target" in indexes, (
+        f"ix_audit_log_target missing: {indexes}"
+    )
+
+    # Sanity — 0005 owner/description columns still present.
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "owner" in sess_cols, "0005 owner lost after 0006 upgrade"
+    assert "description" in sess_cols, (
+        "0005 description lost after 0006 upgrade"
+    )
+
+
+async def test_downgrade_0006_to_0005_roundtrip(sqlite_db_url: str):
+    """upgrade head → downgrade -1 → audit_log 表 + indexes 消失,
+    0005 collaboration columns 仍保留 (验证只回滚 0006)."""
+    _run_upgrade(sqlite_db_url, "head")
+    _run_downgrade(sqlite_db_url, "0005")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "audit_log" not in tables, (
+        f"audit_log survived downgrade to 0005: {tables}"
+    )
+
+    # 0005 columns + 0004 events table must still be alive — only 0006
+    # was rolled back.
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "owner" in sess_cols, "0005 owner lost on 0006 downgrade"
+    assert "description" in sess_cols, (
+        "0005 description lost on 0006 downgrade"
+    )
+    assert "events" in tables, "0004 events table lost on 0006 downgrade"

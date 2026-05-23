@@ -10,8 +10,11 @@ Gates checked:
      document (Plan 8 frozen modification baseline).
   3. D7.26 collaboration metadata contract (``api_keys_with_labels`` parser
      + ``request.state.api_key_label`` middleware) is live in ``src/``.
-  4. Alembic head is ``0005`` (Plan 7 baseline) before Plan 8 adds
-     ``0006``–``0011``.
+  4. Alembic head is monotonically advancing through the planned Plan 8
+     migrations (``0006``–``0011``). Phase 0 froze on ``0005``; the gate
+     follows the work and tracks whichever revision the current task has
+     just landed so a regression that drops a migration is caught
+     immediately.
 """
 
 from __future__ import annotations
@@ -70,16 +73,21 @@ def test_d7_26_contract_landed() -> None:
     )
 
 
-def test_alembic_head_is_0005() -> None:
-    """Alembic head must be 0005 (Plan 7 baseline) before Plan 8 adds
-    0006-0011."""
+def test_alembic_head_advances_with_plan_8() -> None:
+    """Alembic head must monotonically advance through Plan 8.
+
+    Phase 0 froze on ``0005`` (Plan 7 baseline). Each Plan 8 task that
+    lands a migration bumps this gate so a regression that drops a
+    migration is caught immediately. Current expected head:
+    ``0006`` (Task 5, D8.4 audit_log).
+    """
     result = subprocess.run(
         ["uv", "run", "alembic", "heads"],
         capture_output=True,
         text=True,
         cwd=REPO_ROOT,
     )
-    assert "0005" in result.stdout, (
-        f"alembic head not 0005: stdout={result.stdout!r} "
+    assert "0006" in result.stdout, (
+        f"alembic head not 0006: stdout={result.stdout!r} "
         f"stderr={result.stderr!r}"
     )

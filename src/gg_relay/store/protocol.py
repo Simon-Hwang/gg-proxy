@@ -195,6 +195,71 @@ class FrameStore(Protocol):
 
 
 @runtime_checkable
+class AuditStore(Protocol):
+    """Async DAO surface for the ``audit_log`` table (Plan 8 D8.4).
+
+    Implemented by :class:`gg_relay.store.repository.SqlAlchemyStore`.
+    Captures every sensitive mutation as an immutable audit row so
+    operators (and the upcoming dashboard audit panel) can answer
+    "who did what when". The :class:`gg_relay.api.audit_service.AuditService`
+    is the canonical entry point — business code calls
+    :meth:`AuditService.record` rather than reaching into the store
+    directly so the durable-outbox semantics (same-tx write via the
+    optional ``conn`` kwarg) stay encapsulated.
+    """
+
+    async def record_audit(
+        self,
+        *,
+        actor: str,
+        action: str,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+        request_id: str | None = None,
+        ts: datetime | None = None,
+        conn: Any = None,
+    ) -> int:
+        """Append a single audit row, return the new row's ``id``.
+
+        ``conn`` (optional) is an externally-managed
+        :class:`sqlalchemy.ext.asyncio.AsyncConnection`; when supplied
+        the INSERT runs on that connection so the caller can wrap the
+        audit write inside the same transaction as the business
+        mutation it audits (durable outbox; v2.1 MAJOR 3). Without
+        ``conn`` the implementation opens its own short-lived
+        transaction — the fallback path used by the middleware.
+        """
+        ...
+
+    async def list_audit(
+        self,
+        *,
+        session_id: str | None = None,
+        actor: str | None = None,
+        action: str | None = None,
+        target_type: str | None = None,
+        target_id: str | None = None,
+        after: str | None = None,
+        limit: int = 50,
+    ) -> tuple[Sequence[Mapping[str, Any]], str | None]:
+        """List audit rows newest-first with cursor pagination.
+
+        Mirrors :meth:`SessionStore.list_sessions` (Plan 7 D7.6) — the
+        cursor is bound to the active filter combination via a short
+        hash so paging across a filter change is rejected with
+        :class:`gg_relay.store.exceptions.CursorFilterMismatchError`
+        rather than silently returning surprise rows.
+
+        ``session_id`` is a convenience alias for the common
+        ``target_type='session'`` + ``target_id=<sid>`` query and
+        composes with the explicit ``target_type`` / ``target_id``
+        kwargs (when both are supplied the explicit values win).
+        """
+        ...
+
+
+@runtime_checkable
 class HITLStore(Protocol):
     """Async DAO surface for the ``hitl_requests`` table."""
 
@@ -242,4 +307,4 @@ class HITLStore(Protocol):
         ...
 
 
-__all__ = ["FrameStore", "HITLStore", "SessionStore"]
+__all__ = ["AuditStore", "FrameStore", "HITLStore", "SessionStore"]

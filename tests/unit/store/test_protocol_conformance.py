@@ -22,6 +22,7 @@ import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from gg_relay.store import (
+    AuditStore,
     FrameStore,
     HITLStore,
     SessionRepository,
@@ -61,6 +62,12 @@ def test_hitl_store_protocol_runtime_checkable(engine: AsyncEngine) -> None:
     assert isinstance(store, HITLStore)
 
 
+def test_audit_store_protocol_runtime_checkable(engine: AsyncEngine) -> None:
+    """SqlAlchemyStore satisfies AuditStore at runtime (Plan 8 D8.4)."""
+    store = SqlAlchemyStore(engine)
+    assert isinstance(store, AuditStore)
+
+
 def test_dummy_class_missing_method_isinstance_false() -> None:
     """A class lacking a Protocol method must fail isinstance."""
 
@@ -74,6 +81,7 @@ def test_dummy_class_missing_method_isinstance_false() -> None:
     assert not isinstance(partial, SessionStore)
     assert not isinstance(partial, FrameStore)
     assert not isinstance(partial, HITLStore)
+    assert not isinstance(partial, AuditStore)
 
 
 # ── deprecated alias behaviour ─────────────────────────────────────────
@@ -104,6 +112,7 @@ def test_session_repository_alias_equivalent_behavior(
     assert isinstance(alias_instance, SessionStore)
     assert isinstance(alias_instance, FrameStore)
     assert isinstance(alias_instance, HITLStore)
+    assert isinstance(alias_instance, AuditStore)
 
     public_attrs = {
         name for name in dir(direct_instance) if not name.startswith("_")
