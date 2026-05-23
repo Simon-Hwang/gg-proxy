@@ -28,6 +28,12 @@ services:
       RELAY_INSTALL_DIR_ROOT: "/var/lib/gg-relay/installs"
       RELAY_DOCKER_SOCKET_ROOT: "/var/run/gg-relay"
       RELAY_TASK_TRACE_PATH: "/var/log/gg-relay/gg-task-trace.jsonl"
+      # Plan 7 D7.11 — point OTel exporter at the sibling jaeger
+      # all-in-one service. ``setup_tracer`` reads this in priority
+      # over ``OTEL_EXPORTER_OTLP_ENDPOINT``; see docs/tracing.md.
+      RELAY_OTEL_ENDPOINT: "http://jaeger:4317"
+    depends_on:
+      - jaeger
     ports:
       - "8000:8000"
     volumes:
@@ -49,6 +55,22 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  # Plan 7 D7.11 — Jaeger all-in-one for local OTel inspection.
+  # The all-in-one binary embeds collector + query + UI in a single
+  # container; not for production. ``platform: linux/amd64`` is
+  # pinned explicitly so arm64 Macs still pull a working image
+  # (Jaeger publishes amd64-only tags for all-in-one as of 1.57).
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    platform: linux/amd64
+    container_name: gg-relay-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC ingest
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
 
   # Uncomment for Postgres in dev:
   # postgres:

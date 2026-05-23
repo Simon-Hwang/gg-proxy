@@ -5,7 +5,7 @@
 
 LOCUST_HOST ?= http://localhost:8080
 
-.PHONY: load-rest load-dashboard load-sse
+.PHONY: load-rest load-dashboard load-sse update-openapi-snapshot
 
 load-rest:
 	locust -f scripts/load_test.py --tags rest -u 100 -r 10 -t 5m --headless --host=$(LOCUST_HOST)
@@ -15,3 +15,10 @@ load-dashboard:
 
 load-sse:
 	locust -f scripts/load_test.py --tags sse -u 10 -r 1 -t 5m --headless --host=$(LOCUST_HOST)
+
+# Plan 7 D7.11 — regenerate the committed OpenAPI snapshot.
+# Run after any handler / schema / router change; the matching
+# integration test (tests/integration/test_openapi_snapshot.py)
+# fails on drift and prints this exact command.
+update-openapi-snapshot:
+	uv run python scripts/dump_openapi.py > docs/openapi.snapshot.json
