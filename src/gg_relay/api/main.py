@@ -52,6 +52,7 @@ from gg_relay.session.plugins.protocol import PluginAssembler
 from gg_relay.session.recovery import recover_on_startup
 from gg_relay.session.runner.bridge import WireBridge  # noqa: F401  (re-export for plugins)
 from gg_relay.store import SessionRepository, make_async_engine
+from gg_relay.store.durable_event import SqlAlchemyDurableEventStore
 from gg_relay.tracing.metrics import BUS_DROPS, BUS_DURABLE_DROPS
 from gg_relay.tracing.metrics_subscriber import MetricsSubscriber
 from gg_relay.tracing.task_trace import TaskTraceSubscriber
@@ -138,10 +139,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     engine = make_async_engine(cfg.database_url)
     store = SessionRepository(engine)
+    # ── Plan 7 D7.17 (Task 13): wire durable-tier persistence ────────
+    # The disk store backs the SSE Last-Event-ID replay path so
+    # subscribers can reconnect after a disconnect without losing
+    # durable events (SessionCreated / StateChanged / Tool* / HITL* /
+    # SessionCompleted / InstallError). Plan 8 will optionally swap
+    # this for a RedisStream-backed store for multi-worker fan-out.
+    durable_store = SqlAlchemyDurableEventStore(engine)
     bus = EventBus(
         on_drop=lambda _topic: BUS_DROPS.inc(),
         on_durable_drop=lambda _topic: BUS_DURABLE_DROPS.inc(),
+        durable_store=durable_store,
     )
+    app.state.durable_event_store = durable_store
     coordinator = HITLCoordinator()
     redactor = RedactionEngine(
         sensitive_keys=(

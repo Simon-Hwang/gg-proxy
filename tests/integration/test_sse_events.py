@@ -31,6 +31,7 @@ from gg_relay.core import (
     SessionOutputChunk,
     SessionStateChanged,
 )
+from gg_relay.store.durable_event import InMemoryDurableEventStore
 from gg_relay.session.executor.inprocess import InProcessExecutor
 from gg_relay.session.executor.protocol import ExecutorBackend
 from gg_relay.session.frames import make_msg_chunk, make_session_end
@@ -307,6 +308,107 @@ class TestSSEStream:
             await bus.close()
         finally:
             await eng.dispose()
+
+
+# ── Durable Last-Event-ID replay (Plan 7 D7.17) ───────────────────────────
+
+
+class TestDurableLastEventIdReplay:
+    """Plan 7 Task 13 — reconnect with ``Last-Event-ID: <seq>:<uuid>``.
+
+    The integration uses ``InMemoryDurableEventStore`` so the assertion
+    surface is the SSE generator + bus.replay_after wiring, not the
+    SqlA reconstruction details (those are exercised in the unit
+    tests). Both new tests share a single store + bus pair.
+    """
+
+    async def test_last_event_id_replay_yields_events_after_cursor(
+        self, tmp_path: Path
+    ):
+        cfg = _make_cfg(tmp_path)
+        eng = make_async_engine(cfg.database_url)
+        await create_all_tables(eng)
+        try:
+            store = SessionRepository(eng)
+            durable = InMemoryDurableEventStore()
+            bus = EventBus(durable_store=durable)
+            # Persist 5 durable events directly through the bus so the
+            # store sees the same seq sequence the API would emit. All
+            # for the same session_id so the SSE filter doesn't drop
+            # anything during replay.
+            for _ in range(5):
+                await bus.publish(SessionCreated(session_id="sid-rep"))
+            # Cursor = seq 2 → expect events 3, 4, 5.
+            req = _make_request({"Last-Event-ID": "2:dummy-uuid"})
+            gen = _stream(bus, store, "sid-rep", req)
+            events = await self._consume(gen, max_events=10, timeout_s=1.0)
+            await bus.close()
+            class_names = [e.event for e in events]  # type: ignore[attr-defined]
+            assert class_names == [
+                "SessionCreated",
+                "SessionCreated",
+                "SessionCreated",
+            ]
+        finally:
+            await eng.dispose()
+
+    async def test_last_event_id_invalid_format_falls_through_to_live(
+        self, tmp_path: Path
+    ):
+        """Garbage ``Last-Event-ID`` MUST NOT crash the stream.
+
+        Browsers' built-in ``EventSource`` resends whatever id it last
+        saw on reconnect; if a deploy bumped the cursor format the bus
+        would otherwise crash every reconnect. Both parsers return
+        ``None`` for ``garbage`` so the generator skips both back-fill
+        paths and goes straight to the live subscription tail.
+        """
+        cfg = _make_cfg(tmp_path)
+        eng = make_async_engine(cfg.database_url)
+        await create_all_tables(eng)
+        try:
+            store = SessionRepository(eng)
+            durable = InMemoryDurableEventStore()
+            bus = EventBus(durable_store=durable)
+            req = _make_request({"Last-Event-ID": "garbage"})
+            gen = _stream(bus, store, "sid-live", req)
+
+            async def _publish_after_subscribe() -> None:
+                await asyncio.sleep(0.05)
+                await bus.publish(SessionCreated(session_id="sid-live"))
+
+            pub_task = asyncio.create_task(_publish_after_subscribe())
+            events = await self._consume(gen, max_events=1, timeout_s=1.0)
+            await pub_task
+            await bus.close()
+            # Exactly one live event reached the consumer; no replay,
+            # no exception from the malformed header.
+            assert len(events) == 1
+            assert events[0].event == "SessionCreated"  # type: ignore[attr-defined]
+        finally:
+            await eng.dispose()
+
+    async def _consume(
+        self, gen, *, max_events: int = 10, timeout_s: float = 1.5
+    ) -> list[Any]:
+        # Mirrors ``TestSSEStream._consume`` — kept local so the two
+        # test classes stay independent.
+        out: list[Any] = []
+        end_at = asyncio.get_event_loop().time() + timeout_s
+        try:
+            while len(out) < max_events:
+                remaining = end_at - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    break
+                evt = await asyncio.wait_for(
+                    gen.__anext__(), timeout=min(0.2, remaining)
+                )
+                out.append(evt)
+        except (StopAsyncIteration, TimeoutError):
+            pass
+        finally:
+            await gen.aclose()
+        return out
 
 
 # ── _parse_last_event_id sanity ───────────────────────────────────────────

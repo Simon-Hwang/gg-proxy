@@ -34,10 +34,21 @@ from starlette.requests import Request
 
 from gg_relay.core import EventBus, RelayEvent
 from gg_relay.store import SessionRepository
+from gg_relay.store.durable_event import ReplayedEvent
 
 
 def _event_to_sse(event: RelayEvent | Mapping[str, Any]) -> ServerSentEvent | None:
     """Render a typed ``RelayEvent`` (or legacy frame dict) as an SSE chunk."""
+    if isinstance(event, ReplayedEvent):
+        # Plan 7 D7.17: reconstructed events from the durable store.
+        # The SSE id is "<seq>:<event_id>" so the next reconnect's
+        # ``Last-Event-ID`` header drives ``bus.replay_after`` directly;
+        # the original wire-level class name lives in ``type_name``.
+        return ServerSentEvent(
+            id=f"{event.seq}:{event.event_id}",
+            event=event.type_name or "RelayEvent",
+            data=json.dumps(event.payload, default=str),
+        )
     if isinstance(event, RelayEvent):
         return ServerSentEvent(
             id=str(event.event_id),
@@ -76,6 +87,41 @@ def _parse_last_event_id(request: Request) -> int | None:
         return None
 
 
+def _parse_durable_last_event_id(request: Request) -> int | None:
+    """Parse the durable ``"<seq>:<event_id>"`` cursor (Plan 7 D7.17).
+
+    Distinct from :func:`_parse_last_event_id` — that one parses the
+    legacy per-session frame-seq cursor (``42`` / ``seq:42``) used by
+    the in-session back-fill. The durable cursor uses the EventBus
+    seq prefix + UUID suffix emitted by :func:`_event_to_sse` for
+    :class:`ReplayedEvent` instances; only the seq half is needed for
+    ``bus.replay_after``.
+
+    Returns ``None`` when:
+
+    * the header is missing,
+    * it starts with ``"seq:"`` (legacy frame cursor — handled
+      separately),
+    * there's no ``:`` separator (so it's a bare int = frame cursor),
+    * the prefix doesn't parse as an integer (garbage value — silently
+      ignored so EventSource auto-reconnect with an old / opaque id
+      degrades to a live tail rather than crashing).
+    """
+    header = request.headers.get("Last-Event-ID")
+    if not header:
+        return None
+    value = header.strip()
+    if value.startswith("seq:"):
+        return None
+    if ":" not in value:
+        return None
+    prefix = value.split(":", 1)[0]
+    try:
+        return int(prefix)
+    except ValueError:
+        return None
+
+
 async def _stream(
     bus: EventBus,
     store: SessionRepository,
@@ -88,6 +134,29 @@ async def _stream(
     # Subscribe FIRST so events arriving during back-fill aren't lost.
     sub = bus.subscribe("*", maxsize=initial_buffer_size)
     try:
+        # ── Plan 7 D7.17 (Task 13): durable-tier replay ──────────────
+        # When the client supplies ``Last-Event-ID: <seq>:<uuid>``
+        # (emitted by ReplayedEvent rendering) we walk the durable
+        # store first to flush every persisted event with seq > cursor
+        # in order. Filtered to ``session_id`` so multi-session feeds
+        # stay isolated. Falls through silently when no durable store
+        # is wired or the header is invalid — see
+        # :func:`_parse_durable_last_event_id`.
+        durable_seq = _parse_durable_last_event_id(request)
+        if durable_seq is not None:
+            async for evt in bus.replay_after(last_seq=durable_seq):
+                if isinstance(evt, ReplayedEvent):
+                    if evt.session_id and evt.session_id != session_id:
+                        continue
+                elif isinstance(evt, RelayEvent):
+                    if getattr(evt, "session_id", None) != session_id:
+                        continue
+                else:
+                    continue
+                sse = _event_to_sse(evt)
+                if sse is not None:
+                    yield sse
+
         last_seq = _parse_last_event_id(request)
         if last_seq is not None:
             rows = await store.list_frames(

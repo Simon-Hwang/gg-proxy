@@ -24,12 +24,15 @@ from gg_relay.core.events import (
     ToolResolved,
     frame_to_event,
 )
-from gg_relay.core.exceptions import HITLAlreadyResolved
+from gg_relay.core.exceptions import DurableEventDropError, HITLAlreadyResolved
+from gg_relay.core.protocol import DurableEventStore
 
 __all__ = [
     "LEGAL_TRANSITIONS",
     "TERMINAL_STATES",
     "DeliveryTier",
+    "DurableEventDropError",
+    "DurableEventStore",
     "EventBus",
     "HITLAlreadyResolved",
     "Heartbeat",

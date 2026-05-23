@@ -53,6 +53,8 @@ from dataclasses import dataclass, field
 from typing import Any, overload
 
 from gg_relay.core.events import RelayEvent
+from gg_relay.core.exceptions import DurableEventDropError
+from gg_relay.core.protocol import DurableEventStore
 
 logger = logging.getLogger("gg_relay.bus")
 
@@ -98,12 +100,33 @@ class EventBus:
         durable_block_timeout_s: float = 1.0,
         on_drop: Callable[[str], None] | None = None,
         on_durable_drop: Callable[[str], None] | None = None,
+        durable_store: DurableEventStore | None = None,
+        strict_durable: bool = False,
     ) -> None:
         self._subs: dict[str, list[_Sub]] = {}
         self._closed = False
         self._durable_block_timeout_s = durable_block_timeout_s
         self._on_drop = on_drop
         self._on_durable_drop = on_durable_drop
+        # ── Plan 7 D7.17 (Task 13): durable persistence ──────────────
+        # ``durable_store`` plugs the bus into the optional disk tier
+        # (SqlAlchemyDurableEventStore in production, InMemory in
+        # tests). When set, every ``delivery_tier="durable"`` event is
+        # appended to the store BEFORE fan-out so a slow subscriber
+        # cannot lose audit data — the SSE Last-Event-ID cursor
+        # replays from the store after a disconnect.
+        #
+        # ``strict_durable`` opts INTO fail-stop behaviour when no
+        # store is configured: publishing a durable event raises
+        # :class:`DurableEventDropError`. Default ``False`` preserves
+        # the Plan 5 backpressure-only semantics (existing tests
+        # publish durable events through plain ``EventBus()`` and rely
+        # on lossy-on-overflow rather than persist-or-die). Production
+        # lifespans set ``durable_store`` so the store presence alone
+        # enforces persistence; the flag exists for the
+        # publish-without-store unit test.
+        self._durable_store = durable_store
+        self._strict_durable = strict_durable
 
     @property
     def dropped_per_topic(self) -> dict[str, int]:
@@ -206,6 +229,29 @@ class EventBus:
             ev = topic_or_event
             topic_key = type(ev).__name__
             tier = ev.delivery_tier
+            # ── Plan 7 D7.17: persist durable events BEFORE fan-out ──
+            # Persist-first means a subscriber crash after dispatch
+            # cannot orphan a durable event — the store is the source
+            # of truth for SSE replay. A persist failure (no store in
+            # strict mode, or store.persist raised) surfaces as
+            # DurableEventDropError so the caller is forced to make a
+            # graceful-degradation decision instead of dispatching a
+            # half-persisted event.
+            if tier == "durable":
+                if self._durable_store is not None:
+                    try:
+                        await self._durable_store.persist(ev)
+                    except DurableEventDropError:
+                        raise
+                    except Exception as exc:
+                        raise DurableEventDropError(
+                            f"durable_store.persist failed for {topic_key}: {exc}"
+                        ) from exc
+                elif self._strict_durable:
+                    raise DurableEventDropError(
+                        f"durable event {topic_key} published but no "
+                        "durable_store configured (strict_durable=True)"
+                    )
             await self._dispatch(topic_key, ev, tier=tier)
             await self._dispatch(_WILDCARD, ev, tier=tier)
             return
@@ -245,6 +291,28 @@ class EventBus:
                             self._on_drop(topic_key)
             sub.items.append(event)
             sub.waker.set()
+
+    async def replay_after(
+        self, *, last_seq: int | None, limit: int = 1000
+    ) -> AsyncIterator[RelayEvent]:
+        """Yield durable events with seq > ``last_seq`` in order.
+
+        Plan 7 D7.17 — backs the SSE ``Last-Event-ID: "<seq>:<uuid>"``
+        cursor. ``last_seq=None`` (header missing or unparseable) or
+        ``durable_store=None`` (bus has no disk tier) yields nothing:
+        the SSE generator falls through to the live subscriber tail.
+        Otherwise we delegate to :meth:`DurableEventStore.fetch_after`
+        and yield each row; the SSE renderer is responsible for
+        formatting ids as ``"<seq>:<event_id>"`` so the next reconnect
+        resumes from the right place.
+        """
+        if last_seq is None or self._durable_store is None:
+            return
+        rows = await self._durable_store.fetch_after(
+            last_seq=last_seq, limit=limit
+        )
+        for evt in rows:
+            yield evt
 
     async def close(self) -> None:
         """Signal every subscriber that the bus is shutting down.
