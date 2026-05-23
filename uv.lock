@@ -239,6 +239,15 @@ wheels = [
 ]
 
 [[package]]
+name = "async-timeout"
+version = "5.0.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/a5/ae/136395dfbfe00dfc94da3f3e136d0b13f394cba8f4841120e34226265780/async_timeout-5.0.1.tar.gz", hash = "sha256:d9321a7a3d5a6a5e187e824d2fa0793ce379a202935782d555d6e9d2735677d3", size = 9274, upload-time = "2024-11-06T16:41:39.6Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/fe/ba/e2081de779ca30d473f21f5b30e0e737c438205440784c7dfc81efc2b029/async_timeout-5.0.1-py3-none-any.whl", hash = "sha256:39e3809566ff85354557ec2398b55e096c8364bacac9405a7a1fa429e77fe76c", size = 6233, upload-time = "2024-11-06T16:41:37.9Z" },
+]
+
+[[package]]
 name = "asyncpg"
 version = "0.31.0"
 source = { registry = "https://pypi.org/simple" }
@@ -305,6 +314,18 @@ wheels = [
 ]
 
 [[package]]
+name = "bleach"
+version = "6.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "webencodings" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/07/18/3c8523962314be6bf4c8989c79ad9531c825210dd13a8669f6b84336e8bd/bleach-6.3.0.tar.gz", hash = "sha256:6f3b91b1c0a02bb9a78b5a454c92506aa0fdf197e1d5e114d2e00c6f64306d22", size = 203533, upload-time = "2025-10-27T17:57:39.211Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/3a/577b549de0cc09d95f11087ee63c739bba856cd3952697eec4c4bb91350a/bleach-6.3.0-py3-none-any.whl", hash = "sha256:fe10ec77c93ddf3d13a73b035abaac7a9f5e436513864ccdad516693213c65d6", size = 164437, upload-time = "2025-10-27T17:57:37.538Z" },
+]
+
+[[package]]
 name = "blinker"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -359,6 +380,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/b3/73/3183c9e41ca755713bdf2cc1d0810df742c09484e2e1ddd693bee53877c1/brotli-1.2.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:d2d085ded05278d1c7f65560aae97b3160aeb2ea2c0b3e26204856beccb60888", size = 1488164, upload-time = "2025-11-05T18:38:53.079Z" },
     { url = "https://files.pythonhosted.org/packages/64/6a/0c78d8f3a582859236482fd9fa86a65a60328a00983006bcf6d83b7b2253/brotli-1.2.0-cp314-cp314-win32.whl", hash = "sha256:832c115a020e463c2f67664560449a7bea26b0c1fdd690352addad6d0a08714d", size = 339280, upload-time = "2025-11-05T18:38:54.02Z" },
     { url = "https://files.pythonhosted.org/packages/f5/10/56978295c14794b2c12007b07f3e41ba26acda9257457d7085b0bb3bb90c/brotli-1.2.0-cp314-cp314-win_amd64.whl", hash = "sha256:e7c0af964e0b4e3412a0ebf341ea26ec767fa0b4cf81abb5e897c9338b5ad6a3", size = 375639, upload-time = "2025-11-05T18:38:55.67Z" },
+]
+
+[[package]]
+name = "cachetools"
+version = "7.1.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f4/8b/0d3945a13955303b81272f759a0331e54c5c793da455e6f5706b89d2639c/cachetools-7.1.4.tar.gz", hash = "sha256:437f55a4e0c1b01a4f3077cc470e6991d47430970e36fbcb77e2be0df4fc1cd6", size = 40085, upload-time = "2026-05-21T22:40:43.376Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/7b/1fc1c09cc0756cf25861a3be10565915953876da48bb228fb9a672b20a42/cachetools-7.1.4-py3-none-any.whl", hash = "sha256:323dc4127934744db5b54eb4924482d7edafbf9554e820d1531c2e08c0e4ef54", size = 16761, upload-time = "2026-05-21T22:40:41.845Z" },
 ]
 
 [[package]]
@@ -1022,11 +1052,14 @@ dependencies = [
     { name = "aiohttp" },
     { name = "aiosqlite" },
     { name = "alembic" },
+    { name = "bleach" },
+    { name = "cachetools" },
     { name = "claude-code-sdk" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "itsdangerous" },
     { name = "jinja2" },
+    { name = "markdown-it-py" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-sdk" },
     { name = "prometheus-client" },
@@ -1047,6 +1080,7 @@ all = [
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
+    { name = "redis" },
     { name = "respx" },
     { name = "ruff" },
 ]
@@ -1067,6 +1101,9 @@ otel-http = [
 postgres = [
     { name = "asyncpg" },
 ]
+redis = [
+    { name = "redis" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1075,13 +1112,16 @@ requires-dist = [
     { name = "aiosqlite", specifier = ">=0.20" },
     { name = "alembic", specifier = ">=1.13" },
     { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
+    { name = "bleach", specifier = ">=6.0" },
+    { name = "cachetools", specifier = ">=5.3" },
     { name = "claude-code-sdk", specifier = ">=0.0.14" },
     { name = "fastapi", specifier = ">=0.111" },
-    { name = "gg-relay", extras = ["postgres", "otel-http", "feishu", "dev"], marker = "extra == 'all'" },
+    { name = "gg-relay", extras = ["postgres", "redis", "otel-http", "feishu", "dev"], marker = "extra == 'all'" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "itsdangerous", specifier = ">=2.2" },
     { name = "jinja2", specifier = ">=3.1" },
     { name = "locust", marker = "extra == 'loadtest'", specifier = ">=2.20" },
+    { name = "markdown-it-py", specifier = ">=3.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.24" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel-http'", specifier = ">=1.24" },
@@ -1092,6 +1132,7 @@ requires-dist = [
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5.0" },
     { name = "python-multipart", specifier = ">=0.0.9" },
+    { name = "redis", marker = "extra == 'redis'", specifier = ">=5.0" },
     { name = "respx", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
@@ -1100,7 +1141,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.12" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
 ]
-provides-extras = ["postgres", "otel-http", "feishu", "loadtest", "dev", "all"]
+provides-extras = ["postgres", "redis", "otel-http", "feishu", "loadtest", "dev", "all"]
 
 [[package]]
 name = "googleapis-common-protos"
@@ -2529,6 +2570,18 @@ wheels = [
 ]
 
 [[package]]
+name = "redis"
+version = "7.4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "async-timeout", marker = "python_full_version < '3.11.3'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7b/7f/3759b1d0d72b7c92f0d70ffd9dc962b7b7b5ee74e135f9d7d8ab06b8a318/redis-7.4.0.tar.gz", hash = "sha256:64a6ea7bf567ad43c964d2c30d82853f8df927c5c9017766c55a1d1ed95d18ad", size = 4943913, upload-time = "2026-03-24T09:14:37.53Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/3a/95deec7db1eb53979973ebd156f3369a72732208d1391cd2e5d127062a32/redis-7.4.0-py3-none-any.whl", hash = "sha256:a9c74a5c893a5ef8455a5adb793a31bb70feb821c86eccb62eebef5a19c429ec", size = 409772, upload-time = "2026-03-24T09:14:35.968Z" },
+]
+
+[[package]]
 name = "referencing"
 version = "0.37.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3092,6 +3145,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/27/0b/a54103cfd732bb703c7a749222011a0483ef3705948dae3b203158601119/watchfiles-1.2.0-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:094b9b70103d4e963499bdea001ee3c2697b144cd9ae6218a62c0f89ec9e31db", size = 396629, upload-time = "2026-05-18T04:32:03.268Z" },
     { url = "https://files.pythonhosted.org/packages/5e/2c/73f31a3b893886206c3f54d73e8ad8dee58cdb2f69ad2622e0a8a9e07f4e/watchfiles-1.2.0-pp311-pypy311_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b0ef001f8c25ad0fa9529f914c1600647ecd0f542d11c19b7894768c67b6acb7", size = 457318, upload-time = "2026-05-18T04:31:01.932Z" },
     { url = "https://files.pythonhosted.org/packages/e9/f9/45d021e4a5cc7b9dd567f7cbb06d3b75f751a690063fb6cc7ec60f4e46b7/watchfiles-1.2.0-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a88fc94e647bc4eec523f1caa540258eb71d14278b9daf72fa1e2658a98df0f0", size = 457771, upload-time = "2026-05-18T04:30:56.331Z" },
+]
+
+[[package]]
+name = "webencodings"
+version = "0.5.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/0b/02/ae6ceac1baeda530866a85075641cec12989bd8d31af6d5ab4a3e8c92f47/webencodings-0.5.1.tar.gz", hash = "sha256:b36a1c245f2d304965eb4e0a82848379241dc04b865afcc4aab16748587e1923", size = 9721, upload-time = "2017-04-05T20:21:34.189Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f4/24/2a3e3df732393fed8b3ebf2ec078f05546de641fe1b667ee316ec1dcf3b7/webencodings-0.5.1-py2.py3-none-any.whl", hash = "sha256:a0af1213f3c2226497a97e2b3aa01a7e4bee4f403f95be16fc9acd2947514a78", size = 11774, upload-time = "2017-04-05T20:21:32.581Z" },
 ]
 
 [[package]]
