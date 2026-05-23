@@ -1,0 +1,45 @@
+{# Plan 8 Task 6 (D8.4) — audit timeline fragment.
+
+   Lazy-loaded by ``session_detail.html`` (HTMX ``revealed`` trigger)
+   and chained via the ``hx-trigger='revealed'`` load-more sentinel at
+   the bottom. The trailing div re-fetches itself when scrolled into
+   view, swapping its own ``outerHTML`` with the next page so the
+   cursor lookups are transparent to the operator.
+
+   Cursor pagination + per-page rendering matches the API contract on
+   ``GET /api/v1/audit`` (same cursor blob shape, just consumed via the
+   dashboard's HTMX route instead of JSON).
+
+   ``items`` is the per-page list yielded by the dashboard handler;
+   ``next_cursor`` is the opaque cursor for the next page (or
+   ``None`` / ``""`` at the tail). ``session_id`` is threaded through
+   so the load-more URL can refer back to the same session route. #}
+<div class="audit-timeline">
+  {% if items %}
+    <ul class="audit-list">
+      {% for item in items %}
+        <li class="audit-item" data-action="{{ item.action }}">
+          <span class="audit-ts">{{ item.ts }}</span>
+          <span class="audit-action">{{ item.action }}</span>
+          <span class="audit-actor">by {{ item.actor }}</span>
+          {% if item.metadata %}
+            <details class="audit-metadata">
+              <summary>metadata</summary>
+              <pre>{{ item.metadata | tojson(indent=2) }}</pre>
+            </details>
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    {% if next_cursor %}
+      <div class="audit-load-more"
+           hx-get="/dashboard/sessions/{{ session_id }}/audit?after={{ next_cursor }}"
+           hx-trigger="revealed"
+           hx-swap="outerHTML">
+        Loading more&hellip;
+      </div>
+    {% endif %}
+  {% else %}
+    <p class="empty">No audit events.</p>
+  {% endif %}
+</div>

@@ -32,6 +32,7 @@ from gg_relay.api.middleware.rate_limit import (
     TokenBucketRateLimiter,
 )
 from gg_relay.api.routers import (
+    audit_router,
     events_router,
     health_router,
     hitl_router,
@@ -526,6 +527,11 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.include_router(sessions_router, prefix="/api/v1")
     app.include_router(events_router, prefix="/api/v1")
     app.include_router(hitl_router, prefix="/api/v1")
+    # Plan 8 Task 6 / D8.4 — audit listing endpoint. Mounted after
+    # hitl so the OpenAPI tag ordering follows the request lifecycle
+    # (submit → events → hitl → audit), and BEFORE health/metrics so
+    # the v1 surface is documented as a single contiguous block.
+    app.include_router(audit_router, prefix="/api/v1")
     app.include_router(health_router)
     app.include_router(metrics_router)
     app.include_router(dashboard_router)

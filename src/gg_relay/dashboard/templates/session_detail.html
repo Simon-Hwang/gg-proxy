@@ -46,6 +46,26 @@
 </section>
 {% endif %}
 
+<section class="audit-panel">
+    {# Plan 8 Task 6 (D8.4) — audit timeline lazy-loaded inside a
+       <details> so the operator only pays for the fetch when they
+       expand the panel. ``hx-trigger='toggle once from:closest details'``
+       fires exactly once on first expansion; subsequent close/open
+       toggles reuse the rendered fragment. The list itself wires
+       further ``hx-trigger='revealed'`` calls for cursor-based load
+       more pages. #}
+    <details>
+        <summary>Operation history</summary>
+        <div
+            hx-get="/dashboard/sessions/{{ detail.id }}/audit"
+            hx-trigger="toggle once from:closest details"
+            hx-swap="innerHTML"
+        >
+            Loading&hellip;
+        </div>
+    </details>
+</section>
+
 <section>
     <h3>Frames</h3>
     <table class="frames">

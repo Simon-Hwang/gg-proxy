@@ -724,6 +724,156 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/audit": {
+      "get": {
+        "description": "List audit rows newest-first with cursor pagination.\n\nResponse shape::\n\n    {\n        \"items\": [\n            {\n                \"id\": <int>,\n                \"ts\": \"<iso8601>\",\n                \"actor\": \"<label>\",\n                \"action\": \"<verb>\",\n                \"target_type\": \"session\" | ... | null,\n                \"target_id\": \"<sid>\" | null,\n                \"metadata\": {...} | {},\n                \"request_id\": \"<uuid>\" | null\n            },\n            ...\n        ],\n        \"next_cursor\": \"<opaque>\" | null,\n        \"has_more\": <bool>\n    }\n\n``has_more`` mirrors the truthiness of ``next_cursor`` (kept as a\nconvenience field so dashboards don't have to do the ``is None``\ncheck themselves).",
+        "operationId": "list_audit_events_api_v1_audit_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "actor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Action"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "target_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 128,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Audit Events Api V1 Audit Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Audit Events",
+        "tags": [
+          "audit"
+        ]
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "description": "List sessions newest-first with cursor pagination.\n\nPlan 7 D7.6 / Task 9. Pass ``after=<next_cursor>`` from a previous\nresponse to fetch the next page; ``limit`` is capped at 100 to keep\npage sizes bounded. The response body carries both the new\ncursor-shaped fields (``items`` + ``next_cursor``) and the\ndeprecated v0.6 fields (``sessions`` alias + ``total=-1`` sentinel)\nso existing clients keep working until 0.8.0.\n\nError mapping \u2014 body is a flat ``{\"detail\": msg, \"code\": ...}`` JSON\nobject (no nesting) so machine clients can dispatch on ``code``:\n  * 400 ``invalid_status``           \u2014 unknown ``status`` value\n  * 400 ``cursor_invalid``           \u2014 malformed ``after`` token\n  * 400 ``cursor_filter_mismatch``   \u2014 cursor was minted under a\n    different ``status`` / ``tag`` combination than the current\n    query (re-mint by dropping ``after`` and starting over)",
@@ -1600,6 +1750,78 @@
           }
         },
         "summary": "Session Detail",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/sessions/{session_id}/audit": {
+      "get": {
+        "description": "HTMX lazy-load audit timeline for the session-detail page (D8.4 / Task 6).\n\nPermission mirrors the ``/api/v1/audit?session_id=`` rules:\n\n* ``admin`` (role_mapping[label] == \"admin\") \u2014 sees any session's\n  audit timeline.\n* Everyone else \u2014 must own the session (label match against\n  ``sessions.owner``). The label is derived from the cookie via\n  :func:`_dashboard_label` (``dashboard-<username>``), so an\n  admin-namespaced dashboard user gets the admin policy through\n  ``cfg.role_mapping[\"dashboard-<username>\"] = \"admin\"``.\n\nErrors render as small inline ``<div class='error'>...</div>``\nfragments rather than HTTP redirects so the HTMX swap target\nsurfaces the failure inside the panel instead of replacing the\nwhole page chrome.",
+        "operationId": "session_audit_timeline_dashboard_sessions__session_id__audit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "after",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "After"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Session Audit Timeline",
         "tags": [
           "dashboard"
         ]

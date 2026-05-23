@@ -50,7 +50,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import SecretStr
 
+from gg_relay.api.dependencies.require_role import ROLE_HIERARCHY
 from gg_relay.api.deps import get_coordinator, get_manager
+from gg_relay.api.middleware.dashboard_cookie import SESSION_KEY as _COOKIE_SESSION_KEY
 from gg_relay.core import EventBus, SessionCreated, SessionStateChanged
 from gg_relay.session.hitl.coordinator import HITLCoordinator, HITLNotPending
 from gg_relay.session.manager import SessionManager, SessionNotFound
@@ -568,6 +570,107 @@ async def session_trace(
             "session_id": session_id,
             "trace_id": row.get("trace_id"),
             "jaeger_ui_url": getattr(cfg, "jaeger_ui_url", None),
+        },
+    )
+
+
+def _dashboard_label(request: Request) -> str | None:
+    """Resolve the logged-in dashboard user → ``dashboard-<username>`` label.
+
+    The :class:`DashboardCookieMiddleware` writes the username to
+    ``request.state.dashboard_user`` on every request (regardless of
+    path) when a valid cookie session is present. We mirror its
+    ``dashboard-<username>`` label format here so the ownership /
+    role checks line up with the same identity the audit log
+    records via the synthetic ``X-API-Key`` injection on
+    ``/api/v1/*`` mutations.
+
+    Falls back to reading ``request.session[SESSION_USER_KEY]``
+    directly so the function still works if the cookie middleware
+    is bypassed in a test fixture (legacy admin path).
+    """
+    username = getattr(request.state, "dashboard_user", None)
+    if not username and hasattr(request, "session"):
+        username = request.session.get(_COOKIE_SESSION_KEY)
+    if not isinstance(username, str) or not username:
+        return None
+    return f"dashboard-{username}"
+
+
+@router.get("/sessions/{session_id}/audit", response_class=HTMLResponse)
+async def session_audit_timeline(
+    request: Request,
+    session_id: str,
+    after: str | None = Query(None, max_length=512),
+    limit: int = Query(50, ge=1, le=200),
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """HTMX lazy-load audit timeline for the session-detail page (D8.4 / Task 6).
+
+    Permission mirrors the ``/api/v1/audit?session_id=`` rules:
+
+    * ``admin`` (role_mapping[label] == "admin") — sees any session's
+      audit timeline.
+    * Everyone else — must own the session (label match against
+      ``sessions.owner``). The label is derived from the cookie via
+      :func:`_dashboard_label` (``dashboard-<username>``), so an
+      admin-namespaced dashboard user gets the admin policy through
+      ``cfg.role_mapping["dashboard-<username>"] = "admin"``.
+
+    Errors render as small inline ``<div class='error'>...</div>``
+    fragments rather than HTTP redirects so the HTMX swap target
+    surfaces the failure inside the panel instead of replacing the
+    whole page chrome.
+    """
+    store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
+
+    label = _dashboard_label(request)
+    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
+    role = role_map.get(label, "viewer") if label else "viewer"
+
+    sess = await store.get_session(session_id)
+    if sess is None:
+        return HTMLResponse(
+            "<div class='error'>Session not found.</div>", status_code=404
+        )
+    if ROLE_HIERARCHY.get(role, 0) < ROLE_HIERARCHY["admin"]:
+        owner = sess.get("owner") if hasattr(sess, "get") else None
+        if owner != label:
+            return HTMLResponse(
+                "<div class='error'>Forbidden.</div>", status_code=403
+            )
+
+    try:
+        rows, next_cursor = await store.list_audit(
+            session_id=session_id, after=after, limit=limit
+        )
+    except (CursorInvalidError, CursorFilterMismatchError):
+        return HTMLResponse(
+            "<div class='error'>Invalid cursor.</div>", status_code=400
+        )
+
+    items = [
+        {
+            "id": int(r["id"]),
+            "ts": (
+                r["ts"].isoformat() if hasattr(r["ts"], "isoformat") else r["ts"]
+            ),
+            "actor": r["actor"],
+            "action": r["action"],
+            "target_type": r["target_type"],
+            "target_id": r["target_id"],
+            "metadata": r["metadata_json"] or {},
+        }
+        for r in rows
+    ]
+    return templates.TemplateResponse(
+        request,
+        "_session_audit_timeline.html",
+        {
+            "session_id": session_id,
+            "items": items,
+            "next_cursor": next_cursor,
         },
     )
 
