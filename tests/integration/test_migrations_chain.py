@@ -1,13 +1,18 @@
-"""Migration chain integrity — Plan 7 Task 6 / D7.5.
+"""Migration chain integrity — Plan 7 Tasks 6 + 7 (D7.5 / D7.17).
 
-Verifies the full ``0001 → 0002 → 0003`` upgrade path plus the
-``0003 → 0002`` downgrade roundtrip on SQLite, and (optionally) the
-same chain on a real Postgres dialect via ``RELAY_TEST_POSTGRES_URL``
-when a Docker daemon is reachable. The test reuses the subprocess
-alembic helper from :mod:`test_session_aggregates_migration` rather
-than re-implementing it; the indirection avoids re-entering the
-running pytest-asyncio loop from inside ``alembic upgrade`` (which
-itself calls ``asyncio.run`` in ``store/migrations/env.py``).
+Verifies the full ``0001 → 0002 → 0003 → 0004`` upgrade path plus the
+per-revision downgrade roundtrips on SQLite, and (optionally) the same
+chain on a real Postgres dialect via ``RELAY_TEST_POSTGRES_URL`` when a
+Docker daemon is reachable. The test reuses the subprocess alembic
+helper from :mod:`test_session_aggregates_migration` rather than
+re-implementing it; the indirection avoids re-entering the running
+pytest-asyncio loop from inside ``alembic upgrade`` (which itself calls
+``asyncio.run`` in ``store/migrations/env.py``).
+
+Task 7 (events table, 0004) appends three checks below:
+  * ``test_chain_0001_to_0004_upgrade``       — events table + indexes
+  * ``test_downgrade_0004_to_0003_roundtrip`` — events gone, 0003 columns kept
+  * ``test_chain_0001_to_0004_postgres``      — same on Postgres dialect
 """
 from __future__ import annotations
 
@@ -47,6 +52,32 @@ async def _columns(async_url: str, table: str) -> set[str]:
 
             def _inspect(sync_conn):
                 return {c["name"] for c in inspect(sync_conn).get_columns(table)}
+
+            return await conn.run_sync(_inspect)
+    finally:
+        await engine.dispose()
+
+
+async def _table_names(async_url: str) -> set[str]:
+    engine = make_async_engine(async_url)
+    try:
+        async with engine.connect() as conn:
+
+            def _inspect(sync_conn):
+                return set(inspect(sync_conn).get_table_names())
+
+            return await conn.run_sync(_inspect)
+    finally:
+        await engine.dispose()
+
+
+async def _index_names(async_url: str, table: str) -> set[str]:
+    engine = make_async_engine(async_url)
+    try:
+        async with engine.connect() as conn:
+
+            def _inspect(sync_conn):
+                return {i["name"] for i in inspect(sync_conn).get_indexes(table)}
 
             return await conn.run_sync(_inspect)
     finally:
@@ -189,5 +220,90 @@ async def test_chain_on_postgres():
         assert "paused_at" not in sess_cols
         assert "version" not in hitl_cols
         assert "input_tokens" in sess_cols
+    finally:
+        _run_alembic(url, "downgrade", "base")
+
+
+# ── Plan 7 Task 7 / D7.17: events table (0004) ──────────────────────
+
+
+async def test_chain_0001_to_0004_upgrade(sqlite_db_url: str):
+    """0001 → 0002 → 0003 → 0004 顺次 upgrade，events 表 + indexes 就位."""
+    _run_upgrade(sqlite_db_url, "head")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "events" in tables, f"events table missing after 0004: {tables}"
+
+    cols = await _columns(sqlite_db_url, "events")
+    expected = {
+        "event_id",
+        "ts",
+        "type",
+        "session_id",
+        "payload",
+        "delivery_tier",
+    }
+    assert expected <= cols, f"events columns missing: expected {expected}, got {cols}"
+
+    indexes = await _index_names(sqlite_db_url, "events")
+    assert "ix_events_ts" in indexes, f"ix_events_ts missing: {indexes}"
+    assert "ix_events_session_id" in indexes, f"ix_events_session_id missing: {indexes}"
+
+    # Sanity — 0003 columns survived the new migration.
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "version" in sess_cols
+    assert "paused_at" in sess_cols
+
+
+async def test_downgrade_0004_to_0003_roundtrip(sqlite_db_url: str):
+    """upgrade head → downgrade -1 → events 表消失但 0003 列保留."""
+    _run_upgrade(sqlite_db_url, "head")
+    _run_downgrade(sqlite_db_url, "0003")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "events" not in tables, f"events survived downgrade: {tables}"
+
+    # 0003 columns are untouched — only 0004 was rolled back.
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    hitl_cols = await _columns(sqlite_db_url, "hitl_requests")
+    assert "version" in sess_cols, "sessions.version disappeared on 0004 downgrade"
+    assert "paused_at" in sess_cols, "sessions.paused_at disappeared on 0004 downgrade"
+    assert "version" in hitl_cols, "hitl_requests.version disappeared on 0004 downgrade"
+
+
+@pytest.mark.requires_docker
+async def test_chain_0001_to_0004_postgres():
+    """Postgres dialect 跑完整 0001→0002→0003→0004 + downgrade roundtrip.
+
+    Runs only when ``RELAY_TEST_POSTGRES_URL`` is set. Cleans up via
+    ``downgrade base`` so the database can be reused across runs.
+    """
+    url = _postgres_async_url()
+    if url is None:
+        pytest.skip("RELAY_TEST_POSTGRES_URL not set; skipping Postgres chain test")
+    _run_alembic(url, "downgrade", "base")
+    try:
+        _run_upgrade(url, "head")
+        tables = await _table_names(url)
+        assert "events" in tables
+        cols = await _columns(url, "events")
+        assert {
+            "event_id",
+            "ts",
+            "type",
+            "session_id",
+            "payload",
+            "delivery_tier",
+        } <= cols
+        indexes = await _index_names(url, "events")
+        assert "ix_events_ts" in indexes
+        assert "ix_events_session_id" in indexes
+        # Downgrade roundtrip — events table gone, 0003 columns survive.
+        _run_downgrade(url, "0003")
+        tables = await _table_names(url)
+        assert "events" not in tables
+        sess_cols = await _columns(url, "sessions")
+        assert "version" in sess_cols
+        assert "paused_at" in sess_cols
     finally:
         _run_alembic(url, "downgrade", "base")

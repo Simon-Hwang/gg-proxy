@@ -163,3 +163,28 @@ hitl_requests = Table(
     Index("ix_hitl_status", "status"),
     Index("ix_hitl_session", "session_id"),
 )
+
+# ── Plan 7 D7.17: append-only durable event store (Task 7) ───────────
+# Backs the optional disk-tier of ``AsyncEventBus``. Plan 7 Task 13
+# wires ``DurableEventStore`` Protocol to write here; this table only
+# provisions storage so the bus implementation can land independently.
+#
+# No foreign keys — events are append-only telemetry. A delete-session
+# cascade would wipe audit history, which is the opposite of what a
+# durable bus needs. Operators prune via a TTL job (Plan 8) instead.
+events = Table(
+    "events",
+    metadata,
+    Column("event_id", String(36), primary_key=True),
+    Column("ts", DateTime(timezone=True), nullable=False),
+    Column("type", String(50), nullable=False),
+    Column("session_id", String(36), nullable=True),
+    Column("payload", JSON, nullable=False),
+    # ``in_process`` | ``disk`` | ``redis`` (Plan 8 adds the Redis tier;
+    # Plan 7 only emits in_process | disk).
+    Column("delivery_tier", String(10), nullable=False),
+    # ``ix_events_ts`` powers range-scan replay (e.g. "events since T").
+    # ``ix_events_session_id`` powers per-session replay.
+    Index("ix_events_ts", "ts"),
+    Index("ix_events_session_id", "session_id"),
+)
