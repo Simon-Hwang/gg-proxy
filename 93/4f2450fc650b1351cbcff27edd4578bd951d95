@@ -1,0 +1,38 @@
+uv.lock
+  ai_agent 308-376,1125,1186
+src/gg_relay/dashboard/router.py
+  s_a009c0f1451d62::t_da3726629bacc5 3-22
+  s_a009c0f1451d62::t_e53a93a794368c 106-142,149-157,159-162
+  s_a009c0f1451d62::t_74d189f4ac0ebe 71-78
+tests/unit/api/test_identity_contract.py
+  ai_agent 1-170
+tests/integration/test_dashboard_login.py
+  ai_agent 1-143
+pyproject.toml
+  s_a009c0f1451d62::t_2b0e17fcfaa635 41-45
+src/gg_relay/api/middleware/dashboard_cookie.py
+  ai_agent 1-171
+docs/openapi.snapshot.json
+  s_a009c0f1451d62::t_9485669b7e7739 1486
+tests/unit/api/test_dashboard_cookie_middleware.py
+  ai_agent 1-237
+src/gg_relay/api/main.py
+  s_a009c0f1451d62::t_d45301bcc7a2de 16,26
+  s_a009c0f1451d62::t_3f4f4a194ebdef 376-414,421-432,435-440,463-465,468,470-479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "934f2450fc650b1351cbcff27edd4578bd951d95",
+  "prompts": {},
+  "sessions": {
+    "s_a009c0f1451d62": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "ad05fc6a-5ae5-4cc0-a6ad-c8a8e076f35c",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
