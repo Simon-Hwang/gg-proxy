@@ -83,6 +83,24 @@ sessions = Table(
         server_default="0",
         default=0,
     ),
+    # ── Plan 7 D7.5: optimistic locking + pause/resume watchdog ──────
+    # ``version`` is bumped on every state transition so concurrent
+    # writers detect lost updates (Plan 7 Task 8). Existing rows are
+    # populated to 0 by Alembic 0003's ``server_default``; new rows
+    # default to 0 from the Python-side ``default`` so SQLAlchemy emits
+    # the value even when the column is omitted from an INSERT.
+    Column(
+        "version",
+        Integer,
+        nullable=False,
+        server_default="0",
+        default=0,
+    ),
+    # ``paused_at`` is set when the session enters ``paused`` and
+    # cleared on resume; the pause-timeout watchdog filters by
+    # ``paused_at < cutoff`` to auto-cancel sessions that exceed the
+    # configured cap.
+    Column("paused_at", DateTime(timezone=True), nullable=True),
     # ── Plan 6 D6.12: completed_at index for time-bucketed chart queries.
     # Reuses the existing ``ended_at`` column — every terminal-state
     # transition writes both ``ended_at`` AND ``status`` so the new
@@ -131,6 +149,17 @@ hitl_requests = Table(
     Column("resolved_at", DateTime(timezone=True), nullable=True),
     Column("reason", String(256), nullable=True),
     Column("resolver", String(96), nullable=True),
+    # ── Plan 7 D7.5: optimistic locking version ──────────────────────
+    # Same semantics as ``sessions.version`` — bumped on every status
+    # transition so concurrent ``resolve`` attempts detect the loser
+    # and surface ``HITLAlreadyResolved`` (Plan 7 Task 8).
+    Column(
+        "version",
+        Integer,
+        nullable=False,
+        server_default="0",
+        default=0,
+    ),
     Index("ix_hitl_status", "status"),
     Index("ix_hitl_session", "session_id"),
 )
