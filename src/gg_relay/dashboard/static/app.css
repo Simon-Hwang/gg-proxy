@@ -144,3 +144,51 @@ pre.spec-json, pre.frame-payload, pre.hitl-args { background: var(--panel); padd
 .kanban-card .kanban-card-link { flex: 1; min-width: 0; }
 .bulk-select { margin: 4px 0 0 2px; cursor: pointer; flex-shrink: 0; }
 .kanban-card.selected { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* Plan 8 Task 16 / D8.14 — web submission form (/dashboard/new).
+   Vertical-stacked rows so each label sits over its control, plus
+   a dedicated alert palette for the duplicate-prompt warning and
+   the template-preload error banner. */
+.new-session-page { max-width: 720px; }
+.new-session-page form .form-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 16px;
+}
+.new-session-page form label { font-weight: 600; font-size: 0.9em; }
+.new-session-page form textarea,
+.new-session-page form input[type="text"],
+.new-session-page form select,
+.new-session-page > .form-row select {
+    width: 100%;
+    padding: 8px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.9em;
+    box-sizing: border-box;
+}
+.new-session-page form textarea { resize: vertical; min-height: 200px; }
+.new-session-page .form-actions {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 16px;
+}
+.alert { padding: 12px; border-radius: 4px; margin: 12px 0; }
+.alert-warning {
+    background: #55402a;
+    color: var(--warn);
+    border: 1px solid #6b4f2f;
+}
+.alert-info {
+    background: #2a4055;
+    color: var(--accent);
+    border: 1px solid #38516b;
+}
+.duplicate-warning { margin-top: 8px; }
+.duplicate-warning ul { margin: 8px 0; padding-left: 18px; }
+.duplicate-warning code { font-family: ui-monospace, "SF Mono", Menlo, monospace; }

@@ -21,7 +21,7 @@ import hashlib
 import json
 import warnings
 from collections.abc import Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -703,6 +703,65 @@ class SqlAlchemyStore:
                 filter_hash=fh,
             )
         return rows, next_cursor
+
+    async def recent_same_prompt(
+        self,
+        *,
+        owner: str,
+        prompt: str,
+        within_minutes: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Find sessions by the same owner whose ``spec_json.prompt`` shares
+        the first 120 chars of ``prompt`` within the last ``within_minutes``.
+
+        Plan 8 Task 16 / D8.14 — fuel for the duplicate-prompt warning on
+        the ``/dashboard/new`` form. The match is intentionally fuzzy
+        (prefix-only, capped at 120 chars) so that a small edit past the
+        prefix does not silence the warning, and so that a prompt that
+        merely *appends* extra context to a recent submission still
+        flags. Returned rows are newest-first capped at ``5``; the
+        dashboard renders only the top three. The endpoint is **a hint,
+        never a blocker** (Plan 8 v2.4 line 998 "warn 不拦截") — this
+        method is safe to call with empty / whitespace prompts (returns
+        ``[]``) and never raises a domain error of its own.
+
+        Implementation note: the SQL filters on ``owner`` (indexed via
+        ``ix_sessions_owner``) + ``submitted_at >= cutoff`` to keep the
+        candidate set tiny, then we scan ``spec_json["prompt"]`` in
+        Python for the prefix match. This avoids cross-dialect
+        differences in JSON casting (SQLite stores JSON as text;
+        Postgres exposes JSONB which would need ``->>`` to extract the
+        same key) at the cost of a small in-process loop — single-team
+        scale (≤20 candidate rows after the time + owner narrow) keeps
+        this cheap. Plan 9+ may swap to a JSON-aware indexed predicate
+        on the Postgres tier.
+        """
+        needle = (prompt or "").strip()[:120]
+        if not needle:
+            return []
+        cutoff = _utcnow() - timedelta(minutes=within_minutes)
+        stmt = (
+            select(sessions)
+            .where(sessions.c.owner == owner)
+            .where(sessions.c.submitted_at >= cutoff)
+            .order_by(sessions.c.submitted_at.desc())
+            .limit(20)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            candidates = list(result.mappings())
+        matched: list[dict[str, Any]] = []
+        for r in candidates:
+            spec = r.get("spec_json") if hasattr(r, "get") else None
+            existing = spec.get("prompt") if isinstance(spec, dict) else None
+            if (
+                isinstance(existing, str)
+                and existing.strip()[:120] == needle
+            ):
+                matched.append(dict(r))
+                if len(matched) >= 5:
+                    break
+        return matched
 
     async def get_session(self, session_id: str) -> RowMapping | None:
         async with self._engine.connect() as conn:

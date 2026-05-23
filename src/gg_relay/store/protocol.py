@@ -157,6 +157,26 @@ class SessionStore(Protocol):
         """
         ...
 
+    async def recent_same_prompt(
+        self,
+        *,
+        owner: str,
+        prompt: str,
+        within_minutes: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Find sessions by ``owner`` whose ``spec_json.prompt`` shares
+        the first 120 chars of ``prompt`` within the last
+        ``within_minutes``.
+
+        Plan 8 Task 16 / D8.14 — fuel for the duplicate-prompt warning
+        on the ``/dashboard/new`` form. Strictly advisory (the form
+        does not block on a hit), capped at five rows newest-first.
+        Empty / whitespace prompts return ``[]`` so the HTMX
+        debounce can call this on every keystroke without spurious
+        matches.
+        """
+        ...
+
     async def get_session(
         self, session_id: str
     ) -> Mapping[str, Any] | None:

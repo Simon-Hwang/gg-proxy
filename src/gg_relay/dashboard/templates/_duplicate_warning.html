@@ -1,0 +1,12 @@
+<div class="duplicate-warning alert alert-warning">
+    ⚠️ You submitted a similar prompt recently:
+    <ul>
+        {% for it in items %}
+        <li>
+            <a href="/dashboard/sessions/{{ it.id }}"><code>{{ it.id[:8] }}</code></a>
+            — {{ it.status }} at {{ it.submitted_at }}
+        </li>
+        {% endfor %}
+    </ul>
+    <small class="muted">(This is just a warning — you can still submit.)</small>
+</div>

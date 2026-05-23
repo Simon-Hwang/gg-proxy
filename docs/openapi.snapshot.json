@@ -3057,6 +3057,153 @@
         ]
       }
     },
+    "/dashboard/new": {
+      "get": {
+        "description": "Render the web submission form (Plan 8 D8.14 / Task 16).\n\nQuery-string prefill mirrors the legacy GitHub-style \"issue\ntemplate\" link convention so a comment, README, or runbook can\ndeep-link straight into a pre-populated form:\n\n  * ``?prompt=<text>``        \u2014 seeds the prompt textarea.\n  * ``?tags=foo,bar``         \u2014 seeds the tags input as csv.\n  * ``?description=<text>``   \u2014 seeds the description input.\n  * ``?template=<id>``        \u2014 pre-loads a saved prompt template\n    (overrides the other three above when an explicit value\n    wasn't passed). Visibility is enforced server-side: the\n    template must be owned by the caller, marked ``shared``, or\n    the caller must be an admin (mirrors\n    ``GET /api/v1/templates/{id}``). A 404 / 403 result surfaces\n    as an inline ``alert-warning`` banner so the form is still\n    usable with empty values.\n\nThe form posts to ``POST /api/v1/sessions`` directly (relying on\nthe :class:`DashboardCookieMiddleware` synthetic ``X-API-Key``\ninjection from Task 3 / D8.26 so the API auth + RBAC + audit\npipeline runs unchanged). RBAC of the actual submit lives there\n\u2014 this handler does not pre-check ``submitter`` because the\nform GET is informational; a viewer-role user can render the\npage but their POST will be rejected at the API boundary.",
+        "operationId": "new_session_form_dashboard_new_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "prompt",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50000,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prompt"
+            }
+          },
+          {
+            "in": "query",
+            "name": "tags",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Tags"
+            }
+          },
+          {
+            "in": "query",
+            "name": "description",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Description"
+            }
+          },
+          {
+            "in": "query",
+            "name": "template",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Template"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "New Session Form",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/new/check-duplicate": {
+      "get": {
+        "description": "HTMX fragment: warn when the same owner submitted the same\nprompt prefix in the last 10 minutes.\n\nPlan 8 D8.14 / Task 16. Returns an empty body when there is\nnothing to warn about, so HTMX swaps an empty fragment into the\ntarget ``<div id='duplicate-warning'>`` (effectively clearing\nany earlier warning when the user edits the prompt away from\nthe duplicate).\n\nThe 5-character minimum guards against the keyup debounce\nissuing a query for \"h\" / \"he\" / \"hel\" while the user is\nstarting to type \u2014 substring matches that short would generate\nnoise without giving the user useful information.",
+        "operationId": "check_duplicate_prompt_dashboard_new_check_duplicate_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "prompt",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 50000,
+              "title": "Prompt",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Check Duplicate Prompt",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/dashboard/search": {
       "get": {
         "description": "Render the search chrome (form + empty results target).\n\nPlan 8 D8.20 / Task 12. The page itself never runs the query \u2014 the\nform submits via HTMX to ``/dashboard/search/results``, which\nrenders the result fragment in place. This keeps the initial page\nsnappy and lets the form re-target on every change without a full\nreload.\n\n``owner`` is rendered into the form ONLY for admin callers; for\nnon-admin users the input is omitted (the server-side handler\nrejects cross-owner filters anyway, but trimming the field in the\nUI avoids the false-affordance of \"you typed it but it gets\noverridden\").",

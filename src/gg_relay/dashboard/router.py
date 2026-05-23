@@ -978,6 +978,161 @@ async def comment_edit_form(
     )
 
 
+# ── Plan 8 D8.14 / Task 16 — web submit form ──────────────────────────
+
+
+@router.get("/new", response_class=HTMLResponse)
+async def new_session_form(
+    request: Request,
+    prompt: str | None = Query(None, max_length=50000),
+    tags: str | None = Query(None, max_length=512),
+    description: str | None = Query(None, max_length=512),
+    template: int | None = Query(None, ge=1),
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Render the web submission form (Plan 8 D8.14 / Task 16).
+
+    Query-string prefill mirrors the legacy GitHub-style "issue
+    template" link convention so a comment, README, or runbook can
+    deep-link straight into a pre-populated form:
+
+      * ``?prompt=<text>``        — seeds the prompt textarea.
+      * ``?tags=foo,bar``         — seeds the tags input as csv.
+      * ``?description=<text>``   — seeds the description input.
+      * ``?template=<id>``        — pre-loads a saved prompt template
+        (overrides the other three above when an explicit value
+        wasn't passed). Visibility is enforced server-side: the
+        template must be owned by the caller, marked ``shared``, or
+        the caller must be an admin (mirrors
+        ``GET /api/v1/templates/{id}``). A 404 / 403 result surfaces
+        as an inline ``alert-warning`` banner so the form is still
+        usable with empty values.
+
+    The form posts to ``POST /api/v1/sessions`` directly (relying on
+    the :class:`DashboardCookieMiddleware` synthetic ``X-API-Key``
+    injection from Task 3 / D8.26 so the API auth + RBAC + audit
+    pipeline runs unchanged). RBAC of the actual submit lives there
+    — this handler does not pre-check ``submitter`` because the
+    form GET is informational; a viewer-role user can render the
+    page but their POST will be rejected at the API boundary.
+    """
+    store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
+    label = _dashboard_label(request)
+    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
+    role = role_map.get(label, "viewer") if label else "viewer"
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+
+    template_obj: dict[str, Any] | None = None
+    template_load_error: str | None = None
+    if template is not None:
+        t = await store.get_template(template_id=template)
+        if t is None:
+            template_load_error = f"Template {template} not found"
+        elif (
+            not bool(t["shared"])
+            and t["creator"] != label
+            and not is_admin
+        ):
+            template_load_error = f"Template {template} is private"
+        else:
+            template_obj = {
+                "id": int(t["id"]),
+                "name": t["name"],
+                "prompt": t["prompt"],
+                "description": t["description"],
+                "tags": t["tags"],
+                "creator": t["creator"],
+            }
+            if not prompt:
+                prompt = t["prompt"]
+            if not description:
+                description = t["description"]
+            if not tags:
+                tags = t["tags"]
+
+    if label is None:
+        template_choices: list[dict[str, Any]] = []
+    else:
+        visible = await store.list_templates(
+            actor=label, is_admin=is_admin, limit=200
+        )
+        template_choices = [
+            {
+                "id": int(t["id"]),
+                "name": t["name"],
+                "shared": bool(t["shared"]),
+                "creator": t["creator"],
+            }
+            for t in visible
+        ]
+
+    return templates.TemplateResponse(
+        request,
+        "new.html",
+        {
+            "prompt": prompt or "",
+            "tags": tags or "",
+            "description": description or "",
+            "template_obj": template_obj,
+            "template_load_error": template_load_error,
+            "template_choices": template_choices,
+            "current_actor": label,
+        },
+    )
+
+
+@router.get("/new/check-duplicate", response_class=HTMLResponse)
+async def check_duplicate_prompt(
+    request: Request,
+    prompt: str = Query("", max_length=50000),
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """HTMX fragment: warn when the same owner submitted the same
+    prompt prefix in the last 10 minutes.
+
+    Plan 8 D8.14 / Task 16. Returns an empty body when there is
+    nothing to warn about, so HTMX swaps an empty fragment into the
+    target ``<div id='duplicate-warning'>`` (effectively clearing
+    any earlier warning when the user edits the prompt away from
+    the duplicate).
+
+    The 5-character minimum guards against the keyup debounce
+    issuing a query for "h" / "he" / "hel" while the user is
+    starting to type — substring matches that short would generate
+    noise without giving the user useful information.
+    """
+    store: SessionRepository = request.app.state.store
+    label = _dashboard_label(request)
+    if not label:
+        return HTMLResponse("")
+    text = (prompt or "").strip()
+    if len(text) < 5:
+        return HTMLResponse("")
+    recent = await store.recent_same_prompt(
+        owner=label, prompt=text, within_minutes=10
+    )
+    if not recent:
+        return HTMLResponse("")
+    items = [
+        {
+            "id": r["id"],
+            "status": r["status"],
+            "submitted_at": (
+                r["submitted_at"].isoformat()
+                if hasattr(r["submitted_at"], "isoformat")
+                else str(r["submitted_at"])
+            ),
+        }
+        for r in recent[:3]
+    ]
+    return templates.TemplateResponse(
+        request,
+        "_duplicate_warning.html",
+        {"items": items},
+    )
+
+
 @router.get("/templates", response_class=HTMLResponse)
 async def templates_page(
     request: Request,

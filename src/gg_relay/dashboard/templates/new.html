@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}New session — gg-relay{% endblock %}
+{% block content %}
+<div class="new-session-page">
+    <h2>📤 Submit new session</h2>
+
+    {% if template_load_error %}
+    <div class="alert alert-warning">{{ template_load_error }}</div>
+    {% elif template_obj %}
+    <div class="alert alert-info">
+        Using template <strong>{{ template_obj.name }}</strong>
+        <span class="muted">(by {{ template_obj.creator }})</span>
+    </div>
+    {% endif %}
+
+    {% if template_choices %}
+    <div class="form-row">
+        <label for="template-select">Use template:</label>
+        <select id="template-select"
+                onchange="if(this.value) { window.location.href = '/dashboard/new?template=' + encodeURIComponent(this.value); }">
+            <option value="">— None —</option>
+            {% for t in template_choices %}
+            <option value="{{ t.id }}"
+                    {% if template_obj and template_obj.id == t.id %}selected{% endif %}>
+                {{ t.name }}
+                {% if t.shared %}(shared){% else %}(by {{ t.creator }}){% endif %}
+            </option>
+            {% endfor %}
+        </select>
+    </div>
+    {% endif %}
+
+    <form id="new-session-form"
+          hx-post="/api/v1/sessions"
+          hx-ext="json-enc"
+          hx-include="none"
+          hx-on::config-request="
+              const promptVal = document.getElementById('prompt-input').value;
+              const cwdVal = document.getElementById('cwd-input').value || '/tmp';
+              const descVal = document.getElementById('description-input').value;
+              const tagsRaw = document.getElementById('tags-input').value;
+              const tagList = tagsRaw.split(',').map(function(s){return s.trim();}).filter(Boolean);
+              const executor = document.getElementById('executor-select').value;
+              const profile = document.getElementById('plugins-profile').value;
+              event.detail.parameters = {
+                  spec: {
+                      prompt: promptVal,
+                      cwd: cwdVal,
+                      plugins: { profile: profile || null, modules: [], skills: [], with_components: [], without_components: [], extra_env: [] },
+                      executor: executor,
+                      timeout_s: 1800,
+                      tags: tagList
+                  },
+                  description: descVal || null,
+                  credentials: {}
+              };
+          "
+          hx-on::after-request="
+              if (event.detail.successful) {
+                  try {
+                      const data = JSON.parse(event.detail.xhr.responseText);
+                      window.location.href = '/dashboard/sessions/' + encodeURIComponent(data.id);
+                  } catch (e) { /* fall through */ }
+              } else {
+                  const errBox = document.getElementById('submit-error');
+                  errBox.style.display = 'block';
+                  errBox.textContent = 'Submit failed: ' + event.detail.xhr.status + ' ' + event.detail.xhr.responseText.slice(0, 400);
+              }
+          ">
+
+        <div class="form-row">
+            <label for="prompt-input">Prompt:</label>
+            <textarea id="prompt-input" name="prompt"
+                      rows="8" required minlength="3" maxlength="50000"
+                      hx-get="/dashboard/new/check-duplicate"
+                      hx-target="#duplicate-warning"
+                      hx-trigger="keyup changed delay:600ms"
+                      hx-swap="innerHTML">{{ prompt }}</textarea>
+        </div>
+
+        <div id="duplicate-warning"></div>
+
+        <div class="form-row">
+            <label for="description-input">Description (optional):</label>
+            <input id="description-input" name="description"
+                   type="text" maxlength="500" value="{{ description }}"
+                   placeholder="short note shown alongside the session" />
+        </div>
+
+        <div class="form-row">
+            <label for="tags-input">Tags (comma-separated):</label>
+            <input id="tags-input" name="tags_csv"
+                   type="text" maxlength="500" value="{{ tags }}"
+                   placeholder="e.g. ci, deploy, audit" />
+        </div>
+
+        <div class="form-row">
+            <label for="cwd-input">Working directory:</label>
+            <input id="cwd-input" name="cwd"
+                   type="text" maxlength="500" value="/tmp" />
+        </div>
+
+        <div class="form-row">
+            <label for="executor-select">Backend / executor:</label>
+            <select id="executor-select" name="executor">
+                <option value="docker" selected>docker (default)</option>
+                <option value="inprocess">inprocess</option>
+            </select>
+        </div>
+
+        <div class="form-row">
+            <label for="plugins-profile">Plugins profile:</label>
+            <select id="plugins-profile" name="plugins_profile">
+                <option value="">— none —</option>
+                <option value="minimal">minimal</option>
+                <option value="core">core</option>
+                <option value="go">go</option>
+                <option value="python">python</option>
+                <option value="full">full</option>
+            </select>
+        </div>
+
+        <div id="submit-error" class="alert alert-warning" style="display:none"></div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary">Submit session</button>
+            <a href="/dashboard/sessions" class="btn-link">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}
