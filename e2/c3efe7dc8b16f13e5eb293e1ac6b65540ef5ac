@@ -1,0 +1,27 @@
+Makefile
+  s_2982c122217d02::t_18d45dca9a4e79 1-17
+tests/integration/test_loadtest_extra.py
+  s_2982c122217d02::t_f9a438728cf105 1-89
+scripts/load_test.py
+  s_2982c122217d02::t_d188fed31cefe1 1-182
+scripts/README.md
+  s_2982c122217d02::t_0d496b34c1162a 1-100
+pyproject.toml
+  s_2982c122217d02::t_b69a4fb8cc9409 42-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "e2c3efe7dc8b16f13e5eb293e1ac6b65540ef5ac",
+  "prompts": {},
+  "sessions": {
+    "s_2982c122217d02": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "d313c600-4860-4e83-a240-12998a405763",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
