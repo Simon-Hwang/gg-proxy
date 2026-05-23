@@ -648,3 +648,94 @@ async def test_downgrade_0009_to_0008_roundtrip(sqlite_db_url: str):
     assert "session_comments" in tables, (
         "0007 session_comments lost on 0009 downgrade"
     )
+
+
+# ── Plan 8 Task 14 / D8.24: prompt_templates table (0010) ───────────
+
+
+async def test_chain_0001_to_0010_upgrade(sqlite_db_url: str):
+    """0001 → … → 0010 顺次 upgrade，prompt_templates 表 + unique constraint
+    + composite index 就位.
+
+    Plan 8 D8.24 / Task 14. Verifies the reusable-prompt-template table
+    landed with the full schema (id PK / name / creator / prompt /
+    description / shared / tags / created_at / updated_at) and that
+    the ``uq_prompt_templates_creator_name`` unique constraint and
+    the composite ``ix_prompt_templates_shared_name`` index are in
+    place. Sanity: 0009 ``session_favorites`` table is still alive
+    (we didn't accidentally rebuild ``sessions``).
+    """
+    _run_upgrade(sqlite_db_url, "head")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "prompt_templates" in tables, (
+        f"prompt_templates table missing after 0010: {tables}"
+    )
+
+    cols = await _columns(sqlite_db_url, "prompt_templates")
+    expected = {
+        "id",
+        "name",
+        "creator",
+        "prompt",
+        "description",
+        "shared",
+        "tags",
+        "created_at",
+        "updated_at",
+    }
+    assert expected <= cols, (
+        f"prompt_templates columns missing: expected {expected}, got {cols}"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "prompt_templates")
+    assert "ix_prompt_templates_shared_name" in indexes, (
+        f"ix_prompt_templates_shared_name missing: {indexes}"
+    )
+
+    # Unique constraint inspection (mirrors the 0009 favorites test).
+    engine = make_async_engine(sqlite_db_url)
+    try:
+        async with engine.connect() as conn:
+
+            def _inspect(sync_conn):
+                return {
+                    uc["name"]
+                    for uc in inspect(sync_conn).get_unique_constraints(
+                        "prompt_templates"
+                    )
+                }
+
+            uniques = await conn.run_sync(_inspect)
+    finally:
+        await engine.dispose()
+    assert "uq_prompt_templates_creator_name" in uniques, (
+        f"uq_prompt_templates_creator_name missing: {uniques}"
+    )
+
+    # Sanity — 0009 session_favorites table still present.
+    assert "session_favorites" in tables, (
+        "0009 session_favorites lost after 0010 upgrade"
+    )
+
+
+async def test_downgrade_0010_to_0009_roundtrip(sqlite_db_url: str):
+    """upgrade head → downgrade -1 → prompt_templates 表 + index 消失,
+    0009 session_favorites 表仍保留 (验证只回滚 0010)."""
+    _run_upgrade(sqlite_db_url, "head")
+    _run_downgrade(sqlite_db_url, "0009")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "prompt_templates" not in tables, (
+        f"prompt_templates survived downgrade to 0009: {tables}"
+    )
+
+    # 0009 + earlier migrations must still be alive — only 0010 was
+    # rolled back.
+    assert "session_favorites" in tables, (
+        "0009 session_favorites lost on 0010 downgrade"
+    )
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "parent_session_id" in sess_cols, (
+        "0008 parent_session_id lost on 0010 downgrade"
+    )

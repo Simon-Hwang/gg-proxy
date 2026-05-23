@@ -1051,6 +1051,113 @@
         "title": "SessionSubmitRequest",
         "type": "object"
       },
+      "TemplateCreate": {
+        "description": "POST body for create.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "name": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "prompt": {
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Prompt",
+            "type": "string"
+          },
+          "shared": {
+            "default": false,
+            "title": "Shared",
+            "type": "boolean"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          }
+        },
+        "required": [
+          "name",
+          "prompt"
+        ],
+        "title": "TemplateCreate",
+        "type": "object"
+      },
+      "TemplateUpdate": {
+        "description": "PATCH body for update \u2014 every field optional so a partial\nedit only touches the supplied keys.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "prompt": {
+            "anyOf": [
+              {
+                "maxLength": 20000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt"
+          },
+          "shared": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shared"
+          },
+          "tags": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tags"
+          }
+        },
+        "title": "TemplateUpdate",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -2397,6 +2504,238 @@
         ]
       }
     },
+    "/api/v1/templates": {
+      "get": {
+        "description": "List templates visible to the caller.\n\nNon-admin callers see only their own templates plus every\n``shared=True`` row. Admins may flip ``include_others=true`` to\nadditionally see other users' private templates (moderation\nsurface); without the flag the admin's listing matches the\nnon-admin view to avoid accidental privacy leaks in the default\ncase.",
+        "operationId": "list_templates_api_v1_templates_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "include_others",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Include Others",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Templates Api V1 Templates Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Templates",
+        "tags": [
+          "templates"
+        ]
+      },
+      "post": {
+        "description": "Create a prompt template (Plan 8 D8.24 / Task 14).\n\nAuth: ``submitter+`` via the route ``Depends``. The creator is\ncaptured server-side from ``request.state.api_key_label`` so a\nmalicious client cannot impersonate another user by spoofing a\nJSON field.\n\n409 ``template_name_conflict`` when the ``(creator, name)``\npair is already taken (router maps\n:class:`TemplateConflictError` raised by the store).",
+        "operationId": "create_template_api_v1_templates_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Template Api V1 Templates Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Template",
+        "tags": [
+          "templates"
+        ]
+      }
+    },
+    "/api/v1/templates/{template_id}": {
+      "delete": {
+        "description": "Hard-delete a template.\n\nAuthorization: ``creator`` OR ``admin``. Other users (even ones\nusing the shared template) cannot delete it. 404 idempotency:\na second DELETE on the same id returns the same body so\nconcurrent deletes converge on a uniform response.",
+        "operationId": "delete_template_api_v1_templates__template_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Template",
+        "tags": [
+          "templates"
+        ]
+      },
+      "get": {
+        "description": "Fetch a single template.\n\nVisibility mirrors :meth:`list_templates` per-row:\n  * 404 ``template_not_found`` when the id doesn't exist.\n  * 403 ``forbidden_template_view`` when the row is private and\n    the caller is neither the creator nor an admin.",
+        "operationId": "get_template_api_v1_templates__template_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Template Api V1 Templates  Template Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Template",
+        "tags": [
+          "templates"
+        ]
+      },
+      "patch": {
+        "description": "Edit a template's body / visibility / tags.\n\nAuthorization: only the original ``creator`` (server-side label)\nor an ``admin`` may PATCH. Other users see the template (if it's\nshared) but cannot mutate it.\n\n404 when the template is missing; 403 ``forbidden_template_edit``\nwhen the caller is neither the creator nor an admin.",
+        "operationId": "update_template_api_v1_templates__template_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "template_id",
+            "required": true,
+            "schema": {
+              "title": "Template Id",
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TemplateUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Update Template Api V1 Templates  Template Id  Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Template",
+        "tags": [
+          "templates"
+        ]
+      }
+    },
     "/api/v1/webhooks/feishu": {
       "post": {
         "description": "Canonical Feishu interactive-callback receiver (Plan 7 D7.16).\n\nVerifies the signature via the configured IMBackend, then routes\nHITL decisions to the coordinator. Returns 401 on signature\nfailure (including unset webhook secret \u2014 see\n:meth:`FeishuBackend.verify_webhook`).",
@@ -3265,6 +3604,28 @@
           }
         },
         "summary": "Session Trace",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/templates": {
+      "get": {
+        "description": "Render the logged-in user's \"Prompt Templates\" page (Plan 8 D8.24 / Task 14).\n\nIdentity resolution mirrors :func:`favorites_page` \u2014\n:func:`_dashboard_label` collapses the cookie session to the\n``dashboard-<username>`` label so the same identity used by the\nAPI ``POST /api/v1/templates`` write drives the list query\nhere. A missing label means the cookie middleware didn't see a\nsession; we render the empty state rather than 401 because the\nupstream session-required dependency would already have\nredirected un-authed callers.\n\nThe ``is_mine`` flag per row decides whether the action column\nrenders the Delete button \u2014 purely a UX gate; the API endpoint\nre-enforces the rule server-side so a tampered DOM cannot\nbypass it.\n\nTask 16 (web submit form) will consume ``?template=<id>`` from\nthe Use link; until Task 16 lands the link 404s on click, which\nis acceptable per the plan ordering.",
+        "operationId": "templates_page_dashboard_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Templates Page",
         "tags": [
           "dashboard"
         ]

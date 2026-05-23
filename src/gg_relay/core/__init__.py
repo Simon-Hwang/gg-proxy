@@ -35,6 +35,7 @@ from gg_relay.core.exceptions import (
     SDKTimeoutError,
     SDKTransportError,
     SDKUnknownError,
+    TemplateConflictError,
     classify_sdk_error,
 )
 from gg_relay.core.protocol import DurableEventStore
@@ -68,6 +69,7 @@ __all__ = [
     "SessionState",
     "SessionStateChanged",
     "SessionSummary",
+    "TemplateConflictError",
     "ToolRequested",
     "ToolResolved",
     "classify_sdk_error",

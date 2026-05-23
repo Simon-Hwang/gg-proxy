@@ -41,6 +41,7 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from gg_relay.core.exceptions import TemplateConflictError
 from gg_relay.store.exceptions import (
     ConcurrencyError,
     CursorFilterMismatchError,
@@ -50,6 +51,7 @@ from gg_relay.store.schema import (
     audit_log,
     frames,
     hitl_requests,
+    prompt_templates,
     session_comments,
     session_favorites,
     sessions,
@@ -1617,6 +1619,191 @@ class SqlAlchemyStore:
                 }
             )
         return out
+
+
+    # ── prompt_templates (Plan 8 D8.24 / Task 14) ─────────────────────
+
+    async def create_template(
+        self,
+        *,
+        name: str,
+        creator: str,
+        prompt: str,
+        description: str | None = None,
+        shared: bool = False,
+        tags: str | None = None,
+        conn: Any = None,
+    ) -> dict[str, Any]:
+        """Insert a prompt template row; return the materialised dict.
+
+        Plan 8 D8.24 / Task 14. The ``uq_prompt_templates_creator_name``
+        unique constraint guards same-creator duplicate names — a
+        collision surfaces as :class:`sqlalchemy.exc.IntegrityError`
+        which we translate into
+        :class:`gg_relay.core.exceptions.TemplateConflictError` so the
+        API router can map it to a 409 ``template_name_conflict``
+        without coupling to SQLAlchemy's exception hierarchy.
+
+        When called with an external ``conn`` the IntegrityError path
+        attaches a SAVEPOINT-style nested transaction (via
+        ``conn.begin_nested()``) so a duplicate-name attempt inside
+        a larger transaction does NOT poison the surrounding writes
+        — mirroring the :meth:`add_favorite` pattern. SQLite +
+        Postgres both support ``begin_nested`` / SAVEPOINT.
+        """
+        now = _utcnow()
+        values = {
+            "name": name,
+            "creator": creator,
+            "prompt": prompt,
+            "description": description,
+            "shared": shared,
+            "tags": tags,
+            "created_at": now,
+            "updated_at": now,
+        }
+        stmt = insert(prompt_templates).values(**values)
+        try:
+            if conn is not None:
+                async with conn.begin_nested():
+                    result = await conn.execute(stmt)
+            else:
+                async with self._engine.begin() as new_conn:
+                    result = await new_conn.execute(stmt)
+        except IntegrityError as exc:
+            raise TemplateConflictError(
+                f"template name {name!r} already exists for creator {creator!r}"
+            ) from exc
+        pk = result.inserted_primary_key
+        tid = int(pk[0]) if pk and pk[0] is not None else 0
+        return {
+            "id": tid,
+            "name": name,
+            "creator": creator,
+            "prompt": prompt,
+            "description": description,
+            "shared": shared,
+            "tags": tags,
+            "created_at": now,
+            "updated_at": now,
+        }
+
+    async def get_template(
+        self, *, template_id: int
+    ) -> dict[str, Any] | None:
+        """Fetch a single template row by id, or ``None`` if absent."""
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(prompt_templates).where(
+                    prompt_templates.c.id == template_id
+                )
+            )
+            row = result.mappings().first()
+        return dict(row) if row is not None else None
+
+    async def list_templates(
+        self,
+        *,
+        actor: str,
+        is_admin: bool = False,
+        include_others: bool = False,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List templates visible to ``actor``.
+
+        Plan 8 D8.24 / Task 14. Visibility predicate:
+
+          * ``actor`` always sees rows where ``creator == actor``.
+          * Everyone sees rows where ``shared == True``.
+          * ``shared == False`` rows owned by another creator are
+            visible only when ``is_admin AND include_others`` —
+            this lets admins audit private templates without
+            leaking them by default.
+
+        Order: ``shared DESC, name ASC`` so the team scratchpad
+        floats to the top while the user's private templates stay
+        alphabetical underneath.
+        """
+        if is_admin and include_others:
+            where: list[sa.ColumnElement[bool]] = []
+        else:
+            where = [
+                or_(
+                    prompt_templates.c.creator == actor,
+                    prompt_templates.c.shared.is_(True),
+                )
+            ]
+        stmt = (
+            select(prompt_templates)
+            .where(*where)
+            .order_by(
+                prompt_templates.c.shared.desc(),
+                prompt_templates.c.name.asc(),
+            )
+            .limit(limit)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            return [dict(r) for r in result.mappings()]
+
+    async def update_template(
+        self,
+        *,
+        template_id: int,
+        prompt: str | None = None,
+        description: str | None = None,
+        shared: bool | None = None,
+        tags: str | None = None,
+        conn: Any = None,
+    ) -> bool:
+        """Patch a template; bump ``updated_at``. Returns ``True``
+        when a row was modified.
+
+        Plan 8 D8.24 / Task 14. ``None`` arguments are left untouched
+        so a partial PATCH only writes the fields the caller
+        actually supplied. ``updated_at`` always bumps — even on an
+        empty patch (the router rejects empty payloads at the
+        boundary so we don't have to defend that case here).
+        """
+        fields: dict[str, Any] = {"updated_at": _utcnow()}
+        if prompt is not None:
+            fields["prompt"] = prompt
+        if description is not None:
+            fields["description"] = description
+        if shared is not None:
+            fields["shared"] = shared
+        if tags is not None:
+            fields["tags"] = tags
+        stmt = (
+            update(prompt_templates)
+            .where(prompt_templates.c.id == template_id)
+            .values(**fields)
+        )
+        if conn is not None:
+            result = await conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
+        async with self._engine.begin() as new_conn:
+            result = await new_conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
+
+    async def delete_template(
+        self, *, template_id: int, conn: Any = None
+    ) -> bool:
+        """Hard-delete a template row. Returns ``True`` on row removed.
+
+        Plan 8 D8.24 / Task 14. Hard delete is intentional —
+        templates are advisory shortcuts and the audit log retains
+        the ``template_delete`` action for the moderation trail.
+        """
+        stmt = delete(prompt_templates).where(
+            prompt_templates.c.id == template_id
+        )
+        if conn is not None:
+            result = await conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
+        async with self._engine.begin() as new_conn:
+            result = await new_conn.execute(stmt)
+            return int(result.rowcount or 0) > 0
 
 
 class SessionRepository(SqlAlchemyStore):

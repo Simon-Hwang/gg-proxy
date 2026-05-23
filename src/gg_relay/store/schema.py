@@ -16,6 +16,7 @@ from __future__ import annotations
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     Column,
     DateTime,
     Float,
@@ -334,5 +335,58 @@ session_favorites = Table(
     ),
     Index(
         "ix_session_favorites_user_created", "user_label", "created_at"
+    ),
+)
+
+# ── Plan 8 D8.24 (Task 14): reusable prompt templates ───────────────
+# Lightweight per-user (and optionally per-team) prompt scratchpad so
+# operators can save a useful submission body and reuse it without
+# re-typing or grep'ing through old sessions. The dashboard's "+ New
+# template" form writes through ``POST /api/v1/templates``; the web
+# submit form (Task 16) consumes ``?template=<id>`` to prefill.
+#
+# Visibility is row-local:
+#   * ``shared=True``  → visible to every submitter+ on the list
+#     endpoint (team scratchpad).
+#   * ``shared=False`` → visible only to ``creator``; admins may
+#     opt in to seeing other users' private templates via the
+#     ``include_others`` query parameter (moderation surface).
+#
+# Constraints + indexes:
+#   * ``uq_prompt_templates_creator_name`` — per-creator name
+#     uniqueness. Two users may both have a template named
+#     ``"deploy-prod"``; the same user cannot. Collisions surface as
+#     :class:`gg_relay.core.exceptions.TemplateConflictError` →
+#     HTTP 409 ``template_name_conflict``.
+#   * ``ix_prompt_templates_shared_name`` — composite ``(shared,
+#     name)`` powers the "list shared templates, alphabetical"
+#     dashboard query in one index seek.
+#   * ``ix_prompt_templates_name`` and ``ix_prompt_templates_creator``
+#     are created implicitly via the column ``index=True``.
+prompt_templates = Table(
+    "prompt_templates",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("name", String(128), nullable=False, index=True),
+    Column("creator", String(64), nullable=False, index=True),
+    Column("prompt", Text, nullable=False),
+    Column("description", String(500), nullable=True),
+    Column(
+        "shared",
+        Boolean,
+        nullable=False,
+        server_default="0",
+        default=False,
+    ),
+    Column("tags", String(500), nullable=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    UniqueConstraint(
+        "creator",
+        "name",
+        name="uq_prompt_templates_creator_name",
+    ),
+    Index(
+        "ix_prompt_templates_shared_name", "shared", "name"
     ),
 )

@@ -34,6 +34,7 @@ from gg_relay.store.protocol import (
     FrameStore,
     HITLStore,
     SessionStore,
+    TemplateStore,
 )
 from gg_relay.store.repository import SessionRepository, SqlAlchemyStore
 from gg_relay.store.schema import (
@@ -41,6 +42,7 @@ from gg_relay.store.schema import (
     frames,
     hitl_requests,
     metadata,
+    prompt_templates,
     session_comments,
     session_favorites,
     sessions,
@@ -58,12 +60,14 @@ __all__ = [
     "SessionRepository",
     "SessionStore",
     "SqlAlchemyStore",
+    "TemplateStore",
     "audit_log",
     "create_all_tables",
     "frames",
     "hitl_requests",
     "make_async_engine",
     "metadata",
+    "prompt_templates",
     "session_comments",
     "session_favorites",
     "sessions",

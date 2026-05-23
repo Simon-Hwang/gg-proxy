@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+{% block title %}Prompt Templates — gg-relay{% endblock %}
+{% block content %}
+<section class="templates-page">
+    <h2>Prompt Templates</h2>
+
+    <details class="create-form-wrapper">
+        <summary>+ New template</summary>
+        <form
+            class="template-create-form"
+            hx-post="/api/v1/templates"
+            hx-ext="json-enc"
+            hx-on::after-request="if(event.detail.successful) window.location.reload();"
+        >
+            <label>
+                Name
+                <input type="text" name="name" required maxlength="128"
+                       placeholder="deploy-prod" />
+            </label>
+            <label>
+                Description
+                <input type="text" name="description" maxlength="500"
+                       placeholder="Short note (optional)" />
+            </label>
+            <label>
+                Prompt body
+                <textarea name="prompt" rows="6" required maxlength="20000"
+                          placeholder="Prompt text..."></textarea>
+            </label>
+            <label>
+                Tags
+                <input type="text" name="tags" maxlength="500"
+                       placeholder="ci,deploy,onboarding" />
+            </label>
+            <label class="checkbox">
+                <input type="checkbox" name="shared" value="true" />
+                Shared with team
+            </label>
+            <button type="submit">Create template</button>
+        </form>
+    </details>
+
+    {% if items %}
+    <table class="templates-table" id="templates-table">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Creator</th>
+                <th>Visibility</th>
+                <th>Description</th>
+                <th>Tags</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in items %}
+            <tr id="tpl-row-{{ t.id }}" class="template-row" data-template-id="{{ t.id }}">
+                <td><strong>{{ t.name }}</strong></td>
+                <td>{{ t.creator }}</td>
+                <td>
+                    {% if t.shared %}
+                    <span class="badge badge-shared" title="Visible to team">shared</span>
+                    {% else %}
+                    <span class="badge badge-private" title="Visible only to creator">private</span>
+                    {% endif %}
+                </td>
+                <td>{{ t.description or '—' }}</td>
+                <td>{{ t.tags or '' }}</td>
+                <td>
+                    <a class="btn btn-use"
+                       href="/dashboard/new?template={{ t.id }}"
+                       title="Prefill a new submission with this template">Use</a>
+                    {% if t.is_mine or is_admin %}
+                    <button
+                        class="delete-btn"
+                        hx-delete="/api/v1/templates/{{ t.id }}"
+                        hx-confirm="Delete template '{{ t.name }}'?"
+                        hx-target="#tpl-row-{{ t.id }}"
+                        hx-swap="outerHTML"
+                        hx-on::after-request="if(event.detail.successful) this.closest('tr').remove();"
+                        aria-label="Delete {{ t.name }}"
+                        title="Delete">Delete</button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No templates yet. Create one above to share with the team.</p>
+    {% endif %}
+</section>
+{% endblock %}

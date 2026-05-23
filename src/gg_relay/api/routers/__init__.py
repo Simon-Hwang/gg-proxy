@@ -7,6 +7,7 @@ from gg_relay.api.routers.hitl import batch_router as hitl_batch_router
 from gg_relay.api.routers.hitl import router as hitl_router
 from gg_relay.api.routers.metrics import metrics_router
 from gg_relay.api.routers.sessions import router as sessions_router
+from gg_relay.api.routers.templates import router as templates_router
 
 __all__ = [
     "audit_router",
@@ -17,4 +18,5 @@ __all__ = [
     "hitl_router",
     "metrics_router",
     "sessions_router",
+    "templates_router",
 ]

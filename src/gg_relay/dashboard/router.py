@@ -978,6 +978,67 @@ async def comment_edit_form(
     )
 
 
+@router.get("/templates", response_class=HTMLResponse)
+async def templates_page(
+    request: Request,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Render the logged-in user's "Prompt Templates" page (Plan 8 D8.24 / Task 14).
+
+    Identity resolution mirrors :func:`favorites_page` —
+    :func:`_dashboard_label` collapses the cookie session to the
+    ``dashboard-<username>`` label so the same identity used by the
+    API ``POST /api/v1/templates`` write drives the list query
+    here. A missing label means the cookie middleware didn't see a
+    session; we render the empty state rather than 401 because the
+    upstream session-required dependency would already have
+    redirected un-authed callers.
+
+    The ``is_mine`` flag per row decides whether the action column
+    renders the Delete button — purely a UX gate; the API endpoint
+    re-enforces the rule server-side so a tampered DOM cannot
+    bypass it.
+
+    Task 16 (web submit form) will consume ``?template=<id>`` from
+    the Use link; until Task 16 lands the link 404s on click, which
+    is acceptable per the plan ordering.
+    """
+    store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
+    label = _dashboard_label(request)
+    if not label:
+        return HTMLResponse(
+            "Login required", status_code=401
+        )
+    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
+    role = role_map.get(label, "viewer")
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+    rows = await store.list_templates(
+        actor=label, is_admin=is_admin, limit=200
+    )
+    items = [
+        {
+            "id": int(r["id"]),
+            "name": r["name"],
+            "creator": r["creator"],
+            "description": r["description"],
+            "shared": bool(r["shared"]),
+            "tags": r["tags"],
+            "is_mine": r["creator"] == label,
+        }
+        for r in rows
+    ]
+    return templates.TemplateResponse(
+        request,
+        "templates.html",
+        {
+            "items": items,
+            "current_actor": label,
+            "is_admin": is_admin,
+        },
+    )
+
+
 @router.post("/sessions/{session_id}/hitl/{req_id}")
 async def session_hitl_resolve(
     request: Request,

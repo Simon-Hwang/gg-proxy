@@ -40,6 +40,7 @@ from gg_relay.api.routers import (
     hitl_router,
     metrics_router,
     sessions_router,
+    templates_router,
 )
 from gg_relay.config import Config
 from gg_relay.core import EventBus
@@ -557,6 +558,12 @@ def create_app(config: Config | None = None) -> FastAPI:
     # (``/sessions/{sid}/comments`` + ``/comments/{cid}``) so we mount
     # it at the same ``/api/v1`` root as the rest of the v1 surface.
     app.include_router(comments_router, prefix="/api/v1")
+    # Plan 8 Task 14 / D8.24 — reusable prompt templates. The router's
+    # internal prefix is ``/templates`` so the mounted path is
+    # ``/api/v1/templates``. Mounted after comments so the OpenAPI
+    # collaboration block (comments → templates) reads in roughly
+    # the order users encounter them in the dashboard.
+    app.include_router(templates_router, prefix="/api/v1")
     app.include_router(health_router)
     app.include_router(metrics_router)
     app.include_router(dashboard_router)

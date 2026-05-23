@@ -535,6 +535,117 @@ class FavoriteStore(Protocol):
         ...
 
 
+@runtime_checkable
+class TemplateStore(Protocol):
+    """Async DAO surface for the ``prompt_templates`` table (Plan 8 D8.24).
+
+    Implemented by :class:`gg_relay.store.repository.SqlAlchemyStore`.
+    Backs the CRUD endpoints in
+    :mod:`gg_relay.api.routers.templates` and the dashboard
+    ``/dashboard/templates`` page (Task 14).
+
+    Visibility model:
+      * Creator always sees their own templates.
+      * ``shared=True`` rows are visible to every submitter+.
+      * ``shared=False`` private templates are visible only to the
+        creator; admins may opt into seeing other users' private
+        templates via the ``include_others`` flag (moderation /
+        debugging surface).
+
+    Same-tx ``conn`` kwargs follow the v2.1 MAJOR 3 durable-outbox
+    pattern: when the caller already has an open transaction
+    (e.g. wrapping the template write together with an audit
+    record), passing ``conn=`` reuses that transaction so the two
+    writes commit or roll back together.
+    """
+
+    async def create_template(
+        self,
+        *,
+        name: str,
+        creator: str,
+        prompt: str,
+        description: str | None = None,
+        shared: bool = False,
+        tags: str | None = None,
+        conn: Any = None,
+    ) -> Mapping[str, Any]:
+        """Insert a template row; return the materialised row dict.
+
+        Raises :class:`gg_relay.core.exceptions.TemplateConflictError`
+        when the ``(creator, name)`` pair already exists (the
+        ``uq_prompt_templates_creator_name`` unique constraint fires
+        and the repository translates the underlying
+        :class:`sqlalchemy.exc.IntegrityError` into the typed
+        domain exception so the API router maps cleanly to a 409
+        without coupling to SQLAlchemy).
+        """
+        ...
+
+    async def get_template(
+        self, *, template_id: int
+    ) -> Mapping[str, Any] | None:
+        """Fetch a single template row by id, or ``None`` if absent."""
+        ...
+
+    async def list_templates(
+        self,
+        *,
+        actor: str,
+        is_admin: bool = False,
+        include_others: bool = False,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List templates visible to ``actor``.
+
+        Visibility rules:
+          * Templates created by ``actor`` are always visible.
+          * Templates with ``shared=True`` are visible to everyone.
+          * Templates with ``shared=False`` AND ``creator != actor``
+            are visible only when ``is_admin=True`` AND
+            ``include_others=True`` (admin-opt-in moderation
+            surface).
+
+        Rows are ordered ``shared DESC, name ASC`` so the team
+        scratchpad floats to the top while still letting the user
+        find their private templates alphabetically. ``limit`` caps
+        the response.
+        """
+        ...
+
+    async def update_template(
+        self,
+        *,
+        template_id: int,
+        prompt: str | None = None,
+        description: str | None = None,
+        shared: bool | None = None,
+        tags: str | None = None,
+        conn: Any = None,
+    ) -> bool:
+        """Patch a template's body / visibility / tags.
+
+        ``None`` arguments are left untouched so a partial update
+        only writes the fields the caller actually supplied.
+        ``updated_at`` always bumps. Returns ``True`` on a row
+        change, ``False`` when no row matched (router maps to 404).
+        """
+        ...
+
+    async def delete_template(
+        self, *, template_id: int, conn: Any = None
+    ) -> bool:
+        """Hard-delete a template row.
+
+        Returns ``True`` when a row was removed, ``False`` when
+        the id did not match (router maps to 404). Hard delete is
+        intentional — templates are advisory shortcuts, not audit
+        artefacts; the audit log retains the ``template_delete``
+        action so the moderation trail still survives.
+        """
+        ...
+
+
 __all__ = [
     "AuditStore",
     "CommentStore",
@@ -542,4 +653,5 @@ __all__ = [
     "FrameStore",
     "HITLStore",
     "SessionStore",
+    "TemplateStore",
 ]

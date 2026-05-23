@@ -46,6 +46,23 @@ class RetryConfigError(Exception):
     """
 
 
+class TemplateConflictError(Exception):
+    """Raised by :meth:`SqlAlchemyStore.create_template` when a
+    ``(creator, name)`` pair already exists.
+
+    Plan 8 D8.24 / Task 14. The store catches the underlying
+    :class:`sqlalchemy.exc.IntegrityError` (triggered by the
+    ``uq_prompt_templates_creator_name`` unique constraint) and
+    re-raises this typed exception so the API router can map it to
+    a clean ``409 template_name_conflict`` response without coupling
+    to SQLAlchemy's exception hierarchy.
+
+    The exception lives in :mod:`gg_relay.core` (zero external deps)
+    so the router and the repository can both reference it without
+    a circular import through the store boundary.
+    """
+
+
 class HITLAlreadyResolved(Exception):
     """HITL request was already resolved by an earlier decision.
 
@@ -249,5 +266,6 @@ __all__ = [
     "SDKTimeoutError",
     "SDKTransportError",
     "SDKUnknownError",
+    "TemplateConflictError",
     "classify_sdk_error",
 ]
