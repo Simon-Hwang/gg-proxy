@@ -46,6 +46,7 @@ class SessionStore(Protocol):
         submitted_at: datetime | None = None,
         owner: str | None = None,
         description: str | None = None,
+        parent_session_id: str | None = None,
     ) -> None:
         """Insert a new session row in ``queued`` state.
 
@@ -57,6 +58,24 @@ class SessionStore(Protocol):
         pass one explicitly; ``description`` is truncated to 512
         chars at the router layer (the store assumes it's already
         short enough).
+
+        Plan 8 D8.6 / Task 9 — ``parent_session_id`` (optional)
+        marks the row as the retry of an earlier session. ``None``
+        means "top-level submission". The column is NOT enforced as
+        a foreign key so children may outlive an archived parent;
+        the manager validates parent existence before submitting.
+        """
+        ...
+
+    async def list_children_of_session(
+        self, *, parent_session_id: str
+    ) -> Sequence[Mapping[str, Any]]:
+        """List sessions whose ``parent_session_id`` matches the argument.
+
+        Plan 8 D8.6 / Task 9. Powers the dashboard's retry-tree view —
+        feeding the original session's id walks one level down to
+        every retry. Returned rows are ordered by ``submitted_at``
+        ascending so retries appear in chronological order.
         """
         ...
 

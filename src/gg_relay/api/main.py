@@ -36,6 +36,7 @@ from gg_relay.api.routers import (
     comments_router,
     events_router,
     health_router,
+    hitl_batch_router,
     hitl_router,
     metrics_router,
     sessions_router,
@@ -528,6 +529,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     app.include_router(sessions_router, prefix="/api/v1")
     app.include_router(events_router, prefix="/api/v1")
     app.include_router(hitl_router, prefix="/api/v1")
+    app.include_router(hitl_batch_router, prefix="/api/v1")
     # Plan 8 Task 6 / D8.4 — audit listing endpoint. Mounted after
     # hitl so the OpenAPI tag ordering follows the request lifecycle
     # (submit → events → hitl → audit), and BEFORE health/metrics so

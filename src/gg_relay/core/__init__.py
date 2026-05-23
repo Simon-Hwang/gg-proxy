@@ -27,6 +27,7 @@ from gg_relay.core.events import (
 from gg_relay.core.exceptions import (
     DurableEventDropError,
     HITLAlreadyResolved,
+    RetryConfigError,
     SDKConnectError,
     SDKError,
     SDKPermissionError,
@@ -53,6 +54,7 @@ __all__ = [
     "InstallError",
     "RelayEvent",
     "RelayEventT",
+    "RetryConfigError",
     "SDKConnectError",
     "SDKError",
     "SDKPermissionError",

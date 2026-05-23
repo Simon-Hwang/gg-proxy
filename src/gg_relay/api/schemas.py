@@ -177,3 +177,153 @@ class HITLPendingItem(BaseModel):
 class HITLPendingResponse(BaseModel):
     session_id: str
     pending: list[HITLPendingItem]
+
+
+# ── Plan 8 D8.6 / Task 9 — batch session/hitl operations ─────────────
+# Batch endpoints share a common shape so the dashboard's bulk action
+# toolbar (Task 10) can render a uniform progress UI regardless of
+# which surface it targets.
+#
+# Status semantics:
+#   * ``ok``    — the per-id action ran cleanly. ``new_session_id`` is
+#                 populated for ``retry`` so the UI can link the new
+#                 session immediately.
+#   * ``error`` — the per-id action raised; ``error_code`` machine-
+#                 readable identifier (mirrors the SDKError /
+#                 hitl_already_resolved taxonomy) + ``error_message``
+#                 free-form. Other ids in the same request still
+#                 succeed — partial success is the explicit contract.
+#
+# Why 200 with a items array (not 207 Multi-Status): the HTTP layer
+# stays simple, the cursor's batch endpoint precedent (Plan 7 D7.6)
+# already established the "200 + per-item status" pattern, and
+# machine clients can dispatch on ``summary.error > 0`` without
+# parsing a non-standard 207 body.
+#
+# Caps: ``ids`` ≤ 100 for sessions, ≤ 50 for HITL. The HITL cap is
+# tighter because each resolve hits the optimistic-lock path
+# (Plan 7 D7.5) and we don't want a single batch holding 100 row
+# locks at once. Both caps are pydantic ``max_length`` so an
+# over-sized payload 422s before the router runs.
+
+
+class BatchSessionRequest(BaseModel):
+    """POST /api/v1/sessions/batch body (Plan 8 D8.6 / Task 9).
+
+    ``ids`` carries the session uuids to act on — between 1 and 100
+    inclusive. ``action`` is one of the two supported batch actions:
+
+      * ``cancel`` — admin OR own-session for each id; failures are
+        reported per-id (e.g. cross-owner submitter sees
+        ``error_code='forbidden_cancel'``).
+      * ``retry``  — submitter+; the manager rebuilds the spec and
+        submits a fresh session whose ``parent_session_id`` points
+        at the original. The new sid lands in
+        :class:`BatchSessionItem.new_session_id`.
+
+    ``reason`` is propagated to the audit row metadata so operators
+    can leave a freeform note ("paused for cluster maintenance",
+    "retrying after upstream fix"). Truncated to 200 chars at
+    validation time.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str] = Field(..., max_length=100, min_length=1)
+    action: Literal["cancel", "retry"]
+    reason: str | None = Field(None, max_length=200)
+
+
+class BatchSessionItem(BaseModel):
+    """One row in :class:`BatchSessionResponse.items`.
+
+    The status / error_code split lets clients render a per-id
+    progress checklist without parsing free-form messages: tick
+    every ``ok`` row, group ``error`` rows by ``error_code`` to
+    show "3 not found, 1 forbidden". ``new_session_id`` is only
+    populated for ``retry`` actions.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    status: Literal["ok", "error"]
+    error_code: str | None = None
+    error_message: str | None = None
+    new_session_id: str | None = None
+
+
+class BatchSessionResponse(BaseModel):
+    """POST /api/v1/sessions/batch response.
+
+    Always 200 with per-id ``items``. ``summary`` is a precomputed
+    ``{"ok": N, "error": M}`` dict so dashboards can render a status
+    bar without re-counting client-side.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[BatchSessionItem]
+    summary: dict[str, int]
+
+
+class BatchHITLRequest(BaseModel):
+    """POST /api/v1/hitl/batch body (Plan 8 D8.6 / Task 9).
+
+    ``ids`` carries the FULL HITL request ids (``"{session_id}:{short}"``)
+    as returned by ``GET /api/v1/sessions/{sid}/hitl/pending``. The
+    batch endpoint does not auto-namespace short ids because a batch
+    typically spans multiple sessions.
+
+    ``action`` is one of:
+      * ``approve`` — mapped to the coordinator's ``"accept"`` decision.
+      * ``reject``  — mapped to the coordinator's ``"deny"`` decision.
+
+    The ``approve``/``reject`` wording is the user-facing surface
+    consistent with the dashboard toolbar; the coordinator's internal
+    Literal['accept', 'deny'] is the wire enum the runner consumes.
+
+    Capped at 50 ids per request (tighter than session batch because
+    each resolve hits the optimistic-locking path).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    ids: list[str] = Field(..., max_length=50, min_length=1)
+    action: Literal["approve", "reject"]
+    reason: str | None = Field(None, max_length=200)
+
+
+class BatchHITLItem(BaseModel):
+    """One row in :class:`BatchHITLResponse.items`.
+
+    ``error_code`` mirrors the single-resolve endpoint's taxonomy:
+
+      * ``hitl_not_pending``     — request not currently pending in
+        the in-process coordinator (already drained).
+      * ``hitl_already_resolved`` — DB row shows a previous winning
+        decision (cross-worker race or post-resolve replay).
+      * ``internal_error``       — anything else; ``error_message``
+        carries the original exception's message.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    status: Literal["ok", "error"]
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+class BatchHITLResponse(BaseModel):
+    """POST /api/v1/hitl/batch response.
+
+    Mirrors :class:`BatchSessionResponse` — same partial-success
+    contract, same ``summary`` shape — so the dashboard can reuse
+    a single component for both batch toolbars.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[BatchHITLItem]
+    summary: dict[str, int]

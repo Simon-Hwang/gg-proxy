@@ -31,6 +31,21 @@ from __future__ import annotations
 from typing import Any
 
 
+class RetryConfigError(Exception):
+    """Raised by :meth:`SessionManager.retry` when the original session's
+    persisted spec cannot produce a fresh submission.
+
+    Plan 8 D8.6 / Task 9. The retry path reconstructs a
+    :class:`SessionSpec` from ``sessions.spec_json`` and calls
+    :meth:`SessionManager.submit` again with ``parent_session_id`` set.
+    If the persisted spec is missing required fields (no ``prompt``,
+    no plugins manifest, etc.) we surface this exception instead of
+    silently submitting a degenerate session. The batch endpoint maps
+    it to a per-id ``error_code='retry_config_error'`` entry so a
+    bulk retry can still succeed for the well-formed siblings.
+    """
+
+
 class HITLAlreadyResolved(Exception):
     """HITL request was already resolved by an earlier decision.
 
@@ -226,6 +241,7 @@ def classify_sdk_error(exc: Exception) -> SDKError:
 __all__ = [
     "DurableEventDropError",
     "HITLAlreadyResolved",
+    "RetryConfigError",
     "SDKConnectError",
     "SDKError",
     "SDKPermissionError",

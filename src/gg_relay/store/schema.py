@@ -113,6 +113,15 @@ sessions = Table(
     # 512 chars and never has to truncate itself.
     Column("owner", String(64), nullable=True),
     Column("description", String(512), nullable=True),
+    # ── Plan 8 D8.6 (Task 9): retry lineage ─────────────────────────────
+    # ``parent_session_id`` points at the original session whose retry
+    # produced this row. NULL for top-level submissions (no retry
+    # ancestor). NOT enforced as a foreign key — a parent may be
+    # archived or deleted by the retention job while the child still
+    # lives, and we want children to survive that case so the dashboard
+    # can render an "(archived parent)" placeholder rather than
+    # cascading the delete.
+    Column("parent_session_id", String(36), nullable=True),
     # ── Plan 6 D6.12: completed_at index for time-bucketed chart queries.
     # Reuses the existing ``ended_at`` column — every terminal-state
     # transition writes both ``ended_at`` AND ``status`` so the new
@@ -124,6 +133,7 @@ sessions = Table(
     Index("ix_sessions_submitted_at", "submitted_at"),
     Index("ix_sessions_completed_at", "ended_at"),
     Index("ix_sessions_owner", "owner"),
+    Index("ix_sessions_parent_session_id", "parent_session_id"),
 )
 
 frames = Table(

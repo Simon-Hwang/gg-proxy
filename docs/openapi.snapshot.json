@@ -1,6 +1,243 @@
 {
   "components": {
     "schemas": {
+      "BatchHITLItem": {
+        "additionalProperties": false,
+        "description": "One row in :class:`BatchHITLResponse.items`.\n\n``error_code`` mirrors the single-resolve endpoint's taxonomy:\n\n  * ``hitl_not_pending``     \u2014 request not currently pending in\n    the in-process coordinator (already drained).\n  * ``hitl_already_resolved`` \u2014 DB row shows a previous winning\n    decision (cross-worker race or post-resolve replay).\n  * ``internal_error``       \u2014 anything else; ``error_message``\n    carries the original exception's message.",
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "BatchHITLItem",
+        "type": "object"
+      },
+      "BatchHITLRequest": {
+        "additionalProperties": false,
+        "description": "POST /api/v1/hitl/batch body (Plan 8 D8.6 / Task 9).\n\n``ids`` carries the FULL HITL request ids (``\"{session_id}:{short}\"``)\nas returned by ``GET /api/v1/sessions/{sid}/hitl/pending``. The\nbatch endpoint does not auto-namespace short ids because a batch\ntypically spans multiple sessions.\n\n``action`` is one of:\n  * ``approve`` \u2014 mapped to the coordinator's ``\"accept\"`` decision.\n  * ``reject``  \u2014 mapped to the coordinator's ``\"deny\"`` decision.\n\nThe ``approve``/``reject`` wording is the user-facing surface\nconsistent with the dashboard toolbar; the coordinator's internal\nLiteral['accept', 'deny'] is the wire enum the runner consumes.\n\nCapped at 50 ids per request (tighter than session batch because\neach resolve hits the optimistic-locking path).",
+        "properties": {
+          "action": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "ids",
+          "action"
+        ],
+        "title": "BatchHITLRequest",
+        "type": "object"
+      },
+      "BatchHITLResponse": {
+        "additionalProperties": false,
+        "description": "POST /api/v1/hitl/batch response.\n\nMirrors :class:`BatchSessionResponse` \u2014 same partial-success\ncontract, same ``summary`` shape \u2014 so the dashboard can reuse\na single component for both batch toolbars.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchHITLItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "required": [
+          "items",
+          "summary"
+        ],
+        "title": "BatchHITLResponse",
+        "type": "object"
+      },
+      "BatchSessionItem": {
+        "additionalProperties": false,
+        "description": "One row in :class:`BatchSessionResponse.items`.\n\nThe status / error_code split lets clients render a per-id\nprogress checklist without parsing free-form messages: tick\nevery ``ok`` row, group ``error`` rows by ``error_code`` to\nshow \"3 not found, 1 forbidden\". ``new_session_id`` is only\npopulated for ``retry`` actions.",
+        "properties": {
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Message"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "new_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Session Id"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "BatchSessionItem",
+        "type": "object"
+      },
+      "BatchSessionRequest": {
+        "additionalProperties": false,
+        "description": "POST /api/v1/sessions/batch body (Plan 8 D8.6 / Task 9).\n\n``ids`` carries the session uuids to act on \u2014 between 1 and 100\ninclusive. ``action`` is one of the two supported batch actions:\n\n  * ``cancel`` \u2014 admin OR own-session for each id; failures are\n    reported per-id (e.g. cross-owner submitter sees\n    ``error_code='forbidden_cancel'``).\n  * ``retry``  \u2014 submitter+; the manager rebuilds the spec and\n    submits a fresh session whose ``parent_session_id`` points\n    at the original. The new sid lands in\n    :class:`BatchSessionItem.new_session_id`.\n\n``reason`` is propagated to the audit row metadata so operators\ncan leave a freeform note (\"paused for cluster maintenance\",\n\"retrying after upstream fix\"). Truncated to 200 chars at\nvalidation time.",
+        "properties": {
+          "action": {
+            "enum": [
+              "cancel",
+              "retry"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "ids": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Ids",
+            "type": "array"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "required": [
+          "ids",
+          "action"
+        ],
+        "title": "BatchSessionRequest",
+        "type": "object"
+      },
+      "BatchSessionResponse": {
+        "additionalProperties": false,
+        "description": "POST /api/v1/sessions/batch response.\n\nAlways 200 with per-id ``items``. ``summary`` is a precomputed\n``{\"ok\": N, \"error\": M}`` dict so dashboards can render a status\nbar without re-counting client-side.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BatchSessionItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "required": [
+          "items",
+          "summary"
+        ],
+        "title": "BatchSessionResponse",
+        "type": "object"
+      },
       "Body_login_post_dashboard_login_post": {
         "properties": {
           "password": {
@@ -995,6 +1232,48 @@
         ]
       }
     },
+    "/api/v1/hitl/batch": {
+      "post": {
+        "description": "Bulk approve / reject HITL requests (Plan 8 D8.6 / Task 9).\n\nEach id is processed in its own ``try``/``except`` so a single\nfailure never blocks the rest of the batch. The endpoint maps\nthe user-facing ``approve``/``reject`` wording to the\ncoordinator's internal ``accept``/``deny`` Literal, runs the\nsame coordinator + store + audit pipeline as the single-resolve\nendpoint, and reports per-id status.\n\nCaller MUST supply the FULL HITL ids (``\"{session_id}:{short}\"``)\nas returned by ``GET /api/v1/sessions/{sid}/hitl/pending``; the\nbatch endpoint does not auto-namespace because a batch typically\nspans multiple sessions.\n\nError mapping (per id):\n\n  * ``hitl_not_pending``      \u2014 request not currently pending.\n  * ``hitl_already_resolved`` \u2014 DB row already has a winning\n    decision (cross-worker race or post-resolve replay).\n  * ``internal_error``        \u2014 anything else; ``error_message``\n    carries the original exception's message.\n\nAudit: each successful resolve writes a ``hitl_batch_<action>``\nrow (``approve`` / ``reject`` wording preserved so a dashboard\naudit timeline can group by user-facing intent rather than the\ninternal accept/deny literal).",
+        "operationId": "batch_hitl_api_v1_hitl_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchHITLRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchHITLResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Batch Hitl",
+        "tags": [
+          "hitl"
+        ]
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "description": "List sessions newest-first with cursor pagination.\n\nPlan 7 D7.6 / Task 9. Pass ``after=<next_cursor>`` from a previous\nresponse to fetch the next page; ``limit`` is capped at 100 to keep\npage sizes bounded. The response body carries both the new\ncursor-shaped fields (``items`` + ``next_cursor``) and the\ndeprecated v0.6 fields (``sessions`` alias + ``total=-1`` sentinel)\nso existing clients keep working until 0.8.0.\n\nError mapping \u2014 body is a flat ``{\"detail\": msg, \"code\": ...}`` JSON\nobject (no nesting) so machine clients can dispatch on ``code``:\n  * 400 ``invalid_status``           \u2014 unknown ``status`` value\n  * 400 ``cursor_invalid``           \u2014 malformed ``after`` token\n  * 400 ``cursor_filter_mismatch``   \u2014 cursor was minted under a\n    different ``status`` / ``tag`` combination than the current\n    query (re-mint by dropping ``after`` and starting over)",
@@ -1124,6 +1403,48 @@
           }
         },
         "summary": "Submit Session",
+        "tags": [
+          "sessions"
+        ]
+      }
+    },
+    "/api/v1/sessions/batch": {
+      "post": {
+        "description": "Bulk cancel or retry sessions (Plan 8 D8.6 / Task 9).\n\nEach id is processed in its own ``try``/``except`` so a single\nfailure never blocks the rest of the batch \u2014 the response carries\na per-id status array. Counts are precomputed in ``summary``.\n\n**Cancel** \u2014 admin OR own-session per id (the per-id ownership\ncheck mirrors :func:`require_role_or_own_session` used on the\nsingle-session endpoint). A submitter trying to cancel another\nuser's session sees an ``error_code='forbidden_cancel'`` row,\nnot a 403 for the whole batch \u2014 the action still succeeds for\nsessions they own. Sessions that don't exist surface as\n``error_code='session_not_found'``.\n\n**Retry** \u2014 submitter+ for the WHOLE batch (the role guard at\nthe route level handles this); each id calls\n:meth:`SessionManager.retry`, which copies the original spec\nand submits a new session whose ``parent_session_id`` points at\nthe original. The new sid is returned as ``new_session_id`` so\nthe dashboard can link to it. Original sessions in any\nterminal status (paused / failed / cancelled / completed) are\neligible \u2014 retry doesn't enforce a status filter.\n\nAudit: every successful per-id action writes its own audit row\n(``session_batch_cancel`` for cancel; the retry path writes the\nstandard ``session_retry`` action via\n:meth:`SessionManager.retry` itself, so we don't double-audit\nhere). Per-id audit rows include the batch size in ``metadata``\nso the audit timeline can group by request.",
+        "operationId": "batch_sessions_api_v1_sessions_batch_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Batch Sessions",
         "tags": [
           "sessions"
         ]

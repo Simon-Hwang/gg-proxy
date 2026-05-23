@@ -54,6 +54,7 @@ from gg_relay.session.plugins.protocol import (
 from gg_relay.session.runner.bridge import WireBridge
 from gg_relay.session.runner.inprocess_control import InProcessBridge
 from gg_relay.session.spec import (
+    PluginManifest,
     RuntimeHandle,
     SessionRuntimeContext,
     SessionSpec,
@@ -272,6 +273,7 @@ class SessionManager:
         api_key_id: str | None = None,
         owner: str | None = None,
         description: str | None = None,
+        parent_session_id: str | None = None,
     ) -> str:
         """Enqueue a session for execution and return its id.
 
@@ -293,6 +295,12 @@ class SessionManager:
         passing the resolved string here. Keeping the manager
         framework-agnostic preserves the in-process call sites used
         by tests and future programmatic clients.
+
+        Plan 8 D8.6 / Task 9 — ``parent_session_id`` (optional) marks
+        the new row as the retry of an earlier session. Forwarded
+        verbatim to :meth:`SessionStore.create_session`; ``None``
+        leaves the column NULL (top-level submission). Set by
+        :meth:`retry`; client-facing endpoints do not accept it.
         """
         if not self._accepting_new:
             raise RuntimeError("SessionManager is shutting down; refusing new submit")
@@ -307,6 +315,7 @@ class SessionManager:
             tags=tuple(spec.tags),
             owner=owner,
             description=description,
+            parent_session_id=parent_session_id,
         )
         # Plan 8 D8.4 / Task 5 — explicit audit row for every session
         # creation. NOT yet inside the same transaction as
@@ -329,6 +338,7 @@ class SessionManager:
                 "trace_id": runtime_ctx.trace_id or None,
                 "has_description": description is not None,
                 "prompt_len": len(str(spec_redacted.get("prompt", ""))),
+                "parent_session_id": parent_session_id,
             },
         )
         await self._bus.publish(
@@ -416,6 +426,109 @@ class SessionManager:
             description=row.get("description"),
             frames=tuple(dict(r) for r in frames_rows),
         )
+
+    async def retry(
+        self, sid: str, *, actor: str | None = None
+    ) -> str:
+        """Submit a fresh session reusing the original's spec, return its id.
+
+        Plan 8 D8.6 / Task 9. Reads ``sessions.spec_json`` for ``sid``,
+        rebuilds a :class:`SessionSpec` (credentials are NOT persisted,
+        so the new submission runs without them — the executor must
+        either be ``inprocess`` or accept its credentials elsewhere)
+        and forwards to :meth:`submit` with ``parent_session_id=sid``.
+        The retry chain therefore lives entirely in the
+        ``sessions.parent_session_id`` column; no separate "retry"
+        table is needed.
+
+        ``actor`` (the API key label of the user requesting the retry)
+        is used for both the ``owner`` of the new session AND the
+        audit row's actor. When ``actor`` is ``None`` we fall back to
+        the original session's owner so an admin's batch retry of
+        someone else's session keeps the original attribution. The
+        audit row records ``parent_session_id`` in metadata so the
+        dashboard's audit timeline can render the retry edge.
+
+        Raises:
+            :class:`SessionNotFound` — ``sid`` does not exist.
+            :class:`gg_relay.core.RetryConfigError` — original spec
+                is missing fields required to reconstruct a viable
+                :class:`SessionSpec` (no prompt, no plugins).
+        """
+        original = await self._store.get_session(sid)
+        if original is None:
+            raise SessionNotFound(sid)
+
+        # Reconstruct the SessionSpec from the redacted spec_json. The
+        # plugins manifest is required (PluginManifest.__post_init__
+        # raises if profile/modules/skills are all empty), so we
+        # surface a RetryConfigError BEFORE calling submit() — that
+        # keeps the failure path symmetric with the "no prompt" case
+        # and avoids landing a half-baked sessions row.
+        spec_json = dict(original.get("spec_json") or {})
+        prompt = str(spec_json.get("prompt") or "")
+        if not prompt:
+            from gg_relay.core import RetryConfigError
+
+            raise RetryConfigError(
+                f"cannot retry session {sid}: persisted spec has no prompt"
+            )
+
+        plugins_data = spec_json.get("plugins") or {}
+        if not isinstance(plugins_data, Mapping):
+            plugins_data = {}
+        try:
+            plugins = PluginManifest(
+                profile=plugins_data.get("profile"),
+                modules=tuple(plugins_data.get("modules") or ()),
+                skills=tuple(plugins_data.get("skills") or ()),
+                with_components=tuple(plugins_data.get("with_components") or ()),
+                without_components=tuple(
+                    plugins_data.get("without_components") or ()
+                ),
+                extra_env=tuple(
+                    (k, v) for k, v in (plugins_data.get("extra_env") or [])
+                ),
+            )
+        except ValueError as exc:
+            from gg_relay.core import RetryConfigError
+
+            raise RetryConfigError(
+                f"cannot retry session {sid}: {exc}"
+            ) from exc
+
+        retry_spec = SessionSpec(
+            prompt=prompt,
+            cwd=Path(str(spec_json.get("cwd") or ".")),
+            plugins=plugins,
+            executor=str(spec_json.get("executor") or "inprocess"),  # type: ignore[arg-type]
+            timeout_s=int(spec_json.get("timeout_s") or self._default_timeout_s),
+            tags=tuple(spec_json.get("tags") or ()),
+        )
+
+        owner = actor or original.get("owner") or "anon"
+        original_desc = original.get("description")
+        new_description = (
+            original_desc if original_desc else f"Retry of {sid}"
+        )
+        new_sid = await self.submit(
+            retry_spec,
+            owner=owner,
+            description=new_description,
+            parent_session_id=sid,
+        )
+        await self._audit_record(
+            actor=owner,
+            action="session_retry",
+            target_type="session",
+            target_id=new_sid,
+            metadata={
+                "parent_session_id": sid,
+                "tags": list(retry_spec.tags),
+                "backend": retry_spec.executor,
+            },
+        )
+        return new_sid
 
     async def cancel(self, sid: str, *, reason: str = "user_request") -> None:
         """Cancel a running, queued, or paused session.

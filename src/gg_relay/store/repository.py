@@ -262,6 +262,7 @@ class SqlAlchemyStore:
         submitted_at: datetime | None = None,
         owner: str | None = None,
         description: str | None = None,
+        parent_session_id: str | None = None,
     ) -> None:
         """Insert a brand-new session in ``queued`` state.
 
@@ -271,6 +272,13 @@ class SqlAlchemyStore:
         persisted as-is. Truncation of ``description`` happens at
         the router layer; the store assumes the caller has already
         applied the 512-char cap.
+
+        Plan 8 D8.6 / Task 9 — ``parent_session_id`` (optional) marks
+        the row as the retry of an earlier session. ``None`` means
+        "top-level submission". The column is NOT enforced as a
+        foreign key (parent may be archived/deleted) so the store
+        layer accepts any 36-char string verbatim; the manager is
+        the source-of-truth for "did the parent really exist".
         """
         async with self._engine.begin() as conn:
             await conn.execute(
@@ -284,8 +292,33 @@ class SqlAlchemyStore:
                     backend=backend,
                     owner=owner,
                     description=description,
+                    parent_session_id=parent_session_id,
                 )
             )
+
+    async def list_children_of_session(
+        self, *, parent_session_id: str
+    ) -> list[RowMapping]:
+        """List sessions whose ``parent_session_id`` matches the argument.
+
+        Plan 8 D8.6 / Task 9. Powers the dashboard's retry-tree view —
+        passing the original session's id walks one level down to
+        every retry. Walking deeper trees (retry-of-retry) is the
+        caller's responsibility (recursive CTE in the dashboard
+        query layer); the store stays single-level so the
+        ``ix_sessions_parent_session_id`` index seek path remains
+        the dominant cost.
+
+        Rows are ordered by ``submitted_at`` ascending so the UI can
+        render the children in the order they were retried.
+        """
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(sessions)
+                .where(sessions.c.parent_session_id == parent_session_id)
+                .order_by(sessions.c.submitted_at.asc())
+            )
+            return list(result.mappings().all())
 
     async def update_session_status(
         self,

@@ -16,11 +16,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from gg_relay.api.dependencies.require_role import (
+    ROLE_HIERARCHY,
+    _resolve_role,
     require_role,
     require_role_or_own_session,
 )
 from gg_relay.api.deps import ApiKeyIdDep, ManagerDep
 from gg_relay.api.schemas import (
+    BatchSessionItem,
+    BatchSessionRequest,
+    BatchSessionResponse,
     CancelRequest,
     FrameOut,
     PauseRequest,
@@ -30,7 +35,7 @@ from gg_relay.api.schemas import (
     SessionResponse,
     SessionSubmitRequest,
 )
-from gg_relay.core import SDKError, SessionState
+from gg_relay.core import RetryConfigError, SDKError, SessionState
 from gg_relay.session.manager import (
     MaxPausedExceeded,
     ResumeQueueTimeout,
@@ -419,6 +424,175 @@ async def resume_session(
     return JSONResponse(
         {"status": "running", "session_id": session_id, "hint": hint or ""},
         status_code=202,
+    )
+
+
+# ── Plan 8 D8.6 / Task 9 — batch cancel / retry ──────────────────────
+
+
+@router.post(
+    "/batch",
+    response_model=BatchSessionResponse,
+    status_code=200,
+    dependencies=[Depends(require_role("submitter"))],
+)
+async def batch_sessions(
+    request: Request,
+    payload: BatchSessionRequest,
+    manager: SessionManager = ManagerDep,
+) -> BatchSessionResponse:
+    """Bulk cancel or retry sessions (Plan 8 D8.6 / Task 9).
+
+    Each id is processed in its own ``try``/``except`` so a single
+    failure never blocks the rest of the batch — the response carries
+    a per-id status array. Counts are precomputed in ``summary``.
+
+    **Cancel** — admin OR own-session per id (the per-id ownership
+    check mirrors :func:`require_role_or_own_session` used on the
+    single-session endpoint). A submitter trying to cancel another
+    user's session sees an ``error_code='forbidden_cancel'`` row,
+    not a 403 for the whole batch — the action still succeeds for
+    sessions they own. Sessions that don't exist surface as
+    ``error_code='session_not_found'``.
+
+    **Retry** — submitter+ for the WHOLE batch (the role guard at
+    the route level handles this); each id calls
+    :meth:`SessionManager.retry`, which copies the original spec
+    and submits a new session whose ``parent_session_id`` points at
+    the original. The new sid is returned as ``new_session_id`` so
+    the dashboard can link to it. Original sessions in any
+    terminal status (paused / failed / cancelled / completed) are
+    eligible — retry doesn't enforce a status filter.
+
+    Audit: every successful per-id action writes its own audit row
+    (``session_batch_cancel`` for cancel; the retry path writes the
+    standard ``session_retry`` action via
+    :meth:`SessionManager.retry` itself, so we don't double-audit
+    here). Per-id audit rows include the batch size in ``metadata``
+    so the audit timeline can group by request.
+    """
+    store = request.app.state.store
+    audit = request.app.state.audit_service
+    label = getattr(request.state, "api_key_label", None) or "anon"
+    role = _resolve_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+    batch_size = len(payload.ids)
+    items: list[BatchSessionItem] = []
+    ok_count = 0
+    error_count = 0
+
+    for sid in payload.ids:
+        try:
+            sess = await store.get_session(sid)
+            if sess is None:
+                items.append(
+                    BatchSessionItem(
+                        id=sid,
+                        status="error",
+                        error_code="session_not_found",
+                        error_message=f"session {sid} not found",
+                    )
+                )
+                error_count += 1
+                continue
+
+            if payload.action == "cancel":
+                # Per-id ownership check — admin can cancel anything;
+                # otherwise the session's owner must match the caller's
+                # api_key_label.
+                if not is_admin:
+                    sess_owner = (
+                        sess.get("owner") if hasattr(sess, "get") else None
+                    )
+                    if sess_owner != label:
+                        items.append(
+                            BatchSessionItem(
+                                id=sid,
+                                status="error",
+                                error_code="forbidden_cancel",
+                                error_message=(
+                                    "not session owner; admin role required "
+                                    "for cross-owner cancel"
+                                ),
+                            )
+                        )
+                        error_count += 1
+                        continue
+                await manager.cancel(
+                    sid, reason=payload.reason or "batch_cancel"
+                )
+                # Plan 8 D8.4 — explicit batch-cancel audit row so the
+                # audit timeline can group by ``session_batch_cancel``
+                # without falling through to ``session_cancel`` (which
+                # the manager already wrote inside ``cancel``).
+                if audit is not None:
+                    try:
+                        await audit.record(
+                            actor=label,
+                            action="session_batch_cancel",
+                            target_type="session",
+                            target_id=sid,
+                            metadata={
+                                "reason": payload.reason,
+                                "batch_size": batch_size,
+                            },
+                        )
+                    except Exception:  # pragma: no cover - defensive
+                        pass
+                items.append(BatchSessionItem(id=sid, status="ok"))
+                ok_count += 1
+            else:  # retry
+                new_sid = await manager.retry(sid, actor=label)
+                items.append(
+                    BatchSessionItem(
+                        id=sid, status="ok", new_session_id=new_sid
+                    )
+                )
+                ok_count += 1
+        except SessionNotFound:
+            items.append(
+                BatchSessionItem(
+                    id=sid,
+                    status="error",
+                    error_code="session_not_found",
+                    error_message=f"session {sid} not found",
+                )
+            )
+            error_count += 1
+        except RetryConfigError as exc:
+            items.append(
+                BatchSessionItem(
+                    id=sid,
+                    status="error",
+                    error_code="retry_config_error",
+                    error_message=str(exc),
+                )
+            )
+            error_count += 1
+        except SDKError as exc:
+            items.append(
+                BatchSessionItem(
+                    id=sid,
+                    status="error",
+                    error_code=f"sdk_{exc.category}",
+                    error_message=str(exc),
+                )
+            )
+            error_count += 1
+        except Exception as exc:  # pragma: no cover - defensive
+            items.append(
+                BatchSessionItem(
+                    id=sid,
+                    status="error",
+                    error_code="internal_error",
+                    error_message=str(exc),
+                )
+            )
+            error_count += 1
+
+    return BatchSessionResponse(
+        items=items,
+        summary={"ok": ok_count, "error": error_count},
     )
 
 

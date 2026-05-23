@@ -505,3 +505,62 @@ async def test_downgrade_0007_to_0006_roundtrip(sqlite_db_url: str):
     )
     sess_cols = await _columns(sqlite_db_url, "sessions")
     assert "owner" in sess_cols, "0005 owner lost on 0007 downgrade"
+
+
+# ── Plan 8 Task 9 / D8.6: parent_session_id (0008) ───────────────────
+
+
+async def test_chain_0001_to_0008_upgrade(sqlite_db_url: str):
+    """0001 → … → 0008 顺次 upgrade，sessions 含 parent_session_id 列
+    + ix_sessions_parent_session_id index.
+
+    Plan 8 D8.6 / Task 9. Verifies the retry-lineage column landed on
+    ``sessions`` and the equality index that powers
+    :meth:`SqlAlchemyStore.list_children_of_session` is present.
+    Sanity: 0007 ``session_comments`` table is still alive (we
+    didn't accidentally rebuild it).
+    """
+    _run_upgrade(sqlite_db_url, "head")
+
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "parent_session_id" in sess_cols, (
+        f"sessions.parent_session_id missing after 0008: {sess_cols}"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "sessions")
+    assert "ix_sessions_parent_session_id" in indexes, (
+        f"ix_sessions_parent_session_id missing: {indexes}"
+    )
+
+    # Sanity — 0007 session_comments table still present.
+    tables = await _table_names(sqlite_db_url)
+    assert "session_comments" in tables, (
+        "0007 session_comments lost after 0008 upgrade"
+    )
+
+
+async def test_downgrade_0008_to_0007_roundtrip(sqlite_db_url: str):
+    """upgrade head → downgrade -1 → parent_session_id + index 消失，
+    0007 session_comments 表仍保留 (验证只回滚 0008)."""
+    _run_upgrade(sqlite_db_url, "head")
+    _run_downgrade(sqlite_db_url, "0007")
+
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "parent_session_id" not in sess_cols, (
+        "sessions.parent_session_id survived downgrade to 0007"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "sessions")
+    assert "ix_sessions_parent_session_id" not in indexes, (
+        "ix_sessions_parent_session_id survived downgrade to 0007"
+    )
+
+    # 0007 session_comments + earlier migrations must still be alive
+    # — only 0008 was rolled back.
+    tables = await _table_names(sqlite_db_url)
+    assert "session_comments" in tables, (
+        "0007 session_comments lost on 0008 downgrade"
+    )
+    assert "audit_log" in tables, (
+        "0006 audit_log lost on 0008 downgrade"
+    )
