@@ -1,0 +1,32 @@
+tests/integration/test_dashboard_batch_toolbar.py
+  s_13b91ac89237d6::t_ec0636034a454b 1-30,32-43,50-55,60-73,75-224
+  s_13b91ac89237d6::t_0192198bbc83e3 31,44-49,56-59,74
+src/gg_relay/dashboard/static/batch_toolbar.js
+  s_13b91ac89237d6::t_cba3ef94f6b93b 1-277
+src/gg_relay/dashboard/templates/_batch_toolbar.html
+  s_13b91ac89237d6::t_65744ebea65228 1-44
+src/gg_relay/dashboard/templates/_kanban_card.html
+  s_13b91ac89237d6::t_086acd822ed648 2-12
+src/gg_relay/dashboard/templates/kanban.html
+  s_13b91ac89237d6::t_88755b785457c0 10-14,20-24,28,36-39
+src/gg_relay/api/main.py
+  s_13b91ac89237d6::t_9d665d85d9a651 471-475,477-492,520-523,528-543
+src/gg_relay/dashboard/static/app.css
+  s_13b91ac89237d6::t_a7b065c32131ee 97-146
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "ad12db413e0666659f3f8f58c886f95d77de1749",
+  "prompts": {},
+  "sessions": {
+    "s_13b91ac89237d6": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "d99bc7dc-f51c-4711-82d8-04672e8161e3",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
