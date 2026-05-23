@@ -1,6 +1,21 @@
 # Plan 7 — Foundation Recovery & Production Readiness
 
-**作者**: gg-relay  **创建**: 2026-05-23  **修订**: v2.1 (Santa Round 1 + Round 2 整合)  **状态**: 🟢 **LOCKED** — Santa Method 双轮通过，可执行
+**作者**: gg-relay  **创建**: 2026-05-23  **修订**: v2.3 (Plan 7 v2.2 micro-Santa 6 BLOCKER 全修)  **状态**: 🟢 **LOCKED** — Santa Method 双轮通过 + v2.2 增量 + v2.3 micro-Santa 修复
+
+> **v2.2 → v2.3 关键修复**（Plan 7 v2.2 micro-Santa 找出 6 BLOCKER 全部吸收）：
+> 1. **Task 6b 移到 Task 7 之后**（因 0005 `down_revision = 0004`）+ §6 module layout 加 0005
+> 2. **Task 17 final gate alembic 链改 0001→0005**（原残留 0001→0004）+ test 表"Migrations chain 0001-0005"
+> 3. **D7.4 SessionStore Protocol 加 owner/description 参数**：`create_session(..., owner: str | None = None, description: str | None = None)` + Task 5 同步
+> 4. **manager.submit 数据流修正**：router 显式从 `request.state.api_key_label` 取 owner 传给 manager（不是 manager 反向取 request.state）；manager.submit signature 加 `owner: str | None = None, description: str | None = None`
+> 5. **Config 旧 `api_keys` property 保留为兼容视图**：`@property def api_keys(self) -> set[str]: return set(self.api_keys_with_labels.keys())`；`api/main.py` 改传 `api_keys_with_labels` dict 给 middleware
+> 6. **parser 旧裸 key 含冒号"100% 兼容"不成立 → 调整**：parser 仅识别 `^[A-Za-z0-9_-]+[:=][A-Za-z0-9_-]+$` 为带 label；否则整 token 作 key（auto label = `key-{hash[:8]}`）；多冒号 `key:val:extra` 当前会被识别为 key=key, label=val:extra → 改为"含 `:` 但首段不匹配 alphanum 即视作纯 key 不切分"
+> 
+> **v2.1 → v2.2 变化**（单团队多人维护场景对齐，micro 增量）：
+> - **+D7.26 协作元数据**：`sessions.owner` + `sessions.description` 列（Alembic 0005）+ Config `api_keys_with_labels` 替代裸 keys + APIKeyMiddleware 同时 set `request.state.api_key_label` + POST /sessions auto-attribute owner from label
+> - **+Task 6b** Alembic 0005 + auto-attribute middleware（与 Task 6 同批 batch_alter_table）
+> - 不变：release.yml 对外能力 / pip-licenses gate / production_mode 强制 Postgres（用户决策保留）
+> - 不入 Plan 7：Kanban owner filter / CLI 子命令 / 列表视图（推 Plan 8 D8.0 与其他 UX 协作改同批做）
+> - **Task 19 → 19；AC 32；test ~125**
 
 > **v2 → v2.1 关键变化**（Santa Method Round 2 fix，6 BLOCKER 修复）：
 > 1. **D7.14 修配置事实**：`feishu_enabled` 不存在 → 改 `_feishu_configured()` helper（`app_id ∧ app_secret`）+ webhook secret 必填条件
@@ -438,6 +453,23 @@ async def readyz(request: Request) -> Response:
 - `scripts/dev.sh` (Round 2 review) — 永不引入；推 Makefile target 替代（已在 D7.12 加 `make load-*`）
 - `@pytest.mark.e2e` marker (Round 2 review) — 永不引入；现有 `tests/integration/` 路径 + 文件命名 `test_*_e2e.py` 与 `@requires_docker` 已是 de-facto e2e
 
+### NEW D7.26 — Team collaboration metadata (v2.2 单团队多人维护场景)
+**已锁定**：
+- **不引入 `api_keys` 表**（避免大改动）；改扩 `Config.api_keys_raw` env 格式支持 label：
+  - 旧：`RELAY_API_KEYS_RAW="key1,key2,key3"`（兼容）
+  - 新：`RELAY_API_KEYS_RAW="key1:alice,key2:bob,key3:charlie"` 或 `"alice=key1,bob=key2"` 二选一格式（解析器自动识别）
+  - `Config._parse_keys()` 返回 `dict[str, str]` (key → label)；无 label 的 key 默认 label = `f"key-{key_hash[:8]}"`
+- `APIKeyMiddleware`（D7.15 改造的基础上）同时 set：
+  - `request.state.api_key_id` = sha256(key)[:16] （已有）
+  - `request.state.api_key_label` = label or `f"anon-{api_key_id[:6]}"`
+- Alembic 0005 加 `sessions.owner String(64) NULL` + `sessions.description String(512) NULL`（同 batch_alter_table 一次）
+- `POST /api/v1/sessions` 改：
+  - body 含可选 `owner: str | None`；空时 manager.submit 用 `request.state.api_key_label` 自动填
+  - body 含可选 `description: str | None`（≤ 512 chars，超长截断 + warn header）
+- `SessionResponse` schema 加 `owner` + `description` 字段（None-tolerant）
+- 旧 client（不传 owner）行为不变（auto-attribute 兜底）
+- Plan 8 D8.0 在此基础上加 Kanban owner 列 / 按 owner filter / CLI 子命令
+
 ### NEW D7.25 — SDK error taxonomy (Round 2 BLOCKER fix)
 **已锁定**：把现有 `BaseException → 'error' frame → 'failed' generic` 升级到结构化分类，便于 trace/IM card/dashboard 分流：
 
@@ -499,6 +531,7 @@ class SDKUnknownError(SDKError):
 | **D7.23** | OTEL env compat | **Config AliasChoices(RELAY_OTEL_ENDPOINT 优先, OTEL_EXPORTER_OTLP_ENDPOINT fallback)** |
 | **D7.24** | Out-of-scope | **PLAN §8/§16 部分 superseded，仅加 webhook alias + scripts/dev.sh / @pytest.mark.e2e 永不引入** |
 | **D7.25** | SDK error taxonomy | **6 类 SDKError + http_status + retryable + frame.category + finalize span attr + API error_category 字段** |
+| **D7.26** | 协作元数据 (v2.2) | **api_keys_raw 扩 label 格式 + APIKeyMiddleware 设 api_key_label + Alembic 0005 加 sessions.owner+description + POST /sessions auto-attribute owner from label** |
 
 ## 6. Module layout
 
@@ -598,7 +631,7 @@ tests/
     └── test_webhooks_alias.py                     # NEW
 ```
 
-## 7. Task Breakdown — 18 tasks（按依赖排序，含 Task 0 reconciliation）
+## 7. Task Breakdown — 19 tasks（按依赖排序，含 Task 0 reconciliation + Task 6b 协作元数据）
 
 ### Task 0 — Spec / PLAN.md contract reconciliation (D7.13 + D7.24)
 
@@ -781,6 +814,132 @@ def downgrade() -> None: ...
 **Tests** (~4): upgrade/downgrade roundtrip; 0001→0002→0003 链；SQLite + Postgres（requires_docker）
 
 **DOD**: 0003 链清晰 down_revision 正确 + roundtrip + 联合 0001+0002+0003 联调
+
+### Task 6b — Alembic 0005 + auto-attribute owner middleware (D7.26, v2.2; **位置 v2.3 修复**：在 Task 7 之后，因 0005 `down_revision = 0004_add_events_table`)
+
+> **位置说明**：Task 6 → Task 7 → **Task 6b**。本 task 编号保 6b 仅为可读性（v2.2 历史），实际执行顺序在 0003+0004 之后。
+
+**Files**: `src/gg_relay/store/migrations/versions/0005_*.py` (NEW), `schema.py` (modify), `config.py` (`api_keys_with_labels` parser + `api_keys` property 保留兼容), `api/main.py` (改传 `api_keys_with_labels` dict 给 middleware), `api/middleware/api_key_auth.py` (extend Plan 7 D7.15: 接 dict + set api_key_label), **`store/protocol.py` (modify: SessionStore.create_session 加 owner+description 参数)**, **`store/repository.py` (modify: SqlAlchemyStore.create_session 写 owner+description)**, `session/manager.py` (`submit(..., owner=None, description=None)` kwarg signature), `api/routers/sessions.py` (body forwarding + **router 显式从 request.state.api_key_label 取 owner 传 manager**), `api/schemas.py` (`SessionResponse` + `SessionRequest` 加 owner+description), `tests/unit/api/test_api_key_label_parser.py` + `test_owner_auto_attribute.py` + `tests/integration/test_session_owner_e2e.py` (NEW)
+
+```python
+# Alembic 0005
+revision = "0005_session_collaboration_metadata"
+down_revision = "0004_add_events_table"
+
+def upgrade() -> None:
+    with op.batch_alter_table("sessions") as b:
+        b.add_column(sa.Column("owner", sa.String(64), nullable=True))
+        b.add_column(sa.Column("description", sa.String(512), nullable=True))
+    op.create_index("ix_sessions_owner", "sessions", ["owner"])
+
+def downgrade() -> None: ...
+```
+
+```python
+# config.py — parser (v2.3 修复：仅 alphanum 切分，多冒号/旧格式不破)
+import re
+_LABEL_TOKEN = re.compile(r"^([A-Za-z0-9_-]+)([:=])([A-Za-z0-9_-]+)$")
+
+def _parse_keys_with_labels(raw: str) -> dict[str, str]:
+    """Parse RELAY_API_KEYS_RAW. Format detection per-token:
+    - "alphanum:alphanum"  → key:label  (`:` separator)
+    - "alphanum=alphanum"  → label=key  (`=` separator)
+    - 其他（含多冒号 / 旧裸 key / 含非 alphanum 字符）→ 整 token 作 key，
+      label = "key-<sha256(key)[:8]>"  (legacy-safe，旧客户端 0 影响)
+    Returns dict key -> label. 重复 label warn + last-wins.
+    """
+    result: dict[str, str] = {}
+    seen_labels: dict[str, str] = {}
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if not tok: continue
+        m = _LABEL_TOKEN.match(tok)
+        if m:
+            first, sep, second = m.group(1), m.group(2), m.group(3)
+            if sep == ":":
+                k, lbl = first, second
+            else:  # "="
+                lbl, k = first, second
+        else:
+            k = tok
+            lbl = f"key-{hashlib.sha256(tok.encode()).hexdigest()[:8]}"
+        if lbl in seen_labels and seen_labels[lbl] != k:
+            logger.warning("duplicate api_key label", label=lbl)
+        result[k] = lbl
+        seen_labels[lbl] = k
+    return result
+
+# v2.3 修复：保留旧 api_keys property 作兼容视图
+class Config:
+    api_keys_raw: str = ""
+    @property
+    def api_keys_with_labels(self) -> dict[str, str]:
+        return _parse_keys_with_labels(self.api_keys_raw)
+    @property
+    def api_keys(self) -> set[str]:
+        """Legacy view (returns only keys, drops labels). Kept for backward
+        compat in CLI / check-secrets / any caller still using set semantics."""
+        return set(self.api_keys_with_labels.keys())
+
+# api_key_auth.py (extend D7.15)
+class APIKeyAuthMiddleware:
+    def __init__(self, app, *, keys_with_labels: Mapping[str, str], ...):
+        self._keys_with_labels = dict(keys_with_labels)
+    async def dispatch(self, request, call_next):
+        header = request.headers.get("x-api-key", "")
+        if not header: return _401("missing")
+        for k, label in self._keys_with_labels.items():
+            if stdlib_secrets.compare_digest(header, k):
+                request.state.api_key_id = hashlib.sha256(k.encode()).hexdigest()[:16]
+                request.state.api_key_label = label
+                return await call_next(request)
+        return _401("invalid")
+
+# api/main.py — wire dict (not set)
+app.add_middleware(APIKeyAuthMiddleware, keys_with_labels=cfg.api_keys_with_labels, ...)
+
+# api/routers/sessions.py — v2.3: router 显式取 + 传，不让 manager 反向取 request.state
+@router.post("/sessions")
+async def create_session(req: SessionRequest, request: Request, manager: SessionManager = ManagerDep):
+    owner = req.owner or getattr(request.state, "api_key_label", None) or "anon"
+    description = req.description
+    response = None
+    if description and len(description) > 512:
+        description = description[:512]
+        response_headers = {"X-Description-Truncated": "true"}
+    else:
+        response_headers = {}
+    sid = await manager.submit(..., owner=owner, description=description)
+    return JSONResponse({"id": sid, ...}, headers=response_headers)
+
+# session/manager.py — signature 加 owner+description（不读 request.state）
+async def submit(self, *, prompt, tags, owner: str | None = None, description: str | None = None, ...) -> str:
+    sid = uuid4()
+    await self._store.create_session(id=sid, prompt=prompt, tags=tags, owner=owner, description=description, ...)
+    ...
+
+# store/protocol.py — SessionStore.create_session signature
+class SessionStore(Protocol):
+    async def create_session(self, *, id: str, prompt: str, tags: list[str],
+                             owner: str | None = None, description: str | None = None,
+                             ...) -> None: ...
+```
+
+**Tests** (~12, v2.3 扩):
+- parser: 3 种 format（legacy / key:label / label=key）+ 多冒号 `key:val:extra` (整体作 key) + 含非 alphanum `k/e/y` (整体作 key)
+- parser: 重复 label warn + last-wins
+- parser: 旧裸 key `"sk-abc-123"` 仍 work（auto label）
+- Config: 新增 `api_keys_with_labels` dict + 兼容 `api_keys` set 同时可用 + check-secrets 仍 work
+- middleware: 接 dict 构造 / api_key_label 设值正确 / 缺 label 走 `key-{hash[:8]}`
+- middleware: `api/main.py` 改传 dict 后旧测试 `test_api_key_auth.py` 仍全绿
+- auto-attribute: router 显式 `req.owner or request.state.api_key_label` 优先级测试
+- description 截断：> 512 chars → 截 + `X-Description-Truncated: true` header
+- API response: SessionResponse 含 owner+description；OpenAPI snapshot 更新
+- Store Protocol conformance: `create_session(..., owner, description)` 签名匹配 (mypy strict)
+- repository: SqlAlchemyStore.create_session 写 owner+description 入 DB
+- integration: alice 提交 → DB sessions.owner='alice'；bob 提交带 description → 详情页显示
+
+**DOD**: 单团队多人协作基础元数据齐全 + Config 旧 `api_keys` 兼容视图保留 + parser 旧裸 key 100% 兼容 (含 `:` 多冒号 / 含特殊字符) + auto-attribute 数据流走 router + manager.submit signature 显式 + SessionStore Protocol 签名同步 + repository 持久化
 
 ### Task 7 — Alembic 0004 (events table for durable bus, D7.17)
 
@@ -1289,7 +1448,7 @@ Makefile add `update-openapi-snapshot: uv run python scripts/dump_openapi.py > d
   - **实测 coverage delta**：`0.6.0 baseline = 90.7% → 0.7.0 actual = X.X%`（必填）
 - `pyproject.toml` version 0.7.0
 - README 加 LICENSE badge + Plan 7 highlights 段（接在 Plan 5/6 之后）
-- 跑全套：`ruff check`、`mypy --strict`、`pytest -q --cov-fail-under=88`、`alembic upgrade head && downgrade base && upgrade head`（0001-0004 链）、**`bash scripts/check_oos.sh`** (OOS allowlist gate)、**`uv run python scripts/check_version_sync.py 0.7.0`**
+- 跑全套：`ruff check`、`mypy --strict`、`pytest -q --cov-fail-under=88`、`alembic upgrade head && downgrade base && upgrade head`（0001-**0005** 链，v2.3 修复）、**`bash scripts/check_oos.sh`** (OOS allowlist gate)、**`uv run python scripts/check_version_sync.py 0.7.0`**
 
 **DOD**: 全 gate 绿 + spec + CHANGELOG + version 三源一致
 
@@ -1319,7 +1478,7 @@ Makefile add `update-openapi-snapshot: uv run python scripts/dump_openapi.py > d
 | Integration: secrets fail-fast | 3 | Task 11 |
 | Integration: webhooks alias | 3 | Task 12 |
 | Integration: health DB check | 3 | Task 15 |
-| Integration: migrations chain 0001-0004 | 4 | Task 6/7 |
+| Integration: migrations chain 0001-**0005** (v2.3) | 5 | Task 6/7/6b |
 | Integration: OpenAPI snapshot drift | 1 | Task 16 |
 | Integration: dev compose syntax | 3 | Task 16 |
 | Integration: CI workflow extras parity | 1 | Task 2 |
@@ -1328,7 +1487,8 @@ Makefile add `update-openapi-snapshot: uv run python scripts/dump_openapi.py > d
 | **Unit: SDKError taxonomy classify** | **4** | **Task 14 (D7.25 Round 2 新增)** |
 | **Unit: DurableEventStore Protocol + InMemory impl** | **3** | **Task 13 (D7.17 Round 2 修)** |
 | **Unit: api_key_id hash (deps 不传明文)** | **2** | **Task 11 (Round 2 新增)** |
-| **Total 新增** | **~114** | 远超 Plan 7 v1 估算的 47 |
+| **Unit + Integration: D7.26 协作元数据 (v2.3 扩)** | **12** | **Task 6b (v2.2 新增, v2.3 扩 5 项)** |
+| **Total 新增** | **~126** | 远超 Plan 7 v1 估算的 47 |
 
 Plan 6 后基线 593 → Plan 7 后 ≈ **~700 tests**；coverage gate 维持 88%（仍宽，Plan 7 加了大量 deploy/docs/middleware 不计入）
 
@@ -1421,6 +1581,8 @@ Plan 6 后基线 593 → Plan 7 后 ≈ **~700 tests**；coverage gate 维持 88
 28. ✅ **OOS grep allowlist 验证**：`scripts/check_oos.sh` 运行 → 新增/修改源码（exclude `docs/superpowers/plans/`、`CHANGELOG.md`、历史 specs）grep 命中以下任一字符串即 fail：`dingtalk`、`slack_backend`、`SessionRecord`、`SessionState.PENDING`、`SessionState.CRASHED`、`importlib.metadata.entry_points("gg_relay.im_backends")`、`/ui/events`、`/health\b`、`/api/v1/hitl/.*/approve`、`pytest.mark.e2e`、`scripts/dev.sh`
 29. ✅ squash merge → main + tag v0.7.0 → release.yml 实际跑通 + GHCR tags `v0.7.0 + 0.7.0 + 0.7` 三个
 30. ✅ Task 0 reconciliation：spec §X + PLAN.md 头部 note 已同步 + 提供 grep diff 证据
+31. ✅ **D7.26 协作元数据**：`RELAY_API_KEYS_RAW="alice=key1,bob=key2"` 解析 → `request.state.api_key_label == "alice"`；POST /sessions 无 owner body → DB `sessions.owner='alice'`；body owner 显式 override 生效；description > 512 chars 截断 + `X-Description-Truncated: true` header
+32. ✅ Alembic 0005 upgrade/downgrade roundtrip + 0001→**0005** 链（v2.3 修复 final gate）；`sessions.owner` + `sessions.description` 列 + `ix_sessions_owner` index；旧 `RELAY_API_KEYS_RAW="key1,key2"` + 含冒号裸 key `"sk:abc:123"` + 含 `=` 裸 key 等 100% 兼容（parser regex 仅识别 alphanum-only 模式为 label 分隔）；Config 旧 `api_keys` (set) 兼容视图保留；SessionStore Protocol + SqlAlchemyStore 同步加 owner/description 参数；OpenAPI snapshot 包含 owner+description
 
 ## 12. Out-of-scope verification
 
