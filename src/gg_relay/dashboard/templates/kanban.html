@@ -7,21 +7,36 @@
     (read-only — drag-to-reassign is intentionally not implemented).
 </p>
 
+{# Plan 8 Task 10 / D8.6 — batch toolbar (sticky-top). Hidden until
+   the first checkbox flips; the JS in ``batch_toolbar.js`` owns the
+   visibility + button state. #}
+{% include "_batch_toolbar.html" %}
+
 <section id="kanban-chart-wrap">
     <h3>Tokens &amp; cost — last hour</h3>
     <canvas id="kanban-chart" width="800" height="220"></canvas>
 </section>
 
+{# Plan 8 Task 10: kanban-board-outer additionally listens for the
+   ``kanban:reload`` custom event (dispatched on <body> by the batch
+   toolbar after a successful POST /api/v1/sessions/batch). The
+   existing 5s polling + SSE swap is preserved; the reload trigger
+   just shortens the time-to-fresh-state after a batch action. #}
 <div
     id="kanban-board-outer"
     hx-get="/dashboard/kanban/board"
-    hx-trigger="every 5s"
+    hx-trigger="every 5s, kanban:reload from:body"
     hx-target="#kanban-board-outer"
     hx-swap="outerHTML"
     sse-connect="/dashboard/kanban/stream"
 >
     {% include "_kanban_board.html" %}
 </div>
+
+{# Plan 8 Task 10: batch-toolbar selection + dispatch script. Loaded
+   ``defer`` so the inline Chart.js bootstrap below still gets the
+   global ``Chart`` symbol before the script runs. #}
+<script src="/dashboard/static/batch_toolbar.js" defer></script>
 
 <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/sse.js"></script>
 {% if chart_js_offline %}

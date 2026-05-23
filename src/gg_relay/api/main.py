@@ -468,27 +468,28 @@ def create_app(config: Config | None = None) -> FastAPI:
     # second derivation pass.
     app.state.dashboard_internal_keys = dashboard_internal_keys
     # Middleware add order is the *reverse* of dispatch order: the last
-    # one added is the outermost layer and runs first. We want
-    #   DashboardCookie → APIKey → AuditFallback → RateLimit → Logging
-    #   → Session → router
-    # so we add Session first (innermost) and DashboardCookie last
+    # one added is the outermost layer and runs first. We want runtime
+    # dispatch order:
+    #   Session → DashboardCookie → APIKey → AuditFallback → RateLimit
+    #   → Logging → router
+    # so we add Logging FIRST (innermost) and SessionMiddleware LAST
     # (outermost). Plan 8 Task 5 inserts AuditFallback between
-    # RateLimit (added before) and APIKey (added after) — so at
-    # dispatch time AuditFallback runs *after* APIKey has populated
-    # ``request.state.api_key_label`` (the actor) and *before*
-    # RateLimit forwards into the router.
-    session_secret = (
-        config.dashboard_session_secret.get_secret_value()
-        if config is not None
-        and config.dashboard_session_secret is not None
-        else "dev-only-session-secret-do-not-use"
-    )
-    app.add_middleware(
-        SessionMiddleware,
-        secret_key=session_secret,
-        session_cookie="gg_relay_session",
-        same_site="lax",
-    )
+    # RateLimit and APIKey — at dispatch time AuditFallback runs
+    # *after* APIKey has populated ``request.state.api_key_label``
+    # (the actor) and *before* RateLimit forwards into the router.
+    #
+    # Plan 8 Task 10 fix: SessionMiddleware MUST be outer to
+    # DashboardCookieMiddleware so the cookie is decoded into
+    # ``request.scope['session']`` BEFORE DashboardCookie tries to
+    # read it. Previously SessionMiddleware was added first (=
+    # innermost) which meant DashboardCookie always saw an empty
+    # session and silently never injected the synthetic ``X-API-Key``
+    # for the /api/v1/* mutation path — making the dashboard
+    # comments-POST / batch-cancel / batch-retry cookie auth flow
+    # an unintended no-op (every cookie-only POST 401'd). The unit
+    # test in tests/unit/api/test_dashboard_cookie_middleware.py
+    # uses this corrected ordering; aligning create_app() with the
+    # unit-test contract closes the regression.
     app.add_middleware(StructuredLoggingMiddleware)
     if cfg.rate_limit_enabled:
         rate_limiter = TokenBucketRateLimiter(
@@ -516,14 +517,30 @@ def create_app(config: Config | None = None) -> FastAPI:
         protected_prefix="/api/v1",
         allow_no_keys=not augmented_keys_with_labels,
     )
-    # Outermost: DashboardCookie sees the raw request first, reads the
-    # cookie session, and (for /api/v1/*) rewrites the X-API-Key
-    # header BEFORE APIKey middleware runs. This guarantees the
-    # single identity contract (D8.25): the cookie wins over any
-    # accidentally-attached X-API-Key header.
+    # DashboardCookie reads the cookie session and (for /api/v1/*)
+    # rewrites the X-API-Key header BEFORE APIKey middleware runs.
+    # This guarantees the single identity contract (D8.25): the
+    # cookie wins over any accidentally-attached X-API-Key header.
     app.add_middleware(
         DashboardCookieMiddleware,
         dashboard_internal_keys=dashboard_internal_keys,
+    )
+    # Outermost: SessionMiddleware decodes the signed cookie into
+    # ``request.scope['session']`` so DashboardCookieMiddleware can
+    # read it on the way in (BaseHTTPMiddleware's ``request.session``
+    # accessor would otherwise raise AssertionError because the
+    # scope key wouldn't be populated yet).
+    session_secret = (
+        config.dashboard_session_secret.get_secret_value()
+        if config is not None
+        and config.dashboard_session_secret is not None
+        else "dev-only-session-secret-do-not-use"
+    )
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=session_secret,
+        session_cookie="gg_relay_session",
+        same_site="lax",
     )
     # Routers.
     app.include_router(sessions_router, prefix="/api/v1")

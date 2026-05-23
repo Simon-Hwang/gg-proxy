@@ -1,0 +1,44 @@
+{# Plan 8 Task 10 / D8.6 — batch toolbar shared across kanban (and
+   future list views). Rendered hidden until the first card is
+   selected; ``batch_toolbar.js`` flips ``.hidden`` based on the
+   in-memory ``Set<sessionId>`` it maintains.
+
+   Star / Tag buttons are intentionally omitted — Star ships with
+   Task 13 (favorites endpoint not yet implemented) and Tag is
+   Plan 9+ scope.
+
+   Buttons start disabled (count == 0); the JS enables them in
+   ``updateUI`` once the selection becomes non-empty so the disabled
+   state mirrors the toolbar visibility. #}
+<div
+    id="batch-toolbar"
+    class="batch-toolbar hidden"
+    data-selected-count="0"
+    role="region"
+    aria-label="Batch actions"
+>
+    <span class="batch-count">
+        <span id="batch-count">0</span> selected
+    </span>
+    <div class="batch-actions">
+        <button
+            type="button"
+            id="btn-batch-cancel"
+            class="btn btn-danger"
+            disabled
+        >Cancel</button>
+        <button
+            type="button"
+            id="btn-batch-retry"
+            class="btn btn-primary"
+            disabled
+        >Retry</button>
+        <button
+            type="button"
+            id="btn-batch-clear"
+            class="btn btn-link"
+            disabled
+        >Clear selection</button>
+    </div>
+    <div id="batch-result" class="batch-result" role="status" aria-live="polite"></div>
+</div>

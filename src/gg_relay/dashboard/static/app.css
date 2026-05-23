@@ -94,3 +94,53 @@ pre.spec-json, pre.frame-payload, pre.hitl-args { background: var(--panel); padd
 .login-card label { display: block; margin-bottom: 12px; }
 .login-card input { width: 100%; padding: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
 .login-card button { width: 100%; padding: 10px; background: var(--accent); color: var(--bg); border: none; border-radius: 4px; font-weight: 600; cursor: pointer; }
+
+/* Plan 8 Task 10 / D8.6 — batch toolbar (sticky-top, dark theme).
+   Styles intentionally use the existing CSS variables so the toolbar
+   blends with the rest of the dashboard. The ``.hidden`` modifier is
+   toggled by ``batch_toolbar.js`` and supersedes the default flex
+   layout (``display: none`` wins per CSS specificity ordering). */
+.batch-toolbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 16px;
+    margin: 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.batch-toolbar.hidden { display: none; }
+.batch-count { font-weight: 600; color: var(--accent); }
+.batch-actions { display: flex; gap: 8px; }
+.btn {
+    padding: 6px 14px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    cursor: pointer;
+    font-size: 0.9em;
+}
+.btn-danger { background: var(--danger); color: var(--bg); border-color: var(--danger); }
+.btn-primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.btn-link { background: none; border: none; color: var(--accent); text-decoration: underline; padding: 6px 8px; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.batch-result { margin-left: auto; font-size: 0.85em; min-width: 0; }
+.batch-result .success { color: var(--success); }
+.batch-result .error { color: var(--danger); }
+.batch-result .pending { color: var(--muted); font-style: italic; }
+.batch-errors { margin: 6px 0 0 16px; padding: 0; font-size: 0.8em; color: var(--muted); list-style: disc; }
+.batch-errors code { color: var(--accent); font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+/* Card-level checkbox + selected highlight. The checkbox sits in
+   the top-right corner via flexbox order — keeps the card body
+   click-target intact. */
+.kanban-card { position: relative; display: flex; gap: 6px; align-items: flex-start; }
+.kanban-card .kanban-card-link { flex: 1; min-width: 0; }
+.bulk-select { margin: 4px 0 0 2px; cursor: pointer; flex-shrink: 0; }
+.kanban-card.selected { outline: 2px solid var(--accent); outline-offset: -1px; }

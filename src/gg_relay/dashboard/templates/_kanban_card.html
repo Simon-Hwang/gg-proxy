@@ -1,4 +1,15 @@
 <li class="kanban-card kanban-card-{{ s.status.value }}" data-session-id="{{ s.id }}">
+    {# Plan 8 Task 10 / D8.6: bulk-select checkbox for batch toolbar.
+       Sits *outside* the anchor so clicking it never triggers the
+       card-level navigation. The toolbar JS (batch_toolbar.js)
+       toggles ``.selected`` on the host ``<li>`` to render the
+       highlight ring. #}
+    <input
+        type="checkbox"
+        class="bulk-select"
+        data-session-id="{{ s.id }}"
+        aria-label="Select session {{ s.id }}"
+    />
     <a href="/dashboard/sessions/{{ s.id }}" class="kanban-card-link">
         <div class="kanban-card-id">{{ s.id }}</div>
         <div class="kanban-card-meta">
