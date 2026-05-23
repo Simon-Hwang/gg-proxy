@@ -9,7 +9,6 @@ minimal Starlette app to assert exempt-path bypass.
 from __future__ import annotations
 
 import asyncio
-import time
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -22,7 +21,6 @@ from gg_relay.api.middleware.rate_limit import (
     RateLimitMiddleware,
     TokenBucketRateLimiter,
 )
-
 
 # ── token bucket algorithm ────────────────────────────────────────────
 

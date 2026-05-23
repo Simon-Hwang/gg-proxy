@@ -36,7 +36,6 @@ from gg_relay.store import (
     make_async_engine,
 )
 
-
 pytestmark = pytest.mark.asyncio
 
 

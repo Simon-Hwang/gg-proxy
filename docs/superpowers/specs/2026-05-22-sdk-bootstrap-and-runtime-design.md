@@ -1458,3 +1458,40 @@ must:
 4. **Never** rewrite PLAN.md historical body — the v1 Santa Method
    audit trail is preserved verbatim.
 
+### 17.7 Plan 7 Foundation Recovery (2026-05-23)
+
+*Closing summary for Plan 7 v2.3 — Task 17 final gate.*
+
+Plan 7 v2.3 delivered 25 decisions (D7.1–D7.26) across 17 tasks, landed
+in commits `280f7d0`…`<task-17 release commit>` on `main`. Highlights
+mapped back to spec items:
+
+| Spec area                              | Plan 7 decision | Result |
+|----------------------------------------|-----------------|--------|
+| §5 `SessionStore` Protocol             | D7.4            | 3-way split (`SessionStore` / `FrameStore` / `HITLStore`, all `runtime_checkable`); `SessionRepository` → `SqlAlchemyStore` alias with `DeprecationWarning` |
+| §5 SDK error contract                  | D7.25           | `core.SDKError` taxonomy + 6 subclasses (`SDKConnectError` / `SDKQueryError` / `SDKPermissionError` / `SDKTransportError` / `SDKTimeoutError` / `SDKUnknownError`) + `classify_sdk_error()` helper; API responses carry `error_category` |
+| §6 EventBus durable tier               | D7.17           | `core.DurableEventStore` Protocol + `SqlAlchemyDurableEventStore` + `InMemoryDurableEventStore`; monotonic `seq` powers SSE `Last-Event-ID` replay (`<seq>:<uuid>`) |
+| §7 HITL                                | D7.5            | Optimistic locking on `hitl_requests.version`; `HITLAlreadyResolved(first_decision=…)` carries first payload; coordinator reads version before resolve so the race is closed at coordinator layer, not just at the router |
+| §10 OTel tracing                       | D7.9            | 3-tier hierarchy (`relay.session` root → per-run `relay.session.run` → fixed-name `relay.tool_call` with tool in attribute to prevent high-cardinality); PAUSED / RESUME split runs while reusing the root; `relay.session.finalize` on COMPLETED; double-write attribute transition to OTel-semconv `session.id` + `gen_ai.tool.name` |
+| §11 API contract                       | D7.6            | Cursor pagination on `GET /api/v1/sessions` (`?after=` + `next_cursor` + filter-hash check); legacy `sessions`/`total=-1` kept until 0.8.0 |
+| §11 Security                           | D7.14 + D7.15   | Secrets fail-fast (`production_mode=True` raises on missing `RELAY_API_KEYS_RAW`, default SQLite URL, or Feishu secret mismatch); constant-time API key compare via `secrets.compare_digest`; `request.state` carries only `sha256(key)[:16]`; structlog SecretStr automask + sensitive-pattern processor registered first in pipeline; webhook signature verify is mandatory at the Protocol level |
+| §11 Observability                      | D7.21 + D7.22 + D7.23 | Prometheus metrics (session duration / token aggregates / cost) at `/metrics`; `/readyz` performs `SELECT 1` + `manager.accepting_new` check (503 with `manager_draining` / `db_unreachable: <ExcType>`); `/healthz` deliberately stays trivially-true |
+| §13 OOS allowlist                      | D7.24           | `scripts/check_oos.sh` portable POSIX-grep gate enforcing the AC #28 forbidden-token list (`dingtalk`, `slack_backend`, `SessionRecord`, `SessionState.PENDING`, `SessionState.CRASHED`, `/ui/events`, `/api/v1/hitl/.*/approve`, `pytest.mark.e2e`, `scripts/dev.sh`, the IM-backends entry-points lookup, and bare `/health` URLs); excludes `docs/`, `PLAN.md`, `CHANGELOG.md` (historical / Deprecated section) |
+| §16 Plan 6 follow-up                   | D7.18           | PAUSED restart re-arm via `recover_paused_timers()`; trace_id injected on resume so the per-run span chains correctly |
+| Release & supply chain                 | D7.10 + D7.11 + D7.16 | `LICENSE` (MIT); tag-triggered `release.yml` with 3-source version check (`pyproject.toml` ↔ `importlib.metadata` ↔ git tag), `pip-licenses` GPL/AGPL gate, 3 GHCR tags; `uv.lock` checked in; CI uses `uv sync --frozen`; `docs/openapi.snapshot.json` drift gate via `scripts/dump_openapi.py`; 4 operator docs (`docs/architecture.md` / `api.md` / `tracing.md` / `cluster.md`) |
+| Collaboration metadata (for Plan 8)    | D7.26           | Alembic 0005 adds `sessions.owner` (indexed) + `sessions.description`; `RELAY_API_KEYS_RAW` `key:label` and `label=key` formats parse into per-key cost / audit attribution (`request.state.api_key_label`); `POST /sessions` auto-attributes owner from the calling key's label |
+
+Contract aligned. Plan 7 declared the spec as the canonical contract
+for any item PLAN.md described but the runtime did not honour (see
+§17.1 – §17.4 supra). All Plan 7 decisions landed on `main` via
+squash-merge from a single feature branch; the release artefacts are
+produced by `release.yml` on tag `v0.7.0`. `CHANGELOG.md [0.7.0]`
+captures the user-facing surface in Keep-a-Changelog form (Added /
+Changed / Deprecated / Security / Coverage / Migration notes).
+
+Forward: Plan 8 builds directly on D7.26 (collaboration metadata),
+D7.4 (swappable stores), and D7.17 (durable bus seq) to ship
+team-scale features (cost attribution dashboards, prompt templates,
+optional Redis durable tier). See
+`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`.
+

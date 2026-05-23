@@ -7,8 +7,148 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
-Unreleased changes land on the active feature branch and are promoted to
-the next-versioned section at merge time.
+Plan 8 features land here; see
+[`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`](docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md).
+
+## [0.7.0] - 2026-05-23
+
+Plan 7 — *Foundation Recovery & Production Readiness*. Closes 25
+contract gaps left by Plan 5 / 6 audits and lays the security,
+observability, durability, and open-source-readiness foundation for
+Plan 8 team-scale collaboration. All Plan 7 decisions (D7.1 – D7.26)
+landed on a single feature branch and squash-merged to `main` between
+commits `280f7d0` (Task 0 spec/PLAN reconciliation) and the v0.7.0
+release commit (Task 17).
+
+### Added
+
+- `LICENSE` (MIT) and `.github/PULL_REQUEST_TEMPLATE.md`.
+- `.github/workflows/release.yml` tag-triggered release pipeline with
+  3-source version check (`pyproject.toml` ↔ `importlib.metadata` ↔
+  git tag), `pip-licenses` GPL/AGPL gate, and three GHCR tags
+  (`vX.Y.Z` / `X.Y.Z` / `X.Y`).
+- `uv.lock` checked into the repo; CI uses `uv sync --frozen` for
+  reproducible installs with extras parity (`dev`/`postgres`/
+  `otel-http`/`feishu`).
+- Token-bucket rate limit middleware (`60 req/min` per API key,
+  burst 60, LRU 10K, TTL 1h sweep) on all `/api/v1/*` paths except
+  webhooks; exempts `/healthz` / `/readyz` / `/metrics` /
+  `/dashboard/*`. `Retry-After` header on 429; `_locks` map cleaned
+  synchronously on LRU evict.
+- Four operator docs (`docs/architecture.md` / `docs/api.md` /
+  `docs/tracing.md` / `docs/cluster.md`) cross-referencing spec
+  §17 and PLAN.md, splitting what used to be a single oversized
+  deployment doc.
+- Alembic **0003** (`sessions.version` + `sessions.paused_at` +
+  `hitl_requests.version`) + **0004** (`events` durable bus table)
+  + **0005** (`sessions.owner` + `sessions.description` for
+  collaboration metadata, indexed via `ix_sessions_owner`).
+- `store/protocol.py` 3-way split: `SessionStore` / `FrameStore` /
+  `HITLStore` `runtime_checkable` Protocols.
+- Cursor pagination on `GET /api/v1/sessions` (`?after=` +
+  `next_cursor` + cursor filter-hash check so callers cannot leak
+  rows from a different filter context).
+- `docs/openapi.snapshot.json` drift gate + `scripts/dump_openapi.py`.
+- `core.SDKError` taxonomy with 6 subclasses (`SDKConnectError` /
+  `SDKQueryError` / `SDKPermissionError` / `SDKTransportError` /
+  `SDKTimeoutError` / `SDKUnknownError`) plus `classify_sdk_error()`
+  helper; API error responses carry `error_category`.
+- `core.DurableEventStore` Protocol + `SqlAlchemyDurableEventStore`
+  + `InMemoryDurableEventStore`. Durable events get a monotonic
+  `seq`; SSE consumers re-attach via `Last-Event-ID: <seq>:<uuid>`.
+- `scripts/load_test.py` Locust profiles (`rest` / `dashboard` /
+  `sse`) + `[loadtest]` extra + Makefile targets. Excluded from CI
+  and from the `all` aggregate.
+- `RELAY_API_KEYS_RAW` now accepts `key:label` and `label=key`
+  formats in addition to plain `key`; per-key cost / audit
+  attribution surfaces as `request.state.api_key_label`. `POST
+  /sessions` auto-attributes the new `owner` column from the
+  calling key's label.
+- `scripts/check_oos.sh` portable POSIX-grep gate (Plan 7 AC #28)
+  enforcing the forbidden-token allowlist. Run in CI and pre-tag.
+
+### Changed
+
+- Secrets fail-fast: `production_mode=True` raises `RuntimeError` on
+  missing `RELAY_API_KEYS_RAW`, on a missing or mismatched Feishu
+  webhook secret, or on the default-SQLite `RELAY_DATABASE_URL`.
+- APIKey middleware uses `secrets.compare_digest` (constant-time)
+  and stores only `sha256(key)[:16]` in `request.state.api_key_hash`;
+  API dependencies never see plaintext.
+- Feishu / IM webhook verify is now a mandatory Protocol method —
+  empty secret returns 401 (no silent pass-through); construction
+  is guarded by `inspect.iscoroutinefunction`.
+- OTel span hierarchy upgraded to 3-tier: root `relay.session` →
+  per-run `relay.session.run` → fixed-name `relay.tool_call`
+  (tool moved into an attribute to prevent high-cardinality span
+  names). PAUSED / RESUME split runs while reusing the root.
+  COMPLETED emits `relay.session.finalize`.
+- Token aggregates use canonical field names `input_tokens` /
+  `output_tokens`. Back-compat readers accept `input`/`output`
+  and `in`/`out` so older log shapes still aggregate.
+- `SessionRepository` renamed to `SqlAlchemyStore`; alias kept and
+  emits a `DeprecationWarning` on instantiation.
+- `/readyz` performs `SELECT 1` + `manager.accepting_new` check —
+  503 with body `manager_draining` or `db_unreachable: <ExcType>`.
+  `/healthz` deliberately stays trivially-true so k8s liveness
+  never flaps on DB transients.
+- `RELAY_OTEL_ENDPOINT` (priority) + `OTEL_EXPORTER_OTLP_ENDPOINT`
+  (fallback) via Pydantic `AliasChoices`.
+- `core.HITLAlreadyResolved` carries `first_decision` payload; the
+  HITL coordinator reads the row version before resolve, closing the
+  race at the coordinator layer instead of relying on the router.
+
+### Deprecated
+
+- `SessionRepository` alias — will be removed in 0.8.0; use
+  `SqlAlchemyStore`.
+- `/im/feishu/callback` — will be removed in 0.8.0; canonical path
+  is `/api/v1/webhooks/feishu`. The legacy route returns a
+  `Deprecation` header during 0.7.x.
+- Response fields `sessions` (alias of `items`) and `total`
+  (sentinel `-1`) on `GET /api/v1/sessions` — will be removed in
+  0.8.0; use `items` + `next_cursor`.
+- Span attributes `gg_relay.session_id` and `gg_relay.tool` — will
+  be removed in 0.8.0; the OTel-semconv `session.id` and
+  `gen_ai.tool.name` win.
+
+### Security
+
+- Token-bucket rate limit (60/min per API key) on all `/api/v1/*`
+  paths except webhooks; exempts `/healthz` / `/readyz` /
+  `/metrics` / `/dashboard/*`.
+- `SecretStr` automask + sensitive-pattern mask via a structlog
+  processor registered **first** in the pipeline so it cannot be
+  bypassed by later processors.
+- Constant-time API key comparison (`secrets.compare_digest`).
+- Webhook signature verification is mandatory at the Protocol level;
+  an empty `FEISHU_WEBHOOK_SECRET` returns 401 instead of silently
+  passing.
+- Cursor filter-hash consistency check on `GET /api/v1/sessions`
+  prevents leaking rows from a different filter context.
+
+### Coverage
+
+- baseline (0.6.0): **90.7%**
+- actual  (0.7.0): **90.34%** (gate ≥ 88%; 89 net new tests since
+  baseline, 796 passed / 0 failed in the marker-filtered CI subset).
+
+### Migration notes
+
+Operators upgrading from 0.6.x:
+
+1. Set `FEISHU_WEBHOOK_SECRET` before deploy — the old silent-pass
+   behaviour is gone. Use `gg-relay check-secrets` in production
+   mode.
+2. Set `RELAY_PRODUCTION_MODE=true` in any non-dev environment to
+   opt into fail-fast validation.
+3. Switch dashboard URLs from `/im/feishu/callback` to
+   `/api/v1/webhooks/feishu` over the 0.7 → 0.8 window; the
+   `Deprecation` header points the way.
+4. Cursor pagination is opt-in via `?after=...`; legacy clients
+   that read the `sessions` field continue to work for 0.7.x.
+5. Bump `RELAY_DATABASE_URL` to Postgres for production —
+   `production_mode=True` rejects the default SQLite URL.
 
 ## [0.6.0] - 2026-05-23
 

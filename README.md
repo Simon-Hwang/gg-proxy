@@ -1,5 +1,9 @@
 # gg-relay
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
+[![Version 0.7.0](https://img.shields.io/badge/version-0.7.0-green.svg)](CHANGELOG.md)
+
 A Python middleware service that wraps the `claude-code-sdk` and exposes
 it as a managed runtime: structured session lifecycle, persistent
 audit log, HTTP API, HTMX admin dashboard, Feishu human-in-the-loop
@@ -19,7 +23,7 @@ Claude Code session at runtime.
 |---|---|---|
 | HTTP API | `/api/v1/sessions` | submit / list / get / cancel / **pause / resume / DELETE** / HITL resolve |
 | Dashboard | `/dashboard/*` | HTMX UI for sessions, **Kanban board + SSE deltas + Chart.js token chart + Jaeger span-tree iframe**, HITL approval |
-| Feishu webhook | `/im/feishu/callback` | interactive-card button → HITL resolution |
+| Feishu webhook | `/api/v1/webhooks/feishu` | interactive-card button → HITL resolution (legacy `/im/feishu/callback` is Deprecated since 0.7.0; carries a `Deprecation` header and will be removed in 0.8.0) |
 | Health | `/healthz`, `/readyz` | k8s liveness / readiness |
 | CLI | `gg-relay <cmd>` | `serve`, `migrate`, `check-secrets`, `status`, `prune`, `recover` |
 | Executors | `session/executor/{inprocess,docker}.py` | host-process or Docker container; **both honour the same wire control loop for pause/resume** |
@@ -27,6 +31,54 @@ Claude Code session at runtime.
 | IM | `im/{card,subscriber,backends/feishu}.py` | **`CardBuilder` Protocol + `IMSubscriber` EventBus consumer**; `SessionManager` no longer imports any IM backend |
 | Tracing | `tracing/` | OTel TracerProvider + EventBus subscriber |
 | Redaction | `redaction/` | regex + key-based masking before every DB write |
+
+---
+
+## What's new in 0.7.0 (Plan 7 — *Foundation Recovery & Production Readiness*)
+
+Plan 7 closes 25 contract gaps from the Plan 5 / 6 audits and ships the
+production-readiness layer on top of Plan 6:
+
+- **Security**: secrets fail-fast in production mode (missing API keys,
+  default SQLite URL, Feishu secret mismatch all raise on startup),
+  constant-time API key compare (`secrets.compare_digest`), structlog
+  SecretStr automask, and mandatory webhook signature verification at
+  the Protocol layer (empty `FEISHU_WEBHOOK_SECRET` returns 401).
+- **Durability**: durable EventBus tier (`events` table, Alembic 0004)
+  with monotonic `seq` and SSE `Last-Event-ID` replay
+  (`<seq>:<uuid>`).
+- **Observability**: 3-tier OTel span hierarchy
+  (`relay.session` → `relay.session.run` → `relay.tool_call`),
+  Prometheus metrics at `/metrics` (session duration, tokens, cost),
+  and a DB-aware `/readyz` (`SELECT 1` + `manager.accepting_new`).
+- **Storage**: optimistic locking on all state transitions
+  (`sessions.version` / `hitl_requests.version` in Alembic 0003),
+  cursor pagination on `GET /api/v1/sessions`, and a 3-way `Store`
+  Protocol split (`SessionStore` / `FrameStore` / `HITLStore`) for
+  swappable backends. `SessionRepository` → `SqlAlchemyStore` rename
+  with `DeprecationWarning` alias kept for 0.7.x.
+- **Operations**: token-bucket rate limit (60 req/min per API key,
+  burst 60) on all `/api/v1/*` paths except webhooks; tag-triggered
+  release pipeline with `pip-licenses` GPL/AGPL gate and three GHCR
+  tags; four operator docs split out from this README
+  (`docs/architecture.md` / `api.md` / `tracing.md` / `cluster.md`);
+  Locust load profiles (`rest` / `dashboard` / `sse`); OpenAPI
+  snapshot drift gate.
+- **Reliability**: SDK error taxonomy (`SDKConnectError` /
+  `SDKQueryError` / `SDKPermissionError` / `SDKTransportError` /
+  `SDKTimeoutError` / `SDKUnknownError`); API responses carry
+  `error_category`. PAUSED-state restart re-arms the
+  paused-timeout watchdog (D7.18). HITL race closed at the
+  coordinator layer — `HITLAlreadyResolved` carries the first
+  decision payload.
+- **Collaboration metadata** (Plan-8 enabler): `RELAY_API_KEYS_RAW`
+  accepts `key:label` and `label=key` formats; sessions auto-attribute
+  the owner from the calling key's label (Alembic 0005 adds
+  `sessions.owner` indexed + `sessions.description`).
+
+Full changelog: [`CHANGELOG.md`](CHANGELOG.md#070---2026-05-23).
+Plan-8 roadmap:
+[`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`](docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md).
 
 ---
 
@@ -108,7 +160,8 @@ exercises submit → list → get without needing Docker or the real SDK.
 
 Detailed design: `docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md`
 (Plan 4 additions in §14, Plan 5 hardening in §15, Plan 6
-pause/resume + Kanban + IM decoupling in §16).
+pause/resume + Kanban + IM decoupling in §16, Plan 7 reconciliation +
+foundation recovery in §17 / §17.7).
 
 ### Plan 6 highlights
 

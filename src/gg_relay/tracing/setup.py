@@ -35,7 +35,7 @@ def _make_exporter(
     if kind == "http":
         # Optional dep — surfaced as ImportError when the user enabled HTTP
         # but didn't install the optional package.
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # type: ignore[import-not-found]
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # type: ignore[import-not-found, unused-ignore]
             OTLPSpanExporter as HttpExporter,
         )
 

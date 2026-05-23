@@ -365,7 +365,7 @@ def create_app(config: Config | None = None) -> FastAPI:
     app = FastAPI(title="gg-relay", lifespan=lifespan)
     if config is not None:
         app.state.config = config
-    cfg = config or Config()  # type: ignore[call-arg]
+    cfg = config or Config()  # type: ignore[call-arg, unused-ignore]
     # Middleware add order is the *reverse* of dispatch order: the last
     # one added is the outermost layer and runs first. We want
     #   APIKey → RateLimit → Logging → Session → router

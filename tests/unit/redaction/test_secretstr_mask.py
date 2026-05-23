@@ -20,6 +20,8 @@ from gg_relay.redaction import redaction_processor
 from gg_relay.redaction.engine import (
     SENSITIVE_PATTERN,
     _mask_value,
+)
+from gg_relay.redaction.engine import (
     redaction_processor as engine_redaction_processor,
 )
 

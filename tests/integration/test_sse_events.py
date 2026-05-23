@@ -31,7 +31,6 @@ from gg_relay.core import (
     SessionOutputChunk,
     SessionStateChanged,
 )
-from gg_relay.store.durable_event import InMemoryDurableEventStore
 from gg_relay.session.executor.inprocess import InProcessExecutor
 from gg_relay.session.executor.protocol import ExecutorBackend
 from gg_relay.session.frames import make_msg_chunk, make_session_end
@@ -40,6 +39,7 @@ from gg_relay.session.hitl.policy import ToolPolicy
 from gg_relay.session.spec import SessionSpec
 from gg_relay.session.transport.protocol import SessionTransport
 from gg_relay.store import SessionRepository, create_all_tables, make_async_engine
+from gg_relay.store.durable_event import InMemoryDurableEventStore
 
 
 async def _trivial_runner(transport: SessionTransport, spec: SessionSpec) -> None:

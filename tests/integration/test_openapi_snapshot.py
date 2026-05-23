@@ -46,8 +46,8 @@ def _walk_diff(
     elif isinstance(baseline, list) and isinstance(live, list):
         if len(baseline) != len(live):
             out.append(f"{path} (list length {len(baseline)}→{len(live)})")
-        for idx, (b, l) in enumerate(zip(baseline, live)):
-            _walk_diff(b, l, path=f"{path}[{idx}]", out=out)
+        for idx, (b_item, live_item) in enumerate(zip(baseline, live, strict=False)):
+            _walk_diff(b_item, live_item, path=f"{path}[{idx}]", out=out)
     else:
         out.append(path or "<root>")
     return out
