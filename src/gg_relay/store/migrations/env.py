@@ -21,7 +21,14 @@ from gg_relay.store.schema import metadata
 config = context.config
 
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # Plan 8 D8.10 — keep existing loggers alive after fileConfig. The
+    # alembic.ini handlers still apply to the alembic / sqlalchemy
+    # channels, but in-process callers (``gg-relay migrate && serve``
+    # in the same Python process, or pytest's CLI tests followed by
+    # the engine's slow-query listener) would otherwise see every
+    # pre-existing ``gg_relay.*`` logger marked ``disabled=True`` and
+    # silently swallow WARN/ERROR output downstream.
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 env_url = os.environ.get("RELAY_DATABASE_URL")
 if env_url:

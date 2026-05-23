@@ -184,7 +184,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # subscribers, IM subscriber, …) flow through it.
     _configure_structlog_redaction()
 
-    engine = make_async_engine(cfg.database_url)
+    # Plan 8 D8.10 / Task 2 — forward Postgres pool tuning + slow-query
+    # log thresholds. ``getattr`` fallbacks cover the window between
+    # this commit and Task 1 landing the new Config fields; once both
+    # are merged the fallbacks become inert defaults.
+    engine = make_async_engine(
+        cfg.database_url,
+        pool_size=getattr(cfg, "db_pool_size", 10),
+        max_overflow=getattr(cfg, "db_max_overflow", 5),
+        pool_pre_ping=getattr(cfg, "db_pool_pre_ping", True),
+        pool_recycle=getattr(cfg, "db_pool_recycle", 3600),
+        slow_query_log_ms=getattr(cfg, "db_slow_query_log_ms", 500),
+    )
     store = SessionRepository(engine)
     # ── Plan 7 D7.17 (Task 13): wire durable-tier persistence ────────
     # The disk store backs the SSE Last-Event-ID replay path so
