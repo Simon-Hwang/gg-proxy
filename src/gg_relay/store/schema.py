@@ -101,6 +101,17 @@ sessions = Table(
     # ``paused_at < cutoff`` to auto-cancel sessions that exceed the
     # configured cap.
     Column("paused_at", DateTime(timezone=True), nullable=True),
+    # ── Plan 7 D7.26: single-team multi-maintainer collaboration ─────
+    # ``owner`` is auto-attributed from the API key's label
+    # (``request.state.api_key_label`` set by ``APIKeyAuthMiddleware``)
+    # so existing clients gain attribution without code changes. The
+    # dashboard / Kanban "filter by owner" predicate is hot — index
+    # for an equality scan. ``description`` is a short free-form
+    # annotation; the router truncates to 512 chars and surfaces
+    # ``X-Description-Truncated: true`` so the store sees at most
+    # 512 chars and never has to truncate itself.
+    Column("owner", String(64), nullable=True),
+    Column("description", String(512), nullable=True),
     # ── Plan 6 D6.12: completed_at index for time-bucketed chart queries.
     # Reuses the existing ``ended_at`` column — every terminal-state
     # transition writes both ``ended_at`` AND ``status`` so the new
@@ -111,6 +122,7 @@ sessions = Table(
     Index("ix_sessions_trace_id", "trace_id"),
     Index("ix_sessions_submitted_at", "submitted_at"),
     Index("ix_sessions_completed_at", "ended_at"),
+    Index("ix_sessions_owner", "owner"),
 )
 
 frames = Table(

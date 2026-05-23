@@ -121,6 +121,13 @@ class SessionDetail:
     trace_id: str | None
     backend: str
     runtime_id: str | None
+    # Plan 7 Task 6b / D7.26 — single-team multi-maintainer collaboration.
+    # ``owner`` is auto-attributed from the API key label at submit time;
+    # ``description`` is a short free-form annotation truncated to 512
+    # chars by the router. Both may be ``None`` for sessions submitted
+    # before Plan 7 Task 6b landed.
+    owner: str | None = None
+    description: str | None = None
     frames: tuple[Mapping[str, Any], ...] = field(default_factory=tuple)
 
 
@@ -248,6 +255,8 @@ class SessionManager:
         *,
         runtime_ctx: SessionRuntimeContext = _DEFAULT_RUNTIME_CTX,
         api_key_id: str | None = None,
+        owner: str | None = None,
+        description: str | None = None,
     ) -> str:
         """Enqueue a session for execution and return its id.
 
@@ -259,6 +268,16 @@ class SessionManager:
         ``max_paused_per_api_key`` accounting (Plan 6 D6.17). The API
         layer derives it from the X-API-Key header; in-process callers
         may pass ``None``.
+
+        Plan 7 Task 6b / D7.26 — ``owner`` and ``description`` are
+        forwarded verbatim to :meth:`SessionStore.create_session`.
+        The manager intentionally does **not** read
+        ``request.state.api_key_label`` itself — the router is
+        responsible for collapsing
+        ``req.owner or request.state.api_key_label or 'anon'`` and
+        passing the resolved string here. Keeping the manager
+        framework-agnostic preserves the in-process call sites used
+        by tests and future programmatic clients.
         """
         if not self._accepting_new:
             raise RuntimeError("SessionManager is shutting down; refusing new submit")
@@ -271,6 +290,8 @@ class SessionManager:
             trace_id=runtime_ctx.trace_id or None,
             backend=spec.executor,
             tags=tuple(spec.tags),
+            owner=owner,
+            description=description,
         )
         await self._bus.publish(
             SessionCreated(
@@ -352,6 +373,8 @@ class SessionManager:
             trace_id=row["trace_id"],
             backend=row["backend"],
             runtime_id=row["runtime_id"],
+            owner=row.get("owner"),
+            description=row.get("description"),
             frames=tuple(dict(r) for r in frames_rows),
         )
 

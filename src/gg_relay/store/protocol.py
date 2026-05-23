@@ -44,8 +44,20 @@ class SessionStore(Protocol):
         backend: str,
         tags: Sequence[str] = (),
         submitted_at: datetime | None = None,
+        owner: str | None = None,
+        description: str | None = None,
     ) -> None:
-        """Insert a new session row in ``queued`` state."""
+        """Insert a new session row in ``queued`` state.
+
+        Plan 7 Task 6b / D7.26 — ``owner`` and ``description`` are
+        new optional kwargs for single-team multi-maintainer
+        collaboration. Both default to ``None`` so pre-D7.26 callers
+        keep working. The API router auto-attributes ``owner`` from
+        ``request.state.api_key_label`` when the client doesn't
+        pass one explicitly; ``description`` is truncated to 512
+        chars at the router layer (the store assumes it's already
+        short enough).
+        """
         ...
 
     async def update_session_status(

@@ -9,15 +9,84 @@ fields are present and fails fast if not.
 """
 from __future__ import annotations
 
+import hashlib
+import logging
+import re
 from pathlib import Path
 from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+logger = logging.getLogger("gg_relay.config")
+
 
 def _split_csv(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
+
+
+# Plan 7 D7.26 — single-team multi-maintainer collaboration label
+# parser. Each comma-separated token in ``RELAY_API_KEYS_RAW`` is
+# inspected with this regex to decide its shape:
+#
+#   * ``key:label``  — colon separator, both sides alphanum / dash /
+#     underscore (regex anchored ``^...$``).
+#   * ``label=key``  — equals separator, same character class.
+#   * anything else  — whole token treated as a legacy bare key with
+#     an auto-derived ``key-<sha256[:8]>`` label, so existing
+#     ``RELAY_API_KEYS_RAW="k1,k2"`` deployments keep working silently.
+#
+# The character class explicitly includes ``-`` so the common SDK key
+# shape ``sk-abc-123`` participates in the ``key:label`` /
+# ``label=key`` paths instead of degrading to the whole-token
+# fallback. Tokens with multiple separators (``key:val:extra``) or
+# other special chars (``k/e/y``) intentionally fall through to the
+# whole-token path — silently splitting on the first separator would
+# be a footgun for operators who include unusual chars in their keys.
+_LABEL_TOKEN = re.compile(r"^([A-Za-z0-9_-]+)([:=])([A-Za-z0-9_-]+)$")
+
+
+def _parse_keys_with_labels(raw: str) -> dict[str, str]:
+    """Parse ``RELAY_API_KEYS_RAW`` into ``{key: label}``.
+
+    Per-token format detection (anchored regex match):
+
+      * ``"abc:label"``  → key=``abc`` label=``label`` (``:`` separator)
+      * ``"label=abc"``  → key=``abc`` label=``label`` (``=`` separator)
+      * anything else    → whole token is the key, label is
+        ``"key-<sha256(key)[:8]>"`` (legacy-safe — pre-D7.26 callers
+        that never set a label still get a stable identifier).
+
+    Returns ``dict[key → label]``. When two tokens share a label but
+    map to different keys we ``logger.warning(...)`` and the **later**
+    token wins (deterministic last-wins semantics so a redeploy with
+    swapped tokens produces a predictable state).
+    """
+    result: dict[str, str] = {}
+    seen_labels: dict[str, str] = {}
+    for tok in raw.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        m = _LABEL_TOKEN.match(tok)
+        if m:
+            first, sep, second = m.group(1), m.group(2), m.group(3)
+            if sep == ":":
+                k, lbl = first, second
+            else:
+                lbl, k = first, second
+        else:
+            k = tok
+            lbl = f"key-{hashlib.sha256(tok.encode()).hexdigest()[:8]}"
+        if lbl in seen_labels and seen_labels[lbl] != k:
+            logger.warning(
+                "api_key label %r is shared by multiple keys; "
+                "later token wins",
+                lbl,
+            )
+        result[k] = lbl
+        seen_labels[lbl] = k
+    return result
 
 
 class Config(BaseSettings):
@@ -39,15 +108,40 @@ class Config(BaseSettings):
     api_keys_raw: str = ""
     """Comma-separated API keys (``RELAY_API_KEYS=k1,k2,k3``).
 
+    Plan 7 D7.26 — accepts three per-token shapes for single-team
+    multi-maintainer collaboration::
+
+      * ``key`` (legacy bare key — auto-derives ``key-<sha256[:8]>``
+        label so old env vars keep working without warnings)
+      * ``key:label`` (colon separator)
+      * ``label=key`` (equals separator)
+
     Stored as a string because pydantic-settings would otherwise try to
     JSON-decode a list value out of the env var (and fail on plain CSV).
     """
 
     @property
-    def api_keys(self) -> list[SecretStr]:
-        return [SecretStr(s) for s in _split_csv(self.api_keys_raw)]
+    def api_keys_with_labels(self) -> dict[str, str]:
+        """Plan 7 D7.26 — parsed view of :attr:`api_keys_raw` as
+        ``{key: label}``. The label is what
+        :class:`APIKeyAuthMiddleware` writes to
+        ``request.state.api_key_label`` so the session router can
+        auto-attribute ``sessions.owner`` without the client having
+        to pass it explicitly.
+        """
+        return _parse_keys_with_labels(self.api_keys_raw)
 
-    """Authorised API keys for X-API-Key header (comma-separated env)."""
+    @property
+    def api_keys(self) -> set[str]:
+        """Legacy set-of-keys view (no labels).
+
+        Plan 7 D7.26 keeps this property so callers that only need
+        the key set (CLI ``check-secrets`` / ``status`` / tests that
+        assert "is some key configured") don't have to learn the
+        labelled dict shape. Use :attr:`api_keys_with_labels` when
+        the label matters (middleware wiring, owner attribution).
+        """
+        return set(self.api_keys_with_labels.keys())
 
     public_base_url: str = ""
     """Externally-reachable base URL (used by IM card callbacks)."""
@@ -239,7 +333,7 @@ def _is_empty(value: object) -> bool:
         return True
     if isinstance(value, str):
         return not value.strip()
-    if isinstance(value, list):
+    if isinstance(value, list | set | dict):
         return not value
     if isinstance(value, SecretStr):
         return not value.get_secret_value()

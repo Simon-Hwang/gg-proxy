@@ -178,10 +178,17 @@ class SqlAlchemyStore:
         backend: str,
         tags: Sequence[str] = (),
         submitted_at: datetime | None = None,
+        owner: str | None = None,
+        description: str | None = None,
     ) -> None:
         """Insert a brand-new session in ``queued`` state.
 
         ``spec_json`` MUST already be redacted by the caller.
+
+        Plan 7 Task 6b / D7.26 — ``owner`` and ``description`` are
+        persisted as-is. Truncation of ``description`` happens at
+        the router layer; the store assumes the caller has already
+        applied the 512-char cap.
         """
         async with self._engine.begin() as conn:
             await conn.execute(
@@ -193,6 +200,8 @@ class SqlAlchemyStore:
                     submitted_at=submitted_at or _utcnow(),
                     trace_id=trace_id,
                     backend=backend,
+                    owner=owner,
+                    description=description,
                 )
             )
 

@@ -12,7 +12,7 @@ import contextlib
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from gg_relay.api.deps import ApiKeyIdDep, ManagerDep
@@ -83,6 +83,8 @@ def _detail_to_response(detail: SessionDetail) -> SessionDetailResponse:
         backend=detail.backend,
         trace_id=detail.trace_id,
         runtime_id=detail.runtime_id,
+        owner=detail.owner,
+        description=detail.description,
         frames=[
             FrameOut(
                 seq=int(f.get("seq", 0)),
@@ -95,23 +97,70 @@ def _detail_to_response(detail: SessionDetail) -> SessionDetailResponse:
     )
 
 
+# Plan 7 Task 6b / D7.26 — defensive truncation cap. The
+# :class:`SessionSubmitRequest` schema already enforces
+# ``max_length=512`` via pydantic so a well-formed request never
+# trips this branch; it stays as a belt-and-braces fallback for
+# in-process callers that construct the model with
+# :meth:`pydantic.BaseModel.model_construct` (which bypasses
+# validators) and a future-proof guard if the schema cap is loosened
+# in a later release.
+_DESCRIPTION_MAX_LEN = 512
+
+
 @router.post("", response_model=SessionResponse, status_code=202)
 async def submit_session(
-    request: SessionSubmitRequest,
+    request: Request,
+    body: SessionSubmitRequest,
     manager: SessionManager = ManagerDep,
     api_key_id: str | None = ApiKeyIdDep,
-) -> SessionResponse:
-    spec = _build_spec(request)
+) -> JSONResponse:
+    """Submit a new session.
+
+    Plan 7 Task 6b / D7.26 — collaboration metadata flow:
+
+      1. ``owner`` resolution: ``body.owner`` (operator override) →
+         ``request.state.api_key_label`` (auto-attribute from
+         API-key middleware) → ``"anon"`` (default for un-authed
+         test paths). The router does this collapse so the
+         :class:`SessionManager` never has to reach into Starlette
+         state — keeping the manager framework-agnostic.
+      2. ``description`` truncation: schema cap is 512 chars; we
+         apply a defensive in-place truncation on the response
+         path and emit ``X-Description-Truncated: true`` whenever
+         truncation actually happened.
+    """
+    spec = _build_spec(body)
     ctx = SessionRuntimeContext(
-        credentials=dict(request.credentials),
-        trace_id=request.trace_id or "",
+        credentials=dict(body.credentials),
+        trace_id=body.trace_id or "",
     )
+    # Resolve owner — router-owned (manager intentionally does not
+    # read ``request.state``). ``getattr`` guards the case where the
+    # APIKey middleware wasn't wired (e.g. tests with
+    # ``allow_no_keys=True``).
+    owner = (
+        body.owner
+        or getattr(request.state, "api_key_label", None)
+        or "anon"
+    )
+    description = body.description
+    response_headers: dict[str, str] = {}
+    if description is not None and len(description) > _DESCRIPTION_MAX_LEN:
+        description = description[:_DESCRIPTION_MAX_LEN]
+        response_headers["X-Description-Truncated"] = "true"
     try:
-        sid = await manager.submit(spec, runtime_ctx=ctx, api_key_id=api_key_id)
+        sid = await manager.submit(
+            spec,
+            runtime_ctx=ctx,
+            api_key_id=api_key_id,
+            owner=owner,
+            description=description,
+        )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     detail = await manager.get(sid)
-    return SessionResponse(
+    payload = SessionResponse(
         id=detail.id,
         status=detail.status.value,
         spec=detail.spec_json,
@@ -122,6 +171,13 @@ async def submit_session(
         end_reason=detail.end_reason,
         backend=detail.backend,
         trace_id=detail.trace_id,
+        owner=detail.owner,
+        description=detail.description,
+    )
+    return JSONResponse(
+        payload.model_dump(mode="json"),
+        status_code=202,
+        headers=response_headers,
     )
 
 

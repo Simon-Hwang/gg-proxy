@@ -49,6 +49,16 @@ class SessionSubmitRequest(BaseModel):
     ``credentials`` is an out-of-spec key absorbed straight into the
     :class:`SessionRuntimeContext`; the API NEVER persists or echoes it
     back. ``trace_id`` lets the caller correlate via OTel.
+
+    Plan 7 Task 6b / D7.26 — ``owner`` and ``description`` are optional
+    collaboration metadata. When ``owner`` is omitted the router
+    auto-attributes it from ``request.state.api_key_label`` (set by
+    :class:`APIKeyAuthMiddleware`) so existing clients gain attribution
+    without code changes. ``description`` is bounded at 512 chars on
+    the way in via :class:`pydantic.Field`'s ``max_length`` so an
+    over-long body is rejected at validation time (the router also
+    applies a defensive in-place truncation as a belt-and-braces
+    fallback for clients bypassing schema validation).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -56,12 +66,21 @@ class SessionSubmitRequest(BaseModel):
     spec: SessionSpecIn
     credentials: dict[str, str] = Field(default_factory=dict)
     trace_id: str | None = None
+    owner: str | None = None
+    description: str | None = Field(default=None, max_length=512)
 
 
 class SessionResponse(BaseModel):
     """A single session row, redacted, safe to return.
 
     Notice the absence of any ``credentials`` field — by design.
+
+    Plan 7 Task 6b / D7.26 — ``owner`` and ``description`` echo the
+    persisted collaboration metadata. ``owner`` is the auto-attributed
+    or operator-supplied label; ``description`` is the (possibly
+    truncated) free-form annotation. Truncation is signalled by the
+    ``X-Description-Truncated: true`` response header (not in the body
+    so machine clients can dispatch on header alone).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -76,6 +95,8 @@ class SessionResponse(BaseModel):
     end_reason: str | None = None
     backend: str
     trace_id: str | None = None
+    owner: str | None = None
+    description: str | None = None
 
 
 class SessionListResponse(BaseModel):

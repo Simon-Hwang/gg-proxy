@@ -298,12 +298,71 @@ async def test_chain_0001_to_0004_postgres():
         indexes = await _index_names(url, "events")
         assert "ix_events_ts" in indexes
         assert "ix_events_session_id" in indexes
-        # Downgrade roundtrip — events table gone, 0003 columns survive.
+        # Downgrade roundtrip — drop 0005 + 0004; verify only 0003
+        # columns survive at the 0003 anchor.
         _run_downgrade(url, "0003")
         tables = await _table_names(url)
         assert "events" not in tables
         sess_cols = await _columns(url, "sessions")
         assert "version" in sess_cols
         assert "paused_at" in sess_cols
+        assert "owner" not in sess_cols
+        assert "description" not in sess_cols
     finally:
         _run_alembic(url, "downgrade", "base")
+
+
+# ── Plan 7 Task 6b / D7.26: collaboration metadata (0005) ───────────
+
+
+async def test_chain_0001_to_0005_upgrade(sqlite_db_url: str):
+    """0001 → … → 0005 顺次 upgrade，sessions 含 owner / description /
+    ix_sessions_owner index。事件表 (0004) 一并保留。"""
+    _run_upgrade(sqlite_db_url, "head")
+
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "owner" in sess_cols, f"sessions.owner missing: {sess_cols}"
+    assert "description" in sess_cols, (
+        f"sessions.description missing: {sess_cols}"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "sessions")
+    assert "ix_sessions_owner" in indexes, (
+        f"ix_sessions_owner missing: {indexes}"
+    )
+
+    # Sanity — 0004 events table is still present (we didn't accidentally
+    # rebuild sessions in a way that wiped the cross-table state).
+    tables = await _table_names(sqlite_db_url)
+    assert "events" in tables, (
+        f"events table missing after 0005 upgrade: {tables}"
+    )
+
+
+async def test_downgrade_0005_to_0004_roundtrip(sqlite_db_url: str):
+    """upgrade head → downgrade -1 → owner/description 消失但 events 表
+    + 0003 columns 仍保留 (验证只回滚 0005)."""
+    _run_upgrade(sqlite_db_url, "head")
+    _run_downgrade(sqlite_db_url, "0004")
+
+    sess_cols = await _columns(sqlite_db_url, "sessions")
+    assert "owner" not in sess_cols, (
+        "sessions.owner survived downgrade to 0004"
+    )
+    assert "description" not in sess_cols, (
+        "sessions.description survived downgrade to 0004"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "sessions")
+    assert "ix_sessions_owner" not in indexes, (
+        "ix_sessions_owner survived downgrade to 0004"
+    )
+
+    # 0004 + 0003 columns must still be in place — only 0005 was rolled
+    # back.
+    tables = await _table_names(sqlite_db_url)
+    assert "events" in tables, "events table lost on 0005 downgrade"
+    assert "version" in sess_cols, "0003 version column lost on 0005 downgrade"
+    assert "paused_at" in sess_cols, (
+        "0003 paused_at column lost on 0005 downgrade"
+    )

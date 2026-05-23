@@ -276,7 +276,9 @@ def create_app(config: Config | None = None) -> FastAPI:
     # one added is the outermost layer and runs first. We want
     #   APIKey → RateLimit → Logging → Session → router
     # so we add Session first (innermost) and APIKey last (outermost).
-    keys = [k.get_secret_value() for k in (config.api_keys if config else [])]
+    keys_with_labels: dict[str, str] = (
+        config.api_keys_with_labels if config else {}
+    )
     session_secret = (
         config.dashboard_session_secret.get_secret_value()
         if config is not None
@@ -301,9 +303,9 @@ def create_app(config: Config | None = None) -> FastAPI:
         app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
     app.add_middleware(
         APIKeyAuthMiddleware,
-        expected_keys=keys,
+        keys_with_labels=keys_with_labels,
         protected_prefix="/api/v1",
-        allow_no_keys=not keys,
+        allow_no_keys=not keys_with_labels,
     )
     # Routers.
     app.include_router(sessions_router, prefix="/api/v1")

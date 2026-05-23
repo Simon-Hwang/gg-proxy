@@ -29,7 +29,7 @@ async def _ok(_request: Request) -> JSONResponse:
 def _build_app(
     *,
     limiter: TokenBucketRateLimiter,
-    keys: tuple[str, ...] = ("k1",),
+    keys_with_labels: dict[str, str] | None = None,
 ) -> Starlette:
     """Wire APIKey + RateLimit in the same order as
     :func:`gg_relay.api.main.create_app` so the test app exercises the
@@ -39,13 +39,21 @@ def _build_app(
     * ``add_middleware`` 2nd (outermost): APIKey
 
     Dispatch order at runtime: APIKey → RateLimit → handler.
+
+    Plan 7 Task 6b — middleware now takes a ``keys_with_labels`` dict
+    rather than the legacy ``expected_keys`` tuple; the test default
+    mirrors the old "k1 only" fixture with an explicit "alice" label
+    so any later assertion against ``request.state.api_key_label``
+    has a stable value to compare against.
     """
+    if keys_with_labels is None:
+        keys_with_labels = {"k1": "alice"}
     routes = [Route("/api/v1/sessions", _ok)]
     app = Starlette(routes=routes)
     app.add_middleware(RateLimitMiddleware, limiter=limiter)
     app.add_middleware(
         APIKeyAuthMiddleware,
-        expected_keys=keys,
+        keys_with_labels=keys_with_labels,
         protected_prefix="/api/v1",
     )
     return app

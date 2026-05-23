@@ -127,11 +127,15 @@ def status() -> None:
     import httpx
 
     cfg = _load_config()
-    if not cfg.api_keys:
+    # Plan 7 D7.26: api_keys is now a set[str] (was list[SecretStr]).
+    # next(iter(...)) picks an arbitrary configured key — the CLI only
+    # needs one to authenticate the status probe.
+    keys = cfg.api_keys
+    if not keys:
         typer.echo("status: no api keys configured", err=True)
         raise typer.Exit(1)
     base = cfg.public_base_url or "http://127.0.0.1:8000"
-    headers = {"X-API-Key": cfg.api_keys[0].get_secret_value()}
+    headers = {"X-API-Key": next(iter(keys))}
     try:
         r = httpx.get(f"{base}/api/v1/sessions", headers=headers, timeout=5.0)
     except httpx.HTTPError as exc:
