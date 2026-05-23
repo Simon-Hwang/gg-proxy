@@ -1,0 +1,45 @@
+src/gg_relay/dashboard/router.py
+  s_70dce2886ba17e::t_9e691381268472 328-330,336-352,355-370,381-384,389-454
+  s_70dce2886ba17e::t_a35682ad96fc04 457-543
+  s_70dce2886ba17e::t_b4718109881917 41
+  s_70dce2886ba17e::t_8b30d7f882d138 58-59,72-93,95
+src/gg_relay/dashboard/templates/base.html
+  s_70dce2886ba17e::t_3bc3f2251b65f5 21-22,26
+docs/openapi.snapshot.json
+  s_70dce2886ba17e::t_621941614f0b6b 2830,2832-2884,2895-2904,3043-3151
+src/gg_relay/dashboard/templates/_list_rows.html
+  s_70dce2886ba17e::t_1dd010a2730795 1-32
+src/gg_relay/dashboard/templates/list.html
+  s_70dce2886ba17e::t_9267aef837301e 1-32
+tests/integration/test_dashboard_owner_badge_filter.py
+  s_70dce2886ba17e::t_013ff497292648 1-203
+src/gg_relay/session/manager.py
+  s_70dce2886ba17e::t_646934aa329f1e 399
+src/gg_relay/dashboard/templates/_kanban_card.html
+  s_70dce2886ba17e::t_a0762aa98469b2 28-36
+src/gg_relay/core/domain.py
+  s_70dce2886ba17e::t_65e01787d764f1 111-114
+  s_70dce2886ba17e::t_64d98cbc093f34 115-118
+src/gg_relay/dashboard/static/app.css
+  s_70dce2886ba17e::t_c3e11da51763df 148-226
+src/gg_relay/dashboard/templates/_kanban_filters.html
+  s_70dce2886ba17e::t_6ae991b0641208 1-19
+src/gg_relay/dashboard/templates/kanban.html
+  s_70dce2886ba17e::t_6df0183e4f21c9 10-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "0773a85e068b371643ad2f2ac5cb4c8a0598ba0c",
+  "prompts": {},
+  "sessions": {
+    "s_70dce2886ba17e": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a7e8e211-c9ae-4c70-acf8-5225d7987890",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
