@@ -24,20 +24,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-          cache: "pip"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Install gg-relay (with dev extras)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,postgres,otel-http,feishu]"
+        run: uv sync --frozen --python python${{ matrix.python-version }} --extra dev --extra postgres --extra otel-http --extra feishu
       - name: ruff check
-        run: ruff check src tests
+        run: uv run ruff check src tests
       - name: ruff format --check
-        run: ruff format --check src tests
+        run: uv run ruff format --check src tests
         continue-on-error: true  # Plan 5: lint is canonical; format check
                                   # gates are aspirational until the whole
                                   # tree is mass-reformatted.
       - name: mypy --strict
-        run: mypy --strict src/gg_relay
+        run: uv run mypy --strict src/gg_relay
       - name: pytest (no docker)
         env:
           # Disable the JSONL writer in CI — runners are ephemeral so the
@@ -45,7 +47,7 @@ jobs:
           # surface minimal.
           RELAY_TASK_TRACE_PATH: none
         run: |
-          pytest -q -m "not requires_docker and not requires_api_key and not requires_feishu and not requires_curl" \
+          uv run pytest -q -m "not requires_docker and not requires_api_key and not requires_feishu and not requires_curl" \
             --cov=gg_relay --cov-report=term-missing --cov-fail-under=88
       - name: Upload coverage XML
         if: matrix.python-version == '3.12'
@@ -66,7 +68,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: "pip"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
       - name: Confirm Docker daemon is reachable
         # GitHub-hosted ubuntu-latest runners ship with a working Docker
         # daemon out of the box — no setup-docker action needed.
@@ -74,12 +80,10 @@ jobs:
           docker version
           docker info | grep -i 'Server Version'
       - name: Install gg-relay (with dev extras)
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev,postgres]"
+        run: uv sync --frozen --python python3.12 --extra dev --extra postgres
       - name: pytest -m requires_docker
         env:
           RELAY_TASK_TRACE_PATH: none
         run: |
-          pytest -q -m "requires_docker" --cov=gg_relay \
+          uv run pytest -q -m "requires_docker" --cov=gg_relay \
             --cov-report=term-missing --no-cov-on-fail
