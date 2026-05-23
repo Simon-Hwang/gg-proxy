@@ -1,67 +1,79 @@
 """Webhook router for IM callbacks.
 
-Currently only Feishu is wired; the path is
-``/im/feishu/callback`` and the body is the JSON payload sent by Feishu
-when an operator clicks one of the HITL-card buttons.
+Plan 7 Task 12 (D7.16) introduced a two-route layout:
 
-Signature verification follows the Feishu doc:
-``base64(hmac_sha256(key=secret, msg=timestamp + "\\n" + secret))``.
+* canonical ``POST /api/v1/webhooks/feishu`` — the path 0.8+ documents
+* alias    ``POST /im/feishu/callback``      — deprecated, kept for the
+  0.7/0.8 migration so existing Feishu bot configurations don't break
+
+Both routes share :func:`_process_feishu_callback` so signature checks,
+URL-verification handshakes, malformed-payload handling, and HITL
+dispatch behave identically. The alias responds with a ``Deprecation:
+true`` header plus an RFC 8288 ``Link`` pointing at the canonical
+route; 0.8.0 will delete the alias entirely.
+
+NOTE (Plan 7 Task 11 coupling): the canonical path sits UNDER
+``/api/v1``, which today triggers :class:`APIKeyAuthMiddleware`.
+Feishu does not (and cannot) send ``X-API-Key`` on callbacks, so
+Task 11 is responsible for adding a route-exempt mechanism that
+lets ``/api/v1/webhooks/*`` bypass the API-key check. Until that
+lands, operators MUST proxy callbacks through a layer that injects
+the header — or pin Feishu to the alias path, which is intentionally
+hosted outside ``/api/v1`` for exactly this reason.
+
+Signature verification is delegated to the IMBackend that lives on
+``request.app.state.im_backend``. That backend is constructed by the
+lifespan whenever ``feishu_webhook_secret`` is set (even without full
+send credentials) so the inbound path stays operational on read-only
+deployments. ``verify_feishu_signature`` is re-exported from
+:mod:`gg_relay.im.backends.feishu` for tests and any downstream code
+that constructed expected-signature vectors by hand.
 """
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
 import json
 from typing import Any, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 
 from gg_relay.api.deps import CoordinatorDep
+from gg_relay.im.backends.feishu import verify_feishu_signature
+from gg_relay.im.protocol import IMBackend
 from gg_relay.session.hitl.coordinator import HITLCoordinator, HITLNotPending
 
-router = APIRouter(prefix="/im/feishu", tags=["im-feishu"])
+__all__ = ["router", "verify_feishu_signature"]
+
+router = APIRouter(tags=["im-feishu"])
 
 
-def verify_feishu_signature(
-    *,
-    timestamp: str,
-    secret: str,
-    received: str | None,
-) -> bool:
-    """Verify a Feishu webhook signature.
+def _get_feishu_backend(request: Request) -> IMBackend:
+    """Resolve the Feishu backend from app.state, 503 if absent.
 
-    The algorithm is HMAC-SHA256 with the signing key being
-    ``timestamp + "\\n" + secret`` over an EMPTY message — that's the
-    documented variant used for chatbot custom-bot signing, which is what
-    interactive callbacks use today. We expose it as a pure function so
-    tests can call it with hand-computed expected values.
+    The lifespan wires ``app.state.im_backend`` whenever the deployment
+    has either send creds (``feishu_app_id`` + ``feishu_app_secret``)
+    or just a webhook secret. Missing it here means the operator never
+    configured Feishu at all — that's a server config issue, not a
+    bad-request signal, so we surface 503.
     """
-    if not received:
-        return False
-    key = f"{timestamp}\n{secret}".encode()
-    digest = hmac.new(key, b"", hashlib.sha256).digest()
-    expected = base64.b64encode(digest).decode("utf-8")
-    return hmac.compare_digest(expected, received)
+    backend = getattr(request.app.state, "im_backend", None)
+    if backend is None:
+        raise HTTPException(status_code=503, detail="im backend not configured")
+    return cast(IMBackend, backend)
 
 
-@router.post("/callback")
-async def feishu_callback(
+async def _process_feishu_callback(
     request: Request,
-    coordinator: HITLCoordinator = CoordinatorDep,
+    backend: IMBackend,
+    coordinator: HITLCoordinator,
 ) -> dict[str, Any]:
-    cfg = request.app.state.config
-    secret = (
-        cfg.feishu_webhook_secret.get_secret_value()
-        if cfg.feishu_webhook_secret
-        else ""
-    )
     body = await request.body()
-    timestamp = request.headers.get("X-Lark-Request-Timestamp", "")
-    signature = request.headers.get("X-Lark-Signature")
-    if secret and not verify_feishu_signature(
-        timestamp=timestamp, secret=secret, received=signature
-    ):
+    # Starlette's ``Headers`` is a case-insensitive Mapping[str, str];
+    # we hand it to the backend verbatim so verify_webhook can look up
+    # either ``X-Lark-Signature`` or ``x-lark-signature`` without the
+    # router caring how the upstream proxy normalised the casing. A
+    # ``dict(request.headers)`` here would lowercase the keys and break
+    # title-case lookups in backend implementations.
+    if not await backend.verify_webhook(request.headers, body):
         raise HTTPException(status_code=401, detail="bad signature")
     try:
         payload = json.loads(body)
@@ -89,3 +101,58 @@ async def feishu_callback(
         return {"toast": {"type": "success", "content": f"{decision} recorded"}}
     except HITLNotPending:
         return {"toast": {"type": "info", "content": "already resolved"}}
+
+
+@router.post("/api/v1/webhooks/feishu")
+async def feishu_webhook_canonical(
+    request: Request,
+    coordinator: HITLCoordinator = CoordinatorDep,
+) -> dict[str, Any]:
+    """Canonical Feishu interactive-callback receiver (Plan 7 D7.16).
+
+    Verifies the signature via the configured IMBackend, then routes
+    HITL decisions to the coordinator. Returns 401 on signature
+    failure (including unset webhook secret — see
+    :meth:`FeishuBackend.verify_webhook`).
+    """
+    backend = _get_feishu_backend(request)
+    return await _process_feishu_callback(request, backend, coordinator)
+
+
+_ALIAS_DEPRECATION_HEADERS = {
+    "Deprecation": "true",
+    "Link": '</api/v1/webhooks/feishu>; rel="successor-version"',
+}
+
+
+@router.post("/im/feishu/callback", deprecated=True)
+async def feishu_webhook_alias(
+    request: Request,
+    response: Response,
+    coordinator: HITLCoordinator = CoordinatorDep,
+) -> dict[str, Any]:
+    """Deprecated alias for the canonical Feishu callback path.
+
+    Behaviour is identical to ``/api/v1/webhooks/feishu`` but every
+    response carries a ``Deprecation: true`` header and an RFC 8288
+    ``Link`` pointing at the successor URL. 0.8.0 will remove this
+    route — operators MUST update their Feishu bot configuration to
+    the canonical path before upgrading.
+
+    Error responses (401 bad-signature, 400 malformed payload) also
+    surface the deprecation hints so operators driving against this
+    alias notice the warning even when their requests fail.
+    """
+    backend = _get_feishu_backend(request)
+    try:
+        result = await _process_feishu_callback(request, backend, coordinator)
+    except HTTPException as exc:
+        merged_headers = {**(exc.headers or {}), **_ALIAS_DEPRECATION_HEADERS}
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=merged_headers,
+        ) from exc
+    for k, v in _ALIAS_DEPRECATION_HEADERS.items():
+        response.headers[k] = v
+    return result

@@ -4,16 +4,21 @@ D6.7=C / Task 7.
 
 Builder is a :class:`gg_relay.im.card.CardBuilder` implementation
 producing Feishu interactive-card JSON. Backend implements
-:class:`gg_relay.im.protocol.IMBackend`'s ``send_card`` only — the
-legacy ``notify_hitl_pending`` / ``notify_session_end`` shims are kept
-as thin wrappers around the builder + send_card for any callers that
+:class:`gg_relay.im.protocol.IMBackend`'s ``send_card`` plus the
+Plan 7 D7.16 mandatory ``verify_webhook`` — the legacy
+``notify_hitl_pending`` / ``notify_session_end`` shims are kept as
+thin wrappers around the builder + send_card for any callers that
 haven't migrated yet (production calls now go through
 :class:`gg_relay.im.subscriber.IMSubscriber`).
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -29,6 +34,27 @@ from gg_relay.core import (
 from gg_relay.im.card import CardAction, RenderedCard
 
 _FEISHU_BASE_URL = "https://open.feishu.cn"
+
+
+def verify_feishu_signature(
+    *,
+    timestamp: str,
+    secret: str,
+    received: str | None,
+) -> bool:
+    """Verify a Feishu webhook signature.
+
+    Algorithm matches the Feishu custom-bot interactive-callback spec:
+    HMAC-SHA256 with signing key ``timestamp + "\\n" + secret`` over an
+    EMPTY message, base64-encoded. Exposed as a pure function so unit
+    tests can construct expected vectors with hand-computed values.
+    """
+    if not received:
+        return False
+    key = f"{timestamp}\n{secret}".encode()
+    digest = hmac.new(key, b"", hashlib.sha256).digest()
+    expected = base64.b64encode(digest).decode("utf-8")
+    return hmac.compare_digest(expected, received)
 
 
 class FeishuCardBuilder:
@@ -206,6 +232,31 @@ class FeishuBackend:
         await self.http.aclose()
 
     # ── new (Plan 6) primary surface ─────────────────────────────────
+
+    async def verify_webhook(
+        self, headers: Mapping[str, str], body: bytes
+    ) -> bool:
+        """Verify an inbound Feishu interactive-callback signature.
+
+        Plan 7 D7.16: returns ``False`` whenever ``feishu_webhook_secret``
+        is unset/empty — no silent pass-through. The body is intentionally
+        unused for the timestamp-keyed variant Feishu mandates for custom
+        bots; we accept it on the signature so the Protocol stays stable
+        across backends that DO sign over the body.
+        """
+        del body
+        secret = (
+            self.config.feishu_webhook_secret.get_secret_value()
+            if self.config.feishu_webhook_secret
+            else ""
+        )
+        if not secret:
+            return False
+        timestamp = headers.get("X-Lark-Request-Timestamp", "")
+        received = headers.get("X-Lark-Signature")
+        return verify_feishu_signature(
+            timestamp=timestamp, secret=secret, received=received
+        )
 
     async def send_card(self, card: RenderedCard) -> None:
         """POST a :class:`RenderedCard` to Feishu.

@@ -16,6 +16,7 @@ the subscriber.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -112,6 +113,23 @@ class IMSubscriber:
             raise TypeError(
                 "IMSubscriber requires backend.send_card; "
                 f"got {type(self.backend).__name__}"
+            )
+        # Plan 7 D7.16: verify_webhook is mandatory AND must be async.
+        # A sync `def verify_webhook(...)` would be a silent footgun —
+        # FastAPI would still await its return value (a coroutine? no,
+        # a bare bool) by accident, but the bigger risk is contracts
+        # that lie. We reject the backend at construction time so a
+        # misconfigured deployment never reaches a live request path.
+        verify = getattr(self.backend, "verify_webhook", None)
+        if verify is None:
+            raise TypeError(
+                "IMSubscriber requires backend.verify_webhook; "
+                f"got {type(self.backend).__name__}"
+            )
+        if not inspect.iscoroutinefunction(verify):
+            raise TypeError(
+                f"{type(self.backend).__name__}.verify_webhook must be "
+                f"async (got {type(verify).__name__})"
             )
 
     async def run(self) -> None:

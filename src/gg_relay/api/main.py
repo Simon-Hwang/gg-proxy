@@ -217,14 +217,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     bg_tasks.append(
         asyncio.create_task(metrics_subscriber.run(bus), name="metrics")
     )
-    # ── Plan 6 Task 7: IM dispatcher ───────────────────────────────
+    # ── Plan 6 Task 7 + Plan 7 Task 12 (D7.16): IM dispatcher ──────
     # Wires the typed EventBus → FeishuCardBuilder → FeishuBackend
     # pipeline. SessionManager no longer touches the Feishu backend
     # directly (D6.7=C / D6.8=A).
+    #
+    # Plan 7 D7.16 also makes the inbound webhook receiver an
+    # explicit, mandatory dependency: the canonical
+    # ``/api/v1/webhooks/feishu`` route resolves the backend off
+    # ``app.state.im_backend`` and calls its async ``verify_webhook``.
+    # That means we MUST construct the backend whenever there's
+    # anything to verify — even when send credentials are missing.
+    # Otherwise read-only deployments (webhook-only, no outbound
+    # cards) would 503 every callback.
     feishu_backend: FeishuBackend | None = None
     im_subscriber: IMSubscriber | None = None
-    if cfg.feishu_app_id and cfg.feishu_app_secret:
+    has_send_creds = bool(cfg.feishu_app_id and cfg.feishu_app_secret)
+    has_webhook_creds = bool(cfg.feishu_webhook_secret)
+    if has_send_creds or has_webhook_creds:
         feishu_backend = FeishuBackend(config=cfg)
+        app.state.im_backend = feishu_backend
+    if has_send_creds and feishu_backend is not None:
         im_subscriber = IMSubscriber(
             bus=bus,
             builder=feishu_backend.builder,
@@ -233,7 +246,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             public_callback_base=cfg.public_base_url,
             channel_resolver=None,  # Plan 7+ multi-team router
         )
-        app.state.im_backend = feishu_backend
         app.state.im_subscriber = im_subscriber
         bg_tasks.append(
             asyncio.create_task(im_subscriber.run(), name="im-subscriber")

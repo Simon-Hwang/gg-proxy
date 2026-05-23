@@ -81,6 +81,14 @@ class _StubBackend:
             raise self.raise_on_send
         self.sent.append(card)
 
+    async def verify_webhook(
+        self, headers: object, body: object
+    ) -> bool:
+        # Plan 7 D7.16: stub backends must declare verify_webhook as
+        # async; the subscriber rejects sync versions at construction.
+        del headers, body
+        return True
+
     async def notify_hitl_pending(self, **_: object) -> None:
         return None
 
