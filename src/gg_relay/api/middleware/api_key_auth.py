@@ -23,6 +23,16 @@ Mapping[str, str]`` (was ``expected_keys: Iterable[str]``). This is a
 deliberate breaking change to the call site — :func:`create_app`
 passes ``cfg.api_keys_with_labels`` and tests construct a
 ``{key: label}`` dict directly.
+
+Plan 7 Task 11 (D7.15) — webhook routes under ``/api/v1/webhooks/`` and
+the deprecated ``/im/`` alias are EXEMPT from API-key auth: IM
+providers (Feishu, DingTalk, Slack, …) cannot send ``X-API-Key`` on
+inbound callbacks, so those paths rely on their own signature
+verification (see :func:`gg_relay.im.backends.feishu.verify_feishu_signature`
+and :func:`gg_relay.im.router._process_feishu_callback`). This closes
+the Task 12 coupling note in ``im/router.py``: production Feishu bots
+can now POST directly to the canonical ``/api/v1/webhooks/feishu``
+without a proxy injecting a synthetic API-key header.
 """
 from __future__ import annotations
 
@@ -36,6 +46,16 @@ from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
 _CallNext = Callable[[Request], Awaitable[Response]]
+
+
+# Plan 7 Task 11 (D7.15) — webhook routes that handle their own
+# signature verification and must NOT require an X-API-Key. Listed
+# as a module-level constant so tests can introspect / assert the
+# coupling with Task 12's webhook router.
+WEBHOOK_EXEMPT_PREFIXES: tuple[str, ...] = (
+    "/api/v1/webhooks/",  # canonical Feishu / future IM callbacks
+    "/im/",  # deprecated alias kept for the 0.7 → 0.8 migration
+)
 
 
 def _hash_key(key: str) -> str:
@@ -54,6 +74,12 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
 
     Key comparison uses :func:`secrets.compare_digest` to keep the
     timing-side-channel surface tight.
+
+    Webhook routes listed in :data:`WEBHOOK_EXEMPT_PREFIXES` bypass
+    auth so IM providers (Feishu, …) can hit the canonical
+    ``/api/v1/webhooks/*`` paths without an ``X-API-Key`` header.
+    The webhook router uses HMAC signature verification instead
+    (Plan 7 Task 12 / D7.16).
     """
 
     def __init__(
@@ -77,6 +103,10 @@ class APIKeyAuthMiddleware(BaseHTTPMiddleware):
         call_next: _CallNext,
     ) -> Response:
         path = request.url.path
+        # Webhook paths use their own signature verification (Plan 7
+        # Task 11 / D7.15 — closes the Task 12 coupling note).
+        if any(path.startswith(pre) for pre in WEBHOOK_EXEMPT_PREFIXES):
+            return await call_next(request)
         if not path.startswith(self._prefix):
             return await call_next(request)
         if self._allow_no_keys and not self._keys_with_labels:

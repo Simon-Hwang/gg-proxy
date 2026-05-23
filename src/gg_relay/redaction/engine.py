@@ -14,6 +14,20 @@ pass through this engine first. The rules cover two orthogonal layers:
 The engine is *intentionally* over-aggressive on key names — false positives
 are cheap (one redacted log line); false negatives leak credentials.
 Custom patterns can be supplied via :class:`RedactionEngine` constructor.
+
+Plan 7 Task 11 (D7.15) adds two extras for the structlog pipeline used by
+the API layer:
+
+* :data:`SENSITIVE_PATTERN` — a compact regex tuned for ``event_dict``
+  *values* (api_key=…, password=…, bearer X, token: X). It's deliberately
+  narrower than :data:`DEFAULT_PATTERNS` because event-dict values are
+  often short strings where over-aggressive pattern matching produced
+  too many false positives in earlier drafts.
+* :func:`redaction_processor` — a structlog processor that masks
+  :class:`pydantic.SecretStr` values + any string that triggers
+  :data:`SENSITIVE_PATTERN`. Wired into ``structlog.configure`` from
+  :func:`gg_relay.api.main.lifespan` so log records emitted by routes,
+  middleware, and the session manager get masked at source.
 """
 from __future__ import annotations
 
@@ -21,8 +35,28 @@ import re
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+from pydantic import SecretStr
+
 REDACTED = "***REDACTED***"
 """The single placeholder string emitted in place of any redacted value."""
+
+# Plan 7 Task 11 (D7.15) — short-string sensitive pattern used by the
+# structlog processor. Tighter than :data:`DEFAULT_PATTERNS` because
+# event-dict values are short and easily false-positive on broader
+# regexes. Matches:
+#   * ``api_key=<token>`` / ``api-key: <token>`` / ``apikey=<token>``
+#   * ``password=<token>`` / ``password: <token>``
+#   * ``token=<token>``    / ``token: <token>``
+#   * ``secret=<token>``   / ``secret: <token>``
+#   * ``Bearer <token>``   (case-insensitive)
+# Each pattern requires at least one non-space character after the
+# separator so bare words like "api_key" in a sentence don't trigger.
+SENSITIVE_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i)("
+    r"(?:api[_-]?key|password|secret|token)\s*[:=]\s*\S+"
+    r"|bearer\s+\S+"
+    r")"
+)
 
 
 DEFAULT_PATTERNS: tuple[re.Pattern[str], ...] = (
@@ -132,3 +166,54 @@ class RedactionEngine:
         key matches "ts" by accident) can be added without churning callers.
         """
         return self.redact_dict(frame)
+
+
+# ── Plan 7 Task 11 (D7.15) — structlog processor ─────────────────────
+
+
+def _mask_value(value: Any) -> Any:
+    """Mask a single value if it looks sensitive.
+
+    Three rules:
+      1. :class:`pydantic.SecretStr` → ``"***"`` (the only reliable way
+         to detect a secret-typed config field once it's serialised
+         into a log record).
+      2. ``str`` matching :data:`SENSITIVE_PATTERN` → ``"***"`` (catches
+         operator mistakes like logging ``f"using api_key={cfg.k}"``).
+      3. Everything else (int, bool, None, dict, list, …) is returned
+         unchanged — recursive redaction belongs in
+         :class:`RedactionEngine`; this helper is the lightweight
+         per-value masker that the structlog processor uses on every
+         event_dict value.
+
+    Returns the placeholder string ``"***"`` (not the longer
+    :data:`REDACTED`) so structured log output stays compact and
+    grep-friendly.
+    """
+    if isinstance(value, SecretStr):
+        return "***"
+    if isinstance(value, str) and SENSITIVE_PATTERN.search(value):
+        return "***"
+    return value
+
+
+def redaction_processor(
+    logger: Any,
+    method_name: str,
+    event_dict: dict[str, Any],
+) -> dict[str, Any]:
+    """structlog processor masking :class:`SecretStr` + sensitive strings.
+
+    Signature follows the structlog processor protocol
+    (``(logger, method_name, event_dict) -> event_dict``). Wired in
+    :func:`gg_relay.api.main.lifespan` as the **first** processor so
+    later processors (JSON renderer, console renderer, …) never see
+    plaintext secrets.
+
+    The processor only inspects top-level event_dict values; nested
+    dicts/lists are NOT recursed because structlog event dicts are
+    intentionally shallow. Callers passing complex objects should
+    pre-mask them via :class:`RedactionEngine.redact_value`.
+    """
+    del logger, method_name  # processor protocol args, unused
+    return {k: _mask_value(v) for k, v in event_dict.items()}

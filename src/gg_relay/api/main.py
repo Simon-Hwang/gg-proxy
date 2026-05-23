@@ -40,7 +40,7 @@ from gg_relay.dashboard import STATIC_DIR as DASHBOARD_STATIC_DIR
 from gg_relay.dashboard import router as dashboard_router
 from gg_relay.im import IMSubscriber, feishu_router
 from gg_relay.im.backends.feishu import FeishuBackend
-from gg_relay.redaction import RedactionEngine
+from gg_relay.redaction import RedactionEngine, redaction_processor
 from gg_relay.session.control import ControlChannel
 from gg_relay.session.executor.docker import DockerExecutor
 from gg_relay.session.executor.inprocess import InProcessExecutor
@@ -132,10 +132,48 @@ def _build_assembler(cfg: Config) -> PluginAssembler:
         return _NoopAssembler()
 
 
+def _configure_structlog_redaction() -> None:
+    """Register :func:`redaction_processor` as the first structlog processor.
+
+    Plan 7 Task 11 (D7.15) — the processor MUST run before any
+    rendering processor so JSON / console output never sees plaintext
+    secrets. We construct the pipeline once at lifespan startup and
+    reset it on every boot so test apps spinning up + tearing down
+    multiple FastAPI instances don't accumulate duplicate processors.
+
+    The optional :mod:`structlog` dependency is already declared in
+    ``pyproject.toml`` (``structlog>=24.1``); the inline import keeps
+    the static import graph of :mod:`gg_relay.api.main` free of the
+    dependency for callers that only import ``create_app`` for unit
+    tests against e.g. ``api_keys_with_labels``.
+    """
+    import structlog
+
+    structlog.configure(
+        processors=[
+            redaction_processor,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.processors.add_log_level,
+            structlog.processors.JSONRenderer(),
+        ]
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     cfg: Config = getattr(app.state, "config", None) or Config()
     app.state.config = cfg
+
+    # Plan 7 Task 11 (D7.14) — FAIL-FAST: validate secrets before any
+    # other init. In production mode this raises on missing API keys,
+    # half-configured Feishu, or the sqlite dev default — much better
+    # to crash the lifespan than silently boot a misconfigured relay.
+    cfg.validate_required_secrets()
+
+    # Plan 7 Task 11 (D7.15) — register the redaction processor FIRST
+    # in the structlog pipeline so all downstream logs (DB init, bus
+    # subscribers, IM subscriber, …) flow through it.
+    _configure_structlog_redaction()
 
     engine = make_async_engine(cfg.database_url)
     store = SessionRepository(engine)

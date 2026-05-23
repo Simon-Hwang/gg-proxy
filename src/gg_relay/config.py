@@ -20,6 +20,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("gg_relay.config")
 
+# Plan 7 Task 11 (D7.14) — fail-fast sentinel for the sqlite dev default.
+# When :attr:`Config.database_url` still equals this string in production
+# mode, :meth:`Config.validate_required_secrets` raises so the operator
+# never accidentally ships a single-file sqlite as the production store.
+DEFAULT_SQLITE_URL: str = "sqlite+aiosqlite:///./relay.db"
+
 
 def _split_csv(value: str) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
@@ -147,7 +153,22 @@ class Config(BaseSettings):
     """Externally-reachable base URL (used by IM card callbacks)."""
 
     # ── persistence ─────────────────────────────────────────────────────
-    database_url: str = "sqlite+aiosqlite:///./relay.db"
+    database_url: str = DEFAULT_SQLITE_URL
+
+    # ── Plan 7 Task 11 (D7.14) — fail-fast secret validation ───────────
+    production_mode: bool = False
+    """When True, :meth:`validate_required_secrets` raises
+    :class:`RuntimeError` on any missing required secret (API keys,
+    Feishu consistency, non-sqlite Postgres URL). When False (default,
+    dev mode) it warns instead. Set via ``RELAY_PRODUCTION_MODE=true``
+    in the lifespan boot env."""
+
+    allow_no_keys: bool = False
+    """Dev-only escape hatch — silences the dev-mode "no API keys"
+    warning emitted by :meth:`validate_required_secrets`. Use only
+    when running unit tests / a local sandbox that intentionally
+    leaves ``RELAY_API_KEYS_RAW`` empty. NEVER set this in
+    production; ``production_mode=True`` ignores it entirely."""
 
     # ── plugin assembler ────────────────────────────────────────────────
     gg_plugins_home: Path = Path("/opt/gg-plugins")
@@ -311,6 +332,77 @@ class Config(BaseSettings):
         if self.task_trace_path is None:
             return None
         return Path(self.task_trace_path).expanduser()
+
+    # ── Plan 7 Task 11 (D7.14) — secrets fail-fast helpers ─────────────
+    def _feishu_configured(self) -> bool:
+        """Return True if any Feishu credential is set.
+
+        Treats "any one of these is set" as evidence that the operator
+        *intended* to wire Feishu — so the consistency check then
+        demands the full triad (app id, app secret, webhook secret).
+        Avoids silent half-configured deployments where, say,
+        ``feishu_app_id`` is set but ``feishu_webhook_secret`` is
+        missing (inbound callbacks would 401 every time).
+        """
+        return any(
+            getattr(self, fld, None)
+            for fld in (
+                "feishu_app_id",
+                "feishu_app_secret",
+                "feishu_webhook_secret",
+            )
+        )
+
+    def validate_required_secrets(self) -> None:
+        """Fail-fast secret validation called at lifespan startup.
+
+        Dev mode (``production_mode=False``): warn on missing keys but
+        continue; honours :attr:`allow_no_keys` to silence the warning
+        entirely (for unit tests).
+
+        Production mode (``production_mode=True``): raise
+        :class:`RuntimeError` listing **every** problem in a single
+        message so the operator can fix the env file in one pass
+        rather than playing whack-a-mole. Three classes of problems
+        are reported:
+
+          1. ``RELAY_API_KEYS_RAW`` empty.
+          2. Feishu partially configured (any credential set implies
+             the full triad of app id / app secret / webhook secret).
+          3. Database URL still equal to the sqlite dev default
+             :data:`DEFAULT_SQLITE_URL` (production deployments MUST
+             point at Postgres/MySQL — sqlite single-file storage
+             is not safe for the durable event tier).
+        """
+        if not self.production_mode:
+            if not self.api_keys_raw and not self.allow_no_keys:
+                logger.warning(
+                    "dev mode: no API keys configured "
+                    "(RELAY_API_KEYS_RAW empty)"
+                )
+            return
+        problems: list[str] = []
+        if not self.api_keys_raw:
+            problems.append("RELAY_API_KEYS_RAW required in production")
+        if self._feishu_configured():
+            for fld in (
+                "feishu_app_id",
+                "feishu_app_secret",
+                "feishu_webhook_secret",
+            ):
+                if not getattr(self, fld, None):
+                    problems.append(
+                        f"{fld} required when Feishu is configured"
+                    )
+        if self.database_url == DEFAULT_SQLITE_URL:
+            problems.append(
+                "Postgres/MySQL URL required in production "
+                "(RELAY_DATABASE_URL)"
+            )
+        if problems:
+            raise RuntimeError(
+                "missing required secrets: " + "; ".join(problems)
+            )
 
 
 REQUIRED_FOR_PROD: tuple[str, ...] = (
