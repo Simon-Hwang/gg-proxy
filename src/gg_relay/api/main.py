@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import secrets as stdlib_secrets
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -22,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from gg_relay.api.middleware.api_key_auth import APIKeyAuthMiddleware
+from gg_relay.api.middleware.dashboard_cookie import DashboardCookieMiddleware
 from gg_relay.api.middleware.logging import StructuredLoggingMiddleware
 from gg_relay.api.middleware.rate_limit import (
     RateLimitMiddleware,
@@ -371,19 +373,71 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await engine.dispose()
 
 
+def _derive_dashboard_internal_keys(
+    cfg: Config,
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Plan 8 Task 3 (D8.25 + D8.26) — mint one ephemeral internal API
+    key per configured dashboard user.
+
+    Returns ``(dashboard_internal_keys, augmented_keys_with_labels)``:
+
+    * ``dashboard_internal_keys`` — ``{username: raw_key}`` consumed by
+      :class:`DashboardCookieMiddleware` for synthetic header injection.
+    * ``augmented_keys_with_labels`` — ``cfg.api_keys_with_labels`` plus
+      one entry per dashboard user: ``{raw_key: "dashboard-<username>"}``
+      so the downstream :class:`APIKeyAuthMiddleware` validates the
+      synthetic header just like any operator-supplied key.
+
+    Key material is generated via :func:`secrets.token_urlsafe(32)` and
+    is process-local (regenerated on every restart). Plan 8 v2.3
+    BLOCKER 1 / D8.29 (Task 22) will optionally swap this for a
+    DB-backed table so dashboard logins survive process restarts;
+    until then a restart simply forces dashboard users to re-login on
+    their next request (the cookie still resolves but the synthetic
+    header maps to a now-invalid key → APIKey middleware 401s, which
+    the dashboard surfaces as a redirect to /dashboard/login).
+
+    Label format ``dashboard-<username>`` matches the D8.22 role
+    mapping namespace and the D8.28 admin bootstrap convention — a
+    later Task can lookup ``role_mapping["dashboard-alice"]`` to gate
+    mutations from the cookie identity.
+    """
+    dashboard_internal_keys: dict[str, str] = {}
+    augmented: dict[str, str] = dict(cfg.api_keys_with_labels)
+    for username in cfg.dashboard_users:
+        internal_key = stdlib_secrets.token_urlsafe(32)
+        label = f"dashboard-{username}"
+        dashboard_internal_keys[username] = internal_key
+        augmented[internal_key] = label
+    return dashboard_internal_keys, augmented
+
+
 def create_app(config: Config | None = None) -> FastAPI:
     """Construct the FastAPI app with all routers wired."""
     app = FastAPI(title="gg-relay", lifespan=lifespan)
     if config is not None:
         app.state.config = config
     cfg = config or Config()  # type: ignore[call-arg, unused-ignore]
+    # Plan 8 Task 3 (D8.25 + D8.26) — derive internal API keys for
+    # configured dashboard users BEFORE wiring middleware so the
+    # APIKey middleware sees ``augmented_keys_with_labels`` (operator
+    # keys + dashboard-<user> labels) and the DashboardCookie
+    # middleware sees the matching ``dashboard_internal_keys``.
+    dashboard_internal_keys, augmented_keys_with_labels = (
+        _derive_dashboard_internal_keys(cfg)
+    )
+    # Expose the cookie→key map on app.state so Task 22 (D8.29 DB
+    # swap) and tests can introspect what was generated without a
+    # second derivation pass.
+    app.state.dashboard_internal_keys = dashboard_internal_keys
     # Middleware add order is the *reverse* of dispatch order: the last
     # one added is the outermost layer and runs first. We want
-    #   APIKey → RateLimit → Logging → Session → router
-    # so we add Session first (innermost) and APIKey last (outermost).
-    keys_with_labels: dict[str, str] = (
-        config.api_keys_with_labels if config else {}
-    )
+    #   DashboardCookie → APIKey → RateLimit → Logging → Session → router
+    # so we add Session first (innermost) and DashboardCookie last
+    # (outermost). Plan 8 Task 5 will insert an Audit middleware
+    # between APIKey and RateLimit; the slot is reserved by adding
+    # APIKey just *after* RateLimit (and Audit will go between them
+    # by adding RateLimit before Audit before APIKey).
     session_secret = (
         config.dashboard_session_secret.get_secret_value()
         if config is not None
@@ -406,11 +460,23 @@ def create_app(config: Config | None = None) -> FastAPI:
         )
         app.state.rate_limiter = rate_limiter
         app.add_middleware(RateLimitMiddleware, limiter=rate_limiter)
+    # Plan 8 Task 5 slot — Audit middleware will be added here (between
+    # RateLimit and APIKey) so it sees ``request.state.api_key_label``
+    # already populated by APIKey for every audited mutation.
     app.add_middleware(
         APIKeyAuthMiddleware,
-        keys_with_labels=keys_with_labels,
+        keys_with_labels=augmented_keys_with_labels,
         protected_prefix="/api/v1",
-        allow_no_keys=not keys_with_labels,
+        allow_no_keys=not augmented_keys_with_labels,
+    )
+    # Outermost: DashboardCookie sees the raw request first, reads the
+    # cookie session, and (for /api/v1/*) rewrites the X-API-Key
+    # header BEFORE APIKey middleware runs. This guarantees the
+    # single identity contract (D8.25): the cookie wins over any
+    # accidentally-attached X-API-Key header.
+    app.add_middleware(
+        DashboardCookieMiddleware,
+        dashboard_internal_keys=dashboard_internal_keys,
     )
     # Routers.
     app.include_router(sessions_router, prefix="/api/v1")

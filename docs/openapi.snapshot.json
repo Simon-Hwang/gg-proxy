@@ -1483,6 +1483,7 @@
         ]
       },
       "post": {
+        "description": "Handle login form submission.\n\nPlan 8 D8.26 \u2014 check the configured ``dashboard_users`` (bcrypt)\nfirst; fall back to the legacy admin/``dashboard_admin_password``\nflow so existing deployments keep working. Both paths set the\nsame ``SESSION_USER_KEY`` so the cookie middleware can resolve\neither identity into the synthetic ``X-API-Key`` injection\ncontract.",
         "operationId": "login_post_dashboard_login_post",
         "requestBody": {
           "content": {

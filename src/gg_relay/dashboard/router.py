@@ -1,9 +1,25 @@
 """HTMX dashboard router.
 
-Authentication is a single shared admin account (D4.11); the password is
-loaded from ``Config.dashboard_admin_password`` and compared with
-``secrets.compare_digest``. The session middleware (added by the parent
-app, NOT here) signs cookies with ``Config.dashboard_session_secret``.
+Authentication paths (Plan 4 D4.11 + Plan 8 D8.26):
+
+* **Legacy admin** — single shared admin account; password is loaded
+  from ``Config.dashboard_admin_password`` and compared with
+  :func:`secrets.compare_digest`. Username is always ``"admin"``.
+* **Plan 8 multi-user (D8.26)** — :attr:`Config.dashboard_users` maps
+  ``{username: bcrypt_hash}`` (parsed from
+  ``RELAY_DASHBOARD_USERS_RAW``). On match the bcrypt hash is
+  verified with :func:`bcrypt.checkpw`; malformed hashes raise
+  ``ValueError`` which we catch and reject as invalid credentials
+  (defends against an operator pasting a non-bcrypt string into the
+  env var). The cookie session key is the same as the legacy admin
+  path (``"dashboard_user"`` — see
+  :data:`gg_relay.api.middleware.dashboard_cookie.SESSION_KEY`) so
+  the :class:`DashboardCookieMiddleware` can resolve any logged-in
+  user (admin OR a configured dashboard_user) into the synthetic
+  ``X-API-Key`` injection contract.
+
+The session middleware (added by the parent app, NOT here) signs
+cookies with ``Config.dashboard_session_secret``.
 
 The router rejects any non-``/dashboard/login`` request that lacks a
 valid session cookie. All rendered values come from the redacted
@@ -52,7 +68,14 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-SESSION_USER_KEY = "user"
+# Plan 8 D8.26 — single session key shared with
+# :data:`gg_relay.api.middleware.dashboard_cookie.SESSION_KEY`. The
+# middleware reads the same key to resolve cookie → username for
+# header injection on ``/api/v1/*`` mutations. The Plan 7 legacy
+# value (``"user"``) is deliberately retired: a unified key keeps the
+# cookie-vs-middleware contract single-sourced and means the audit /
+# role-check pipeline doesn't need a compat fallback.
+SESSION_USER_KEY = "dashboard_user"
 
 
 def _require_session(request: Request) -> None:
@@ -80,19 +103,63 @@ async def login_get(request: Request) -> HTMLResponse:
     )
 
 
+def _verify_dashboard_user(
+    cfg: Any, username: str, password: str
+) -> bool:
+    """Plan 8 D8.26 — bcrypt-verify a configured dashboard user.
+
+    Returns ``False`` for unknown users, mismatched passwords, or any
+    bcrypt error (``ValueError`` on malformed hash,
+    ``UnicodeEncodeError`` on non-utf-8 password — neither should
+    crash the login route into a 500).
+    """
+    users: dict[str, str] = getattr(cfg, "dashboard_users", {}) or {}
+    expected_hash = users.get(username)
+    if not expected_hash:
+        return False
+    try:
+        import bcrypt
+
+        return bool(
+            bcrypt.checkpw(password.encode("utf-8"), expected_hash.encode("utf-8"))
+        )
+    except (ValueError, UnicodeEncodeError, TypeError):  # pragma: no cover - defensive
+        return False
+    except ImportError:  # pragma: no cover - bcrypt is a hard dep
+        return False
+
+
+def _verify_admin(
+    cfg: Any, username: str, password: str
+) -> bool:
+    """Legacy single-admin path (D4.11). Kept for backward compat with
+    deployments that only set ``RELAY_DASHBOARD_ADMIN_PASSWORD``."""
+    admin_pw: SecretStr | None = getattr(cfg, "dashboard_admin_password", None)
+    if admin_pw is None or username != "admin":
+        return False
+    return secrets.compare_digest(password, admin_pw.get_secret_value())
+
+
 @router.post("/login")
 async def login_post(
     request: Request,
     username: str = Form(...),
     password: str = Form(...),
 ) -> Any:
+    """Handle login form submission.
+
+    Plan 8 D8.26 — check the configured ``dashboard_users`` (bcrypt)
+    first; fall back to the legacy admin/``dashboard_admin_password``
+    flow so existing deployments keep working. Both paths set the
+    same ``SESSION_USER_KEY`` so the cookie middleware can resolve
+    either identity into the synthetic ``X-API-Key`` injection
+    contract.
+    """
     cfg = request.app.state.config
-    admin_pw: SecretStr | None = getattr(cfg, "dashboard_admin_password", None)
-    if (
-        admin_pw is None
-        or username != "admin"
-        or not secrets.compare_digest(password, admin_pw.get_secret_value())
-    ):
+    authenticated = _verify_dashboard_user(
+        cfg, username, password
+    ) or _verify_admin(cfg, username, password)
+    if not authenticated:
         return templates.TemplateResponse(
             request,
             "login.html",

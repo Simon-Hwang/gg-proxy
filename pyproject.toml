@@ -38,6 +38,11 @@ dependencies = [
     # later phase tasks (KeyResolver / dashboard cookie middleware) can
     # rely on it without a second dependency churn.
     "cachetools>=5.3",
+    # Plan 8 D8.26 / Task 3 — dashboard cookie auth bcrypt validation.
+    # Operator-supplied hashes in ``RELAY_DASHBOARD_USERS_RAW`` are
+    # ``bcrypt.checkpw``-verified at login; the SDK is a tiny C-ext
+    # library with zero transitive deps so adding it here is cheap.
+    "bcrypt>=4.0",
 ]
 
 [project.optional-dependencies]
