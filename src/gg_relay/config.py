@@ -15,7 +15,7 @@ import re
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("gg_relay.config")
@@ -221,7 +221,19 @@ class Config(BaseSettings):
     pause/resume contention without forcing the production default."""
 
     # ── OTel ────────────────────────────────────────────────────────────
-    otel_endpoint: str | None = None
+    # Plan 7 Task 15 / D7.23: ``otel_endpoint`` accepts both
+    # ``RELAY_OTEL_ENDPOINT`` (canonical, ``RELAY_``-prefixed) and the
+    # upstream OTel convention ``OTEL_EXPORTER_OTLP_ENDPOINT``. When both
+    # are set ``RELAY_OTEL_ENDPOINT`` wins (first entry in AliasChoices)
+    # so operators migrating from an OTel-native setup don't get a
+    # surprise switch the moment they add the relay's own env file.
+    otel_endpoint: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "RELAY_OTEL_ENDPOINT",
+            "OTEL_EXPORTER_OTLP_ENDPOINT",
+        ),
+    )
     otel_exporter: Literal["grpc", "http", "console"] = "grpc"
 
     # ── IM (Feishu only in Plan 4) ──────────────────────────────────────

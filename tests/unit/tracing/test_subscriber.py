@@ -1,11 +1,12 @@
 """Unit tests for :class:`OtelSubscriber` and :func:`setup_tracer`.
 
-Plan 5 D5.2=A3 migration: publishes typed events (SessionStateChanged,
-ToolRequested, ToolResolved, InstallError) instead of the legacy dict
-"session_state" / "frame" topics; the str-topic forward-compat path is
-exercised by ``test_error_frame_legacy_path`` below.
-
-Uses :class:`InMemorySpanExporter` so spans can be asserted directly.
+Plan 7 Task 15 (D7.9): the subscriber emits a 3-tier hierarchy
+(``relay.session`` root → ``relay.session.run`` child → ``relay.tool_call``
+grandchild). These tests cover the lifecycle smoke (start→end emits root
++ run + finalize; tool spans are parented under the run; install errors
+land as span events) and the str-topic legacy frame fallback. The
+exhaustive hierarchy / double-write / pause-resume coverage lives in
+``test_span_hierarchy.py`` (Task 15 new file).
 """
 from __future__ import annotations
 
@@ -66,7 +67,9 @@ class TestSetupTracer:
 
 
 class TestSubscriberSpans:
-    async def test_session_start_then_end_emits_session_span(self, harness):
+    async def test_session_start_then_end_emits_root_run_finalize(
+        self, harness
+    ):
         bus, _sub, exporter = harness
         await bus.publish(
             SessionStateChanged(
@@ -83,13 +86,17 @@ class TestSubscriberSpans:
         )
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())
-        names = [s.name for s in spans]
-        assert "session:s1" in names
-        sess = next(s for s in spans if s.name == "session:s1")
-        assert sess.attributes is not None
-        assert sess.attributes.get("gg_relay.end_status") == "completed"
+        names = {s.name for s in spans}
+        # 3-tier hierarchy at terminal: root + run + finalize.
+        assert {"relay.session", "relay.session.run", "relay.session.finalize"} <= names
+        root = next(s for s in spans if s.name == "relay.session")
+        assert root.attributes is not None
+        assert root.attributes.get("gg_relay.end_status") == "completed"
+        # Double-write: both legacy and canonical attribute names present.
+        assert root.attributes.get("session.id") == "s1"
+        assert root.attributes.get("gg_relay.session_id") == "s1"
 
-    async def test_tool_request_creates_child_span_under_session(self, harness):
+    async def test_tool_request_creates_grandchild_under_run(self, harness):
         bus, _sub, exporter = harness
         await bus.publish(
             SessionStateChanged(
@@ -125,13 +132,16 @@ class TestSubscriberSpans:
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())
         names = [s.name for s in spans]
-        assert "session:s2" in names
-        assert "tool:WriteFile" in names
-        sess = next(s for s in spans if s.name == "session:s2")
-        tool = next(s for s in spans if s.name == "tool:WriteFile")
+        assert "relay.session" in names
+        assert "relay.session.run" in names
+        assert "relay.tool_call" in names
+        run = next(s for s in spans if s.name == "relay.session.run")
+        tool = next(s for s in spans if s.name == "relay.tool_call")
+        # Tool is parented under the run (which is itself under the root).
         assert tool.parent is not None
-        assert tool.parent.trace_id == sess.context.trace_id
-        assert tool.parent.span_id == sess.context.span_id
+        assert tool.parent.span_id == run.context.span_id
+        assert tool.attributes is not None
+        assert tool.attributes.get("gg_relay.tool") == "WriteFile"
 
     async def test_install_error_event_lands_on_session_span(self, harness):
         bus, _sub, exporter = harness
@@ -155,8 +165,10 @@ class TestSubscriberSpans:
         )
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())
-        sess = next(s for s in spans if s.name == "session:s3")
-        ev_names = [e.name for e in sess.events]
+        # InstallError annotates the active run span (or root if no run);
+        # at terminal time the run is the one carrying the event.
+        run = next(s for s in spans if s.name == "relay.session.run")
+        ev_names = [e.name for e in run.events]
         assert "error" in ev_names
 
     async def test_error_frame_legacy_path(self, harness):
@@ -191,8 +203,13 @@ class TestSubscriberSpans:
         )
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())
-        sess = next(s for s in spans if s.name == "session:s3legacy")
-        ev_names = [e.name for e in sess.events]
+        run = next(
+            s for s in spans
+            if s.name == "relay.session.run"
+            and s.attributes is not None
+            and s.attributes.get("session.id") == "s3legacy"
+        )
+        ev_names = [e.name for e in run.events]
         assert "error" in ev_names
 
     async def test_subscriber_idempotent_running_event(self, harness):
@@ -214,4 +231,19 @@ class TestSubscriberSpans:
         )
         await asyncio.sleep(0.05)
         spans = list(exporter.get_finished_spans())
-        assert sum(1 for s in spans if s.name == "session:s4") == 1
+        # Exactly one root, one run (the duplicate RUNNING is a no-op),
+        # one finalize. No phantom extras.
+        roots = [
+            s for s in spans
+            if s.name == "relay.session"
+            and s.attributes is not None
+            and s.attributes.get("session.id") == "s4"
+        ]
+        runs = [
+            s for s in spans
+            if s.name == "relay.session.run"
+            and s.attributes is not None
+            and s.attributes.get("session.id") == "s4"
+        ]
+        assert len(roots) == 1
+        assert len(runs) == 1
