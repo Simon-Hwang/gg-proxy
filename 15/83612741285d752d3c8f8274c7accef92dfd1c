@@ -1,0 +1,21 @@
+uv.lock
+  ai_agent 299-363,566-574,754-796,902-1015,1061-1063,1084,1103,1466-1492,1625-1677,2116-2143,2359-2370,2380-2398,2473-2530,2727-2738,3097-3105,3165-3188,3287-3330
+.env.example
+  s_a4f64b7e9d73b1::t_faa2c672288b03 130-143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "1583612741285d752d3c8f8274c7accef92dfd1c",
+  "prompts": {},
+  "sessions": {
+    "s_a4f64b7e9d73b1": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "a304d368-1f93-4b09-bb86-943815d52f41",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
