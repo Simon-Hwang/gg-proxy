@@ -108,3 +108,11 @@ class SessionSummary:
     tags: tuple[str, ...] = ()
     backend: str = ""
     end_reason: str | None = None
+    # Plan 8 D8.0 / Task 15 — owner label exposed so kanban/list
+    # templates can render the owner badge without an extra round-trip
+    # through ``get_session``. ``None`` for unowned (legacy) rows.
+    owner: str | None = None
+    # Plan 8 D8.0 / Task 15 — owner label exposed so kanban/list
+    # templates can render the owner badge without an extra round-trip
+    # through ``get_session``. ``None`` for unowned (legacy) rows.
+    owner: str | None = None

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Sessions list · gg-relay{% endblock %}
+{% block content %}
+<div class="list-page">
+  <h2>Sessions</h2>
+  <p class="muted">
+    Table view with cursor pagination. Scroll to load more — filters
+    are server-side and the URL stays shareable.
+  </p>
+
+  {# Plan 8 Task 15: filter form points at the list endpoint so
+     Filter/Clear stay on the same view. #}
+  {% set filter_action = '/dashboard/list' %}
+  {% include "_kanban_filters.html" %}
+
+  <table class="sessions-table">
+    <thead>
+      <tr>
+        <th>Submitted</th>
+        <th>ID</th>
+        <th>Owner</th>
+        <th>Status</th>
+        <th>Tags</th>
+        <th>Backend</th>
+      </tr>
+    </thead>
+    <tbody id="sessions-tbody">
+      {% include "_list_rows.html" %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

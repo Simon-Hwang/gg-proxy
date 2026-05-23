@@ -145,6 +145,85 @@ pre.spec-json, pre.frame-payload, pre.hitl-args { background: var(--panel); padd
 .bulk-select { margin: 4px 0 0 2px; cursor: pointer; flex-shrink: 0; }
 .kanban-card.selected { outline: 2px solid var(--accent); outline-offset: -1px; }
 
+/* Plan 8 Task 15 / D8.0 — owner badge (kanban + list). The bg color
+   is computed per-owner by the ``owner_color`` Jinja filter so each
+   label gets a stable hue without an explicit palette mapping. */
+.owner-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    color: #fff;
+    font-size: 0.75em;
+    font-weight: 600;
+    line-height: 1.3;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.kanban-card-owner { margin-bottom: 4px; }
+
+/* Plan 8 Task 15 — combined filter form (kanban + list). Plain inline
+   layout; submission is a regular GET so the URL stays shareable. */
+.kanban-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 0;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+}
+.kanban-filters input,
+.kanban-filters select {
+    padding: 4px 8px;
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 0.9em;
+}
+.kanban-filters input { min-width: 140px; }
+
+/* Plan 8 Task 15 — list view: table layout + status pill variants.
+   Re-uses the existing ``table`` baseline rules; the ``status-badge``
+   pill is distinct from the kanban ``.badge`` to keep that template's
+   color tokens untouched. */
+.sessions-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.sessions-table th,
+.sessions-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9em;
+}
+.sessions-table th { color: var(--muted); font-weight: 500; }
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 0.75em;
+    font-weight: 500;
+}
+.status-badge.status-queued      { background: #2a3340; color: var(--muted); }
+.status-badge.status-running     { background: #2a4055; color: var(--accent); }
+.status-badge.status-paused      { background: #55402a; color: var(--warn); }
+.status-badge.status-completed   { background: #2a4040; color: var(--success); }
+.status-badge.status-failed,
+.status-badge.status-cancelled,
+.status-badge.status-interrupted { background: #4a2820; color: var(--danger); }
+.tag {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-right: 3px;
+    background: var(--panel);
+    color: var(--muted);
+    border-radius: 4px;
+    font-size: 0.75em;
+}
+#list-load-more td { text-align: center; font-style: italic; }
+
 /* Plan 8 Task 16 / D8.14 — web submission form (/dashboard/new).
    Vertical-stacked rows so each label sits over its control, plus
    a dedicated alert palette for the duplicate-prompt warning and

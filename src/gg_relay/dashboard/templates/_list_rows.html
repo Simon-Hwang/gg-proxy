@@ -1,0 +1,32 @@
+{# Plan 8 Task 15 / D8.0 — list view row fragment. Lives outside list.html
+   so the HTMX infinite-scroll path can swap *just* the trailing load-more
+   row with the next page's rows. #}
+{% for it in items %}
+<tr class="status-row status-row-{{ it.status }}">
+  <td>{{ it.submitted_at }}</td>
+  <td><a href="/dashboard/sessions/{{ it.id }}"><code>{{ it.id[:8] }}</code></a></td>
+  <td>
+    {% if it.owner %}
+      <span class="owner-badge" style="background-color: {{ it.owner | owner_color }}" title="{{ it.owner }}">{{ it.owner[:8] }}</span>
+    {% else %}
+      <span class="muted">—</span>
+    {% endif %}
+  </td>
+  <td><span class="status-badge status-{{ it.status }}">{{ it.status }}</span></td>
+  <td>
+    {% for t in it.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+  </td>
+  <td>{{ it.backend or '—' }}</td>
+</tr>
+{% else %}
+<tr><td colspan="6" class="muted">No sessions match the current filter.</td></tr>
+{% endfor %}
+{% if next_cursor %}
+<tr id="list-load-more"
+    hx-get="/dashboard/list?{% if querystring %}{{ querystring }}&{% endif %}after={{ next_cursor }}"
+    hx-trigger="revealed"
+    hx-target="this"
+    hx-swap="outerHTML">
+  <td colspan="6" class="muted">Loading more…</td>
+</tr>
+{% endif %}

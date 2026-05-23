@@ -25,6 +25,15 @@
         title="Star">★</button>
     <a href="/dashboard/sessions/{{ s.id }}" class="kanban-card-link">
         <div class="kanban-card-id">{{ s.id }}</div>
+        {# Plan 8 Task 15 / D8.0: owner badge — color is a deterministic
+           HSL hue from md5(owner) so each label gets a stable, readable
+           swatch without an explicit palette. Truncated to 8 chars to
+           keep the card compact; the full label lives in ``title=``. #}
+        {% if s.owner %}
+        <div class="kanban-card-owner">
+            <span class="owner-badge" style="background-color: {{ s.owner | owner_color }}" title="{{ s.owner }}">{{ s.owner[:8] }}</span>
+        </div>
+        {% endif %}
         <div class="kanban-card-meta">
             <span class="badge badge-{{ s.status.value }}">{{ s.status.value }}</span>
             <span class="kanban-card-backend">{{ s.backend }}</span>

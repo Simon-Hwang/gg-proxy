@@ -7,6 +7,12 @@
     (read-only — drag-to-reassign is intentionally not implemented).
 </p>
 
+{# Plan 8 Task 15 / D8.0 — combined owner/status/tag filter. Plain GET
+   form so the resulting URL is shareable; ``filter_*`` values come from
+   the kanban_page handler so the form repopulates on round-trip. #}
+{% set filter_action = '/dashboard/kanban' %}
+{% include "_kanban_filters.html" %}
+
 {# Plan 8 Task 10 / D8.6 — batch toolbar (sticky-top). Hidden until
    the first checkbox flips; the JS in ``batch_toolbar.js`` owns the
    visibility + button state. #}

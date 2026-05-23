@@ -396,6 +396,7 @@ class SessionManager:
                 tags=tuple(r["tags"] or ()),
                 backend=r["backend"],
                 end_reason=r["end_reason"],
+                owner=r.get("owner") if hasattr(r, "get") else None,
             )
             for r in rows
         ]

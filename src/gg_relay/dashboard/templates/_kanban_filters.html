@@ -1,0 +1,19 @@
+{# Plan 8 Task 15 / D8.0 — combined kanban/list filter (owner/status/tag).
+   Plain ``method=get`` form: the URL change is the source of truth so the
+   filtered view is shareable / bookmarkable. ``filter_action`` defaults
+   to ``/dashboard/kanban`` so the same partial serves both the kanban
+   page and the list page (list view passes ``/dashboard/list``). #}
+<form class="kanban-filters" method="get" action="{{ filter_action or '/dashboard/kanban' }}">
+  <input type="text" name="owner" placeholder="Owner..." value="{{ filter_owner or '' }}" maxlength="64" />
+  <select name="status">
+    <option value="" {% if not filter_status %}selected{% endif %}>All status</option>
+    {% for st in ['queued', 'running', 'paused', 'completed', 'failed', 'cancelled', 'interrupted'] %}
+      <option value="{{ st }}" {% if filter_status == st %}selected{% endif %}>{{ st }}</option>
+    {% endfor %}
+  </select>
+  <input type="text" name="tag" placeholder="Tag..." value="{{ filter_tag or '' }}" maxlength="64" />
+  <button type="submit" class="btn btn-primary">Filter</button>
+  {% if filter_owner or filter_status or filter_tag %}
+    <a href="{{ filter_action or '/dashboard/kanban' }}" class="btn-link">Clear</a>
+  {% endif %}
+</form>

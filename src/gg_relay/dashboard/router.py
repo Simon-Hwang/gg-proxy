@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import secrets
 import urllib.parse
@@ -54,7 +55,8 @@ from pydantic import SecretStr
 from gg_relay.api.dependencies.require_role import ROLE_HIERARCHY
 from gg_relay.api.deps import get_coordinator, get_manager
 from gg_relay.api.middleware.dashboard_cookie import SESSION_KEY as _COOKIE_SESSION_KEY
-from gg_relay.core import EventBus, SessionCreated, SessionStateChanged
+from gg_relay.core import EventBus, SessionCreated, SessionState, SessionStateChanged
+from gg_relay.core.domain import SessionSummary
 from gg_relay.session.hitl.coordinator import HITLCoordinator, HITLNotPending
 from gg_relay.session.manager import SessionManager, SessionNotFound
 from gg_relay.store import (
@@ -67,7 +69,30 @@ _HERE = Path(__file__).resolve().parent
 TEMPLATES_DIR = _HERE / "templates"
 STATIC_DIR = _HERE / "static"
 
+
+def _owner_color(owner: str | None) -> str:
+    """Plan 8 D8.0 / Task 15 — deterministic HSL color from owner label.
+
+    The hue is derived from the first 8 hex digits of MD5(owner)
+    (mod 360); saturation + lightness are pinned so every label gets
+    a readable contrast against the dark dashboard panel without an
+    ad-hoc palette per owner. ``None``/empty owners fall back to the
+    neutral muted gray so the badge can still render without a noisy
+    "transparent" slot.
+
+    MD5 is used as a cheap non-cryptographic hash purely for visual
+    bucketing; collisions across labels are acceptable and never
+    feed into auth / RBAC decisions.
+    """
+    if not owner:
+        return "hsl(0, 0%, 45%)"
+    digest = hashlib.md5(owner.encode("utf-8"), usedforsecurity=False).hexdigest()
+    hue = int(digest[:8], 16) % 360
+    return f"hsl({hue}, 55%, 45%)"
+
+
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+templates.env.filters["owner_color"] = _owner_color
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -300,15 +325,49 @@ def _kanban_columns(
 @router.get("/kanban", response_class=HTMLResponse)
 async def kanban_page(
     request: Request,
+    owner: str | None = Query(None, max_length=64),
+    status: str | None = Query(None, max_length=32),
+    tag: str | None = Query(None, max_length=64),
     _: None = _RequireSessionDep,
     manager: SessionManager = _ManagerDep,
 ) -> HTMLResponse:
     """Render the full Kanban board chrome — the inner board fragment
     is fetched separately by HTMX so subsequent 5s polls and SSE swaps
-    only re-render the data, not the surrounding navigation."""
+    only re-render the data, not the surrounding navigation.
+
+    Plan 8 D8.0 / Task 15 — accepts optional ``owner`` / ``status`` /
+    ``tag`` query params. When ANY filter is set the page routes
+    through :meth:`SessionRepository.search_sessions` (filter-aware
+    cursor pagination, same path the search page uses) and the 5s
+    polling fallback's next-page lazy-loader is silenced to avoid
+    clobbering the filtered view with un-filtered polls. With no
+    filter set the behavior is unchanged from Plan 6 (manager.list
+    → SessionSummary, 5s polling enabled).
+
+    RBAC mirrors :func:`search_results`: non-admin callers are
+    silently force-filtered to their own ``dashboard-<self>`` label
+    so a submitter cannot peek at another team's queue by typing a
+    foreign owner into the URL. Admin callers see what they asked
+    for (or the un-filtered firehose).
+    """
     cfg = request.app.state.config
     page_size = int(getattr(cfg, "kanban_default_page_size", 50))
-    sessions, next_cursor = await manager.list(limit=page_size)
+
+    has_filter = bool(owner or status or tag)
+    if has_filter:
+        sessions, _next_cursor, effective_owner = await _filtered_summaries(
+            request, owner=owner, status=status, tag=tag, limit=page_size
+        )
+        # The 5s polling URL is the bare /dashboard/kanban/board (no
+        # filter context) so we suppress the next-page lazy-loader
+        # here — filtered users can still navigate via the filter
+        # form. The list view carries proper filter-aware pagination.
+        next_cursor: str | None = None
+    else:
+        sessions_summaries, next_cursor = await manager.list(limit=page_size)
+        sessions = list(sessions_summaries)
+        effective_owner = owner
+
     columns = _kanban_columns(list(sessions))
     return templates.TemplateResponse(
         request,
@@ -319,8 +378,167 @@ async def kanban_page(
             "next_cursor": next_cursor,
             "chart_js_cdn": getattr(cfg, "chart_js_cdn", ""),
             "chart_js_offline": bool(getattr(cfg, "chart_js_offline", False)),
+            "filter_owner": effective_owner,
+            "filter_status": status,
+            "filter_tag": tag,
+            "has_filter": has_filter,
         },
     )
+
+
+def _summary_from_search_row(row: Any) -> SessionSummary:
+    """Convert a ``search_sessions`` raw row mapping into a
+    :class:`SessionSummary` so the kanban template can render filtered
+    results without a parallel rendering path.
+    """
+    return SessionSummary(
+        id=row["id"],
+        status=SessionState(row["status"]),
+        submitted_at=row["submitted_at"],
+        started_at=row.get("started_at") if hasattr(row, "get") else row["started_at"],
+        ended_at=row.get("ended_at") if hasattr(row, "get") else row["ended_at"],
+        tags=tuple(row["tags"] or ()),
+        backend=(row.get("backend") if hasattr(row, "get") else row["backend"]) or "",
+        end_reason=row.get("end_reason") if hasattr(row, "get") else row["end_reason"],
+        owner=row.get("owner") if hasattr(row, "get") else None,
+    )
+
+
+async def _filtered_summaries(
+    request: Request,
+    *,
+    owner: str | None,
+    status: str | None,
+    tag: str | None,
+    limit: int,
+    after: str | None = None,
+) -> tuple[list[SessionSummary], str | None, str | None]:
+    """Resolve filters → ``(summaries, next_cursor, effective_owner)``.
+
+    Shared by the kanban filter wiring and the list view so RBAC + the
+    ``search_sessions`` filter shape stay single-sourced. ``owner`` is
+    forced to the caller's ``dashboard-<self>`` label for non-admin
+    callers (single identity contract, D8.25); admin callers see
+    whatever they typed (or all owners when blank).
+
+    Cursor errors collapse to an empty page so the rendered view
+    doesn't 500 on a stale URL share.
+    """
+    store: SessionRepository = request.app.state.store
+    label = _dashboard_label(request)
+    role = _dashboard_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+
+    if not is_admin and label:
+        effective_owner: str | None = label
+    elif owner == "":
+        effective_owner = None
+    else:
+        effective_owner = owner
+
+    status_list = [status] if status else None
+    tags_list = [tag] if tag else None
+
+    try:
+        rows, next_cursor = await store.search_sessions(
+            owner=effective_owner,
+            tags=tags_list,
+            status=status_list,
+            after=after,
+            limit=limit,
+        )
+    except (CursorInvalidError, CursorFilterMismatchError):
+        return [], None, effective_owner
+
+    summaries = [_summary_from_search_row(r) for r in rows]
+    return summaries, next_cursor, effective_owner
+
+
+@router.get("/list", response_class=HTMLResponse)
+async def sessions_list_view(
+    request: Request,
+    owner: str | None = Query(None, max_length=64),
+    status: str | None = Query(None, max_length=32),
+    tag: str | None = Query(None, max_length=64),
+    after: str | None = Query(None, max_length=512),
+    limit: int = Query(50, ge=1, le=200),
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Plan 8 Task 15 / D8.0 — list-view table with cursor pagination.
+
+    HTMX-aware: when the client sends ``HX-Request: true`` AND an
+    ``after`` cursor (i.e. the load-more row revealed itself), only
+    the rows-fragment is returned so the existing tbody appends in
+    place. Otherwise the full page chrome renders so navigation /
+    deep links work without JS.
+
+    RBAC and filter shaping are shared with the kanban filter wiring
+    via :func:`_filtered_summaries` — non-admin callers always see
+    their own owner regardless of what they typed in the form.
+
+    The fragment branch must precede the full page branch because
+    HTMX users still load the full page on first navigation (no
+    ``after``) — the cursor presence is the disambiguator.
+    """
+    summaries, next_cursor, effective_owner = await _filtered_summaries(
+        request,
+        owner=owner,
+        status=status,
+        tag=tag,
+        limit=limit,
+        after=after,
+    )
+
+    items = [_list_item(s) for s in summaries]
+
+    qs_dict = {
+        k: v
+        for k, v in {
+            "owner": owner,
+            "status": status,
+            "tag": tag,
+            "limit": str(limit) if limit != 50 else None,
+        }.items()
+        if v
+    }
+    querystring = urllib.parse.urlencode(qs_dict)
+
+    ctx = {
+        "items": items,
+        "next_cursor": next_cursor,
+        "querystring": querystring,
+        "filter_owner": effective_owner,
+        "filter_status": status,
+        "filter_tag": tag,
+    }
+
+    hx_request = request.headers.get("HX-Request") == "true"
+    if hx_request and after:
+        return templates.TemplateResponse(
+            request, "_list_rows.html", ctx
+        )
+
+    return templates.TemplateResponse(request, "list.html", ctx)
+
+
+def _list_item(s: SessionSummary) -> dict[str, Any]:
+    """Project a :class:`SessionSummary` into the list-row dict.
+
+    Keeps the template free of attribute access on the dataclass so
+    the same partial can be reused later if we switch the data source
+    (e.g. add favorites / parent_session columns in Plan 9).
+    """
+    return {
+        "id": s.id,
+        "owner": s.owner,
+        "status": s.status.value if hasattr(s.status, "value") else str(s.status),
+        "submitted_at": s.submitted_at.isoformat()
+        if hasattr(s.submitted_at, "isoformat")
+        else str(s.submitted_at),
+        "tags": list(s.tags),
+        "backend": s.backend,
+        "end_reason": s.end_reason,
+    }
 
 
 @router.get("/kanban/board", response_class=HTMLResponse)
