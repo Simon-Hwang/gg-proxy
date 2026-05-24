@@ -1,0 +1,37 @@
+src/gg_relay/api/main.py
+  s_16e85383ae8215::t_9c10f98d2aeddd 533-539
+  s_16e85383ae8215::t_c7e454b83fc0cc 278-290
+  s_16e85383ae8215::t_5fd161a6ca0eeb 625-630
+  s_16e85383ae8215::t_e6631711fe7332 233,236-242,244-246,251
+src/gg_relay/api/middleware/rate_limit.py
+  s_16e85383ae8215::t_36fb58657be9b6 186-192,195-198,212-213
+src/gg_relay/cluster/factory.py
+  s_16e85383ae8215::t_4ce1623cb3222c 1-29,31-76,79-97,99-103,109-190
+  s_16e85383ae8215::t_bbe19112b366c5 104,108
+  s_16e85383ae8215::t_99603583d206fb 30
+  s_16e85383ae8215::t_96049e18a06173 77-78
+  s_16e85383ae8215::t_504cb3a254c755 98,105-107
+tests/unit/cluster/test_factory.py
+  s_16e85383ae8215::t_0e1fb0bfc0b6f4 1-112
+tests/integration/test_redis_cross_worker.py
+  s_16e85383ae8215::t_7d3f19b8f1df46 1-28,45,48-142
+  s_16e85383ae8215::t_5821126a665a08 29-44,46-47
+src/gg_relay/cluster/__init__.py
+  s_16e85383ae8215::t_f36acf6c3c642c 21-25,43,45-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "ec255d24978bf384978a47e503b11487b25db905",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
