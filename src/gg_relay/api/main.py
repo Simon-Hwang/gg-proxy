@@ -32,6 +32,7 @@ from gg_relay.api.middleware.rate_limit import (
     TokenBucketRateLimiter,
 )
 from gg_relay.api.routers import (
+    admin_drain_router,
     admin_keys_router,
     audit_router,
     comments_router,
@@ -768,6 +769,11 @@ def create_app(config: Config | None = None) -> FastAPI:
     # (sessions/events/hitl/audit/...) with operator-only admin
     # tooling clearly tagged at the tail.
     app.include_router(admin_keys_router, prefix="/api/v1")
+    # Plan 9 D9.12 — admin drain endpoint (POST /api/v1/admin/drain).
+    # Flips ``app.state.drained=True`` so /readyz returns 503; the
+    # K8s preStop hook calls this before SIGTERM so the load balancer
+    # detaches the pod from rotation before in-flight cancellation.
+    app.include_router(admin_drain_router, prefix="/api/v1")
     app.include_router(health_router)
     app.include_router(metrics_router)
     app.include_router(dashboard_router)

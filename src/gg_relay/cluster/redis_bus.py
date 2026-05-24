@@ -210,6 +210,12 @@ class RedisStreamEventBus:
             maxlen=self._maxlen,
             approximate=self._approximate,
         )
+        try:
+            from gg_relay.tracing.metrics import REDIS_XADD_TOTAL
+
+            REDIS_XADD_TOTAL.inc()
+        except Exception:  # noqa: BLE001 — defensive
+            pass
 
     # ── Local subscriber path (topic-keyed) ─────────────────────────
     def subscribe(
@@ -299,16 +305,22 @@ class RedisStreamEventBus:
                         last_id = entry_id
                         try:
                             evt = decode_event(_normalise_fields(entry_fields))
-                        except (
-                            UnsupportedWireVersionError,
-                            KeyError,
-                        ) as exc:
+                        except UnsupportedWireVersionError as exc:
+                            logger.warning(
+                                "redis_bus.wire_version_unsupported id=%s err=%s",
+                                entry_id,
+                                exc,
+                            )
+                            _bump("REDIS_WIRE_VERSION_UNSUPPORTED_TOTAL")
+                            continue
+                        except KeyError as exc:
                             logger.warning(
                                 "redis_bus.decode_failed id=%s err=%s",
                                 entry_id,
                                 exc,
                             )
                             continue
+                        _bump("REDIS_XREAD_TOTAL")
                         await self._fanout(evt)
         except asyncio.CancelledError:
             raise
@@ -331,6 +343,18 @@ class RedisStreamEventBus:
             self._pump_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._pump_task
+
+
+def _bump(metric_name: str) -> None:
+    """Best-effort Prometheus increment; never raises into the pump."""
+    try:
+        from gg_relay.tracing import metrics
+
+        metric = getattr(metrics, metric_name, None)
+        if metric is not None:
+            metric.inc()
+    except Exception:  # noqa: BLE001 — defensive
+        pass
 
 
 def _normalise_fields(raw: Any) -> dict[str, str]:

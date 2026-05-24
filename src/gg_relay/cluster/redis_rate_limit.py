@@ -135,6 +135,7 @@ class RedisRateLimitStore:
             )
         except Exception:  # noqa: BLE001 — defensive
             logger.exception("redis_rate_limit.acquire_failed key=%s", key)
+            _bump("REDIS_RATE_LIMIT_EVAL_ERRORS_TOTAL")
             # Fail-open so a transient Redis blip doesn't 429 every
             # request. The lifespan's strict_backend health check
             # already aborts on persistent failures.
@@ -143,7 +144,24 @@ class RedisRateLimitStore:
             return True, 0.0
         allowed = bool(int(result[0]))
         retry_after_ms = int(result[1])
+        _bump(
+            "REDIS_RATE_LIMIT_ALLOWED_TOTAL"
+            if allowed
+            else "REDIS_RATE_LIMIT_DENIED_TOTAL"
+        )
         return allowed, retry_after_ms / 1000.0
+
+
+def _bump(metric_name: str) -> None:
+    """Best-effort Prometheus increment; never raises into the caller."""
+    try:
+        from gg_relay.tracing import metrics
+
+        metric = getattr(metrics, metric_name, None)
+        if metric is not None:
+            metric.inc()
+    except Exception:  # noqa: BLE001 — defensive
+        pass
 
 
 __all__ = ["RedisRateLimitStore"]

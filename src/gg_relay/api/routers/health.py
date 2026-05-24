@@ -34,6 +34,11 @@ async def readyz(request: Request) -> dict[str, str]:
     manager = getattr(request.app.state, "manager", None)
     if manager is None:
         raise HTTPException(status_code=503, detail="starting")
+    # Plan 9 D9.12 — admin drain. Set by POST /api/v1/admin/drain so
+    # K8s preStop hook can detach the pod from rotation before the
+    # cancel-with-grace cascade starts.
+    if getattr(request.app.state, "drained", False):
+        raise HTTPException(status_code=503, detail="drained")
     # ``accepting_new=False`` is the public read of the manager's draining
     # flag (set by shutdown()); the detail string matches the plan contract
     # so k8s probes can grep for a stable token.

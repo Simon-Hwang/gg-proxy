@@ -50,6 +50,16 @@ __all__ = [
     "SESSION_STATE_CHANGES",
     "TOKENS_INPUT",
     "TOKENS_OUTPUT",
+    # Plan 9 D9.5 — cluster operations metrics
+    "REDIS_XADD_TOTAL",
+    "REDIS_XREAD_TOTAL",
+    "REDIS_WIRE_VERSION_UNSUPPORTED_TOTAL",
+    "REDIS_RATE_LIMIT_ALLOWED_TOTAL",
+    "REDIS_RATE_LIMIT_DENIED_TOTAL",
+    "REDIS_RATE_LIMIT_EVAL_ERRORS_TOTAL",
+    "REDIS_CONNECTION_ERRORS_TOTAL",
+    "DASHBOARD_KEY_ROTATIONS_TOTAL",
+    "DRAIN_REQUESTS_TOTAL",
 ]
 
 
@@ -123,6 +133,58 @@ ERRORS = Counter(
     "gg_relay_errors_total",
     "Errors recorded by gg-relay (install / runtime).",
     labelnames=("kind",),
+    registry=REGISTRY,
+)
+
+
+# ── Plan 9 D9.5 — cluster operations metrics ─────────────────────────
+# Eight gauges/counters covering the four Plan 9 multi-worker
+# components (RedisStreamEventBus / RedisRateLimitStore /
+# DashboardKeyStore / admin drain). Grafana dashboard panels track
+# the same names — keep them in sync with docs/grafana/plan9.json.
+REDIS_XADD_TOTAL = Counter(
+    "gg_relay_redis_xadd_total",
+    "Events XADD-ed to the gg-relay:events stream (RedisStreamEventBus).",
+    registry=REGISTRY,
+)
+REDIS_XREAD_TOTAL = Counter(
+    "gg_relay_redis_xread_total",
+    "Entries received from XREAD on the gg-relay:events stream.",
+    registry=REGISTRY,
+)
+REDIS_WIRE_VERSION_UNSUPPORTED_TOTAL = Counter(
+    "gg_relay_redis_wire_version_unsupported_total",
+    "Stream entries skipped because of unknown wire schema version.",
+    registry=REGISTRY,
+)
+REDIS_RATE_LIMIT_ALLOWED_TOTAL = Counter(
+    "gg_relay_redis_rate_limit_allowed_total",
+    "Token-bucket acquires that succeeded (RedisRateLimitStore).",
+    registry=REGISTRY,
+)
+REDIS_RATE_LIMIT_DENIED_TOTAL = Counter(
+    "gg_relay_redis_rate_limit_denied_total",
+    "Token-bucket acquires denied (bucket empty).",
+    registry=REGISTRY,
+)
+REDIS_RATE_LIMIT_EVAL_ERRORS_TOTAL = Counter(
+    "gg_relay_redis_rate_limit_eval_errors_total",
+    "Lua EVAL failures (Redis unreachable etc) — bucket falls open.",
+    registry=REGISTRY,
+)
+REDIS_CONNECTION_ERRORS_TOTAL = Counter(
+    "gg_relay_redis_connection_errors_total",
+    "Connection-level Redis errors (ping failure / unexpected disconnect).",
+    registry=REGISTRY,
+)
+DASHBOARD_KEY_ROTATIONS_TOTAL = Counter(
+    "gg_relay_dashboard_key_rotations_total",
+    "Dashboard internal-key rotations performed by an operator.",
+    registry=REGISTRY,
+)
+DRAIN_REQUESTS_TOTAL = Counter(
+    "gg_relay_drain_requests_total",
+    "Times the /admin/drain endpoint was invoked.",
     registry=REGISTRY,
 )
 
