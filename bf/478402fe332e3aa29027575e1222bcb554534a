@@ -1,0 +1,29 @@
+tests/unit/test_plan9_release_artifacts.py
+  s_16e85383ae8215::t_aaddaba768a431 1,14-15
+  s_16e85383ae8215::t_58ca75e286c274 93-94
+tests/unit/core/test_plan9_protocols.py
+  s_16e85383ae8215::t_8d2522f4ca5b44 1
+tests/unit/api/test_dashboard_cookie_middleware.py
+  s_16e85383ae8215::t_426423ff3a487b 1,21-29
+  s_16e85383ae8215::t_632b0df8953de7 248-284
+tests/unit/api/test_sse_durable_cursor.py
+  s_16e85383ae8215::t_2b528c35419383 4-11
+tests/unit/test_oos_gate.py
+  s_16e85383ae8215::t_157e4f91b0e1c9 28-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "bf478402fe332e3aa29027575e1222bcb554534a",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
