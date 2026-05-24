@@ -64,7 +64,7 @@
 | Plan 6 | Pause/Resume + Dashboard UX + IM Decoupling | ✅ 0.6.0 | `2026-05-22-plan-6-...` |
 | Plan 7 | Foundation Recovery & Production Readiness | ✅ 0.7.0 | `2026-05-23-plan-7-foundation-polish.md` |
 | Plan 8 | Team Collaboration & Cost Attribution | ✅ 0.8.0 | `2026-05-23-plan-8-team-scale-and-collab.md` |
-| **Plan 9** | **Cluster Scaling & K8s Manifests** | 🟡 **DRAFT** | **`2026-05-24-plan-9-cluster-scaling-and-k8s.md`** |
+| **Plan 9** | **Cluster Scaling & K8s Manifests** | ✅ **0.9.0** | **`2026-05-24-plan-9-cluster-scaling-and-k8s.md`** |
 | Plan 10+ | Session replay UI / 长尾增强 | ❌ 未启动 | — |
 | Plan 11+ | 多租户 / mTLS / OIDC / Redis Cluster | ❌ 未启动 | — |
 
@@ -372,40 +372,43 @@ curl localhost:8000/sessions/{id}
 | ~~P6-4~~ | ~~Distributed OTel traces (coordinator → worker → claude)~~ | ✅ Plan 7 D7.19 (`RELAY_TRACE_ID` 已注入；多 worker tier 直接复用) |
 | ~~P6-5~~ | ~~Horizontal autoscaling on `active_sessions` metric~~ | ➡️ Plan 9 D9.4 (HPA 已规划) |
 
-### P9 — Cluster Scaling & K8s（LOCKED v1.4，2026-05-24；Santa 4 轮认证）
+### P9 — Cluster Scaling & K8s（✅ SHIPPED v0.9.0，2026-05-24；Santa 4 轮认证 + 方案 A 单仓发布）
 
 **Goal:** Redis Streams 多 worker tier 落地 + K8s manifests 补齐 + IM 后端契约收敛。
 
-**🛡️ Santa Method 认证**: 4 轮（B/C → D/E → F/G → H/I）8 独立 reviewer；MAX_ITERATIONS 已用尽 + 1 破例；Round 4 Reviewer I I7 PASS 确认收敛真实；产品负责人最终决策 = v0.9.0-rc 分资。
+**🛡️ Santa Method 认证**: 4 轮（B/C → D/E → F/G → H/I）8 独立 reviewer；MAX_ITERATIONS 已用尽 + 1 破例；Round 4 Reviewer I I7 PASS 确认收敛真实。
 
-**📦 Release 分资（v1.4 关键变化）**:
+**📦 Release 实际形态（方案 A）**:
 
-- **v0.9.0-rc — 单 worker 基础设施（立即实施）**：D9.0 Protocol + D9.0a Middleware 重构 + D9.0b release.yml/Dockerfile 校正 + D9.7 deprecate + D9.9 events.seq 迁移 + D9.9a SSE cursor 双兼容 + D9.11 启动校验（warn-only）
-- **v0.9.1 — 多 worker 激活（v0.9.0-rc soak ≥ 2 周后启动）**：D9.1 RedisStreamEventBus + D9.2 RedisRateLimitStore + D9.3 SSE 抽象 + D9.4 K8s manifests + Helm chart（升 in-scope）+ D9.5 metrics 扩展 + D9.6 跨 worker SSE 测试 + D9.8 K8sJobExecutor（P1 feature flag）+ D9.10 DB-stored dashboard key + D9.12 runbook + D9.13 wire schema
+原 v1.4 LOCKED 规划是 **v0.9.0-rc → 2 周 soak → v0.9.1** 两段释出。产品决策（gg-relay 尚未上线，不需要旧版本兼容）后改为 **方案 A — 合并 v0.9.0**：
+
+- **去除 v0.9.0-rc 所有兼容遗留**：v1 SSE cursor、`events.seq` 双段迁移（0012a/b/c 合并为 0012）、`DashboardCookieMiddleware` legacy ctor、warn-only 部署模式、`SqlAlchemyDurableEventStore` 微秒 seq fallback 全部移除。
+- **立即实施 v0.9.1 全量交付**：D9.1 / D9.2 / D9.3 / D9.4 / D9.5 / D9.6 / D9.8 / D9.10 / D9.12 / D9.13 一次性落地。
+- **单仓 release**：CHANGELOG `[0.9.0]` 段含完整 13 项 deliverable；`pyproject.toml` version bump 0.8.0 → 0.9.0。
 
 详见独立计划文档：[`docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md`](docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md)
 
 | # | Deliverable | Release | 状态 |
 |---|---|---|---|
-| D9.0 | EventBusBackend + RateLimitStoreBackend Protocol（双方法 `subscribe(topic)` + `subscribe_all(after_seq)`） | v0.9.0-rc | 🟡 待实现 |
-| D9.0a | DashboardCookieMiddleware `app.state` 运行时读重构 | v0.9.0-rc | 🟡 待实现 |
-| D9.0b | `release.yml` + `Dockerfile.service` `--extra redis` 同步 + pyproject `redis<6.0` 上限锁 | v0.9.0-rc | 🟡 待实现 |
-| D9.7 | DingTalk / Slack 正式 deprecate（已在本 PLAN v1.1 落地） | v0.9.0-rc | ✅ 文档同步完成 |
-| D9.9 | events.seq 两段迁移（0012a + 0012b + 0013 dashboard_internal_keys） | v0.9.0-rc | 🟡 待实现 |
-| D9.9a | SSE cursor schema_version 双兼容 (v1 微秒 / v2 行号) | v0.9.0-rc | 🟡 待实现 |
-| D9.11 | 多 worker 启动校验（warn-only 模式 in 0.9.0-rc；strict 默认 in 0.9.1） | v0.9.0-rc + v0.9.1 | 🟡 待实现 |
-| D9.1 | `RedisStreamEventBus` + TLS/ACL + 可选 payload 加密 | v0.9.1 | 🟡 待实现 |
-| D9.2 | `RedisRateLimitStore` Lua 原子 token-bucket | v0.9.1 | 🟡 待实现 |
-| D9.3 | SSE 走 `EventBusBackend.subscribe_all` 抽象 | v0.9.1 | 🟡 待实现 |
-| D9.4 | K8s manifests + Helm chart (升 in-scope) | v0.9.1 | 🟡 待实现 |
-| D9.5 | 7 个 gauge/counter + Grafana 5 panel + dashboard banner | v0.9.1 | 🟡 待实现 |
-| D9.6 | 跨 worker SSE 续传集成测试（testcontainers + 2 ASGI 进程） | v0.9.1 | 🟡 待实现 |
-| D9.8 | `K8sJobExecutor` (P1 feature flag + TCP NDJSON transport + K8s Secret token) | v0.9.1 | 🟡 待实现 |
-| D9.10 | DB-stored shared dashboard internal key + `KeyInvalidateSubscriber` Redis 广播 | v0.9.1 | 🟡 待实现 |
-| D9.12 | Operator runbook + admin endpoint `POST /api/v1/admin/workers/drain` + CLI | v0.9.1 | 🟡 待实现 |
-| D9.13 | Redis stream wire schema 固化（`schema_version: 1`） | v0.9.1 | 🟡 待实现 |
+| D9.0 | EventBusBackend + RateLimitStoreBackend Protocol（双方法 `subscribe(topic)` + `subscribe_all(after_seq)`） | v0.9.0 | ✅ shipped |
+| D9.0a | DashboardCookieMiddleware `app.state` 运行时读重构 | v0.9.0 | ✅ shipped |
+| D9.0b | `release.yml` + `Dockerfile.service` `--extra redis` 同步 + pyproject `redis<6.0` 上限锁 | v0.9.0 | ✅ shipped |
+| D9.1 | `RedisStreamEventBus` + TLS/ACL + 可选 payload 加密 | v0.9.0 | ✅ shipped |
+| D9.2 | `RedisRateLimitStore` Lua 原子 token-bucket | v0.9.0 | ✅ shipped |
+| D9.3 | SSE 走 `EventBusBackend.subscribe_all` 抽象 + `cluster.factory` 集中后端构造 | v0.9.0 | ✅ shipped |
+| D9.4 | K8s manifests + Helm chart (in-scope) | v0.9.0 | ✅ shipped |
+| D9.5 | Prometheus cluster metrics (Redis XADD/XREAD/rate-limit/connection + dashboard key rotations + drain + K8s Job depth/failures) | v0.9.0 | ✅ shipped |
+| D9.6 | 跨 worker SSE 续传集成测试（testcontainers + 2 ASGI 进程） | v0.9.0 | ✅ shipped |
+| D9.7 | DingTalk / Slack 正式 deprecate（v0.9.0-rc 实施） | v0.9.0 | ✅ shipped |
+| D9.8 | `K8sJobExecutor` (P1 feature flag + TCP NDJSON transport + K8s Secret token + `[k8s]` extra) | v0.9.0 | ✅ shipped |
+| D9.9 | events.seq 迁移（方案 A：单段 Alembic 0012 直接 NOT NULL + UNIQUE INDEX + `dashboard_internal_keys` 表） | v0.9.0 | ✅ shipped |
+| D9.9a | SSE cursor schema 收敛（方案 A：单 `<seq>:<event_id>` 格式，去除 v1/v2 双兼容） | v0.9.0 | ✅ shipped |
+| D9.10 | DB-stored shared dashboard internal key + `KeyInvalidateSubscriber` Redis 广播 | v0.9.0 | ✅ shipped |
+| D9.11 | 多 worker 启动校验（方案 A：始终 fail-fast，去除 `deployment_mode_strict`） | v0.9.0 | ✅ shipped |
+| D9.12 | Operator runbook (`docs/cluster.md`) + admin endpoint `POST/DELETE /api/v1/admin/drain` | v0.9.0 | ✅ shipped |
+| D9.13 | Redis stream wire schema 固化（`schema_version: 1` 通过 `gg_relay.cluster.wire`） | v0.9.0 | ✅ shipped |
 
-**Plan 8 LOCK addendum**: 见 `docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab-ADDENDUM.md`（v0.9.0-rc 实施时创建；记录 D8.29 step 11 跳过事实及 Plan 9 D9.10 闭合关系）。
+**Plan 8 LOCK 闭合**: Plan 8 D8.29 step 11（`KeyInvalidateSubscriber` lifespan 注册）在 Plan 9 D9.10 实施时落地；CHANGELOG `[0.9.0]` 段记录该闭合关系。原 ADDENDUM 文档因方案 A 不再需要外置 deprecation 注记，已删除。
 
 ---
 

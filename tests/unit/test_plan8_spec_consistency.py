@@ -99,19 +99,24 @@ def test_changelog_has_0_8_0() -> None:
         assert rev in chl, f"CHANGELOG.md missing Alembic revision {rev!r}"
 
 
-def test_version_is_0_8_0() -> None:
-    """pyproject + importlib.metadata + gg_relay.__version__ all 0.8.0."""
+def test_version_is_0_9_0() -> None:
+    """pyproject + importlib.metadata + gg_relay.__version__ all 0.9.0.
+
+    Plan 9 (2026-05-24) bumped 0.8.0 → 0.9.0 with the consolidated GA
+    that closes all 13 Plan 9 deliverables in a single release; see
+    CHANGELOG ``[0.9.0]``.
+    """
 
     with (_REPO_ROOT / "pyproject.toml").open("rb") as fh:
         pyproject = tomllib.load(fh)
     pyproject_ver = pyproject["project"]["version"]
-    assert pyproject_ver == "0.8.0", f"pyproject.toml version != 0.8.0: {pyproject_ver!r}"
+    assert pyproject_ver == "0.9.0", f"pyproject.toml version != 0.9.0: {pyproject_ver!r}"
 
     importlib_ver = _importlib_version("gg-relay")
-    assert importlib_ver == "0.8.0", (
-        f"importlib.metadata.version('gg-relay') != 0.8.0: {importlib_ver!r}"
+    assert importlib_ver == "0.9.0", (
+        f"importlib.metadata.version('gg-relay') != 0.9.0: {importlib_ver!r}"
     )
 
-    assert gg_relay.__version__ == "0.8.0", (
-        f"gg_relay.__version__ != 0.8.0: {gg_relay.__version__!r}"
+    assert gg_relay.__version__ == "0.9.0", (
+        f"gg_relay.__version__ != 0.9.0: {gg_relay.__version__!r}"
     )

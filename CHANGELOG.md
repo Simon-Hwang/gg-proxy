@@ -37,7 +37,7 @@ backward-compatibility component that v0.9.0-rc1 carried for a
 - **Removed Plan 8 ADDENDUM** docs note for Task 22 step 11 — no
   formal deprecation needed pre-prod.
 
-### Added
+### Added — backend abstractions (D9.0)
 
 - **EventBusBackend + RateLimitStoreBackend Protocols** (D9.0):
   `runtime_checkable` Protocols in `gg_relay.core.protocol` that
@@ -46,16 +46,138 @@ backward-compatibility component that v0.9.0-rc1 carried for a
   structurally. Dual-method design — `subscribe(topic)` for legacy
   fan-out + `subscribe_all(after_seq)` for cross-worker durable
   replay.
-- **events.seq monotonic column** (D9.9): Alembic `0012` adds
+
+### Added — durable event sequencing (D9.9)
+
+- **events.seq monotonic column**: Alembic `0012` adds
   `events.seq BIGINT NOT NULL` + Postgres `events_seq_seq`
-  sequence + `ix_events_seq UNIQUE` in one step.
-  `SqlAlchemyDurableEventStore.persist` stamps a strictly-monotonic
-  per-row seq (Postgres `nextval` + RETURNING / SQLite atomic
-  `SELECT MAX(seq)+1 → INSERT`).
-- **SSE durable cursor** (D9.9): `Last-Event-ID:
-  <events.seq>:<event_id>` drives `EventBus.replay_after`. The
-  microsecond cursor is gone — single format, no schema_version
-  dispatch.
+  sequence + `ix_events_seq UNIQUE` + `dashboard_internal_keys`
+  table in one step. `SqlAlchemyDurableEventStore.persist` stamps
+  a strictly-monotonic per-row seq (Postgres `nextval` + RETURNING
+  / SQLite atomic `SELECT MAX(seq)+1 → INSERT`).
+- **SSE durable cursor**: `Last-Event-ID: <events.seq>:<event_id>`
+  drives `EventBus.replay_after`. Single format; no
+  schema_version dispatch.
+
+### Added — Redis multi-worker tier (D9.1 / D9.2 / D9.3 / D9.13)
+
+- **`RedisStreamEventBus`** (D9.1): EventBusBackend impl writing to
+  the `gg-relay:events` stream via XADD; per-worker XREAD pump
+  fans out to topic-keyed local subscribers; durable replay via
+  XREAD from `0-<seq>`. Wire schema pinned at v=1 by
+  `gg_relay.cluster.wire` (D9.13) so newer publishers can be
+  ignored by older readers via the version field.
+- **`RedisRateLimitStore`** (D9.2): RateLimitStoreBackend impl
+  using an atomic Lua script for token-bucket acquire — single
+  EVALSHA round-trip, no race window between read and update;
+  fail-open on Redis errors so rate-limit downtime never blocks
+  requests.
+- **`cluster.factory.build_event_bus` / `build_rate_limit_store`**
+  (D9.3): centralised backend provisioning. Picks in-memory or
+  Redis-backed implementation from `Config.event_bus_backend` /
+  `rate_limit_backend`; reuses one `aioredis.Redis` client across
+  both; honours `Config.redis_strict` for fail-fast vs warn-then-
+  fall-back on connection failure.
+
+### Added — DB-backed dashboard keys (D9.10)
+
+- **`DashboardKeyStore`** + Alembic `dashboard_internal_keys`
+  table (covered by 0012). Provides atomic `get_or_create` so the
+  per-pod cookie key collisions of v0.8.x are gone.
+- **`KeyInvalidated` event + `KeyInvalidateSubscriber`**: rotation
+  via `gg-relay dashboard-rotate` broadcasts `KeyInvalidated` on
+  the bus; every worker pod's subscriber refreshes
+  `app.state.dashboard_internal_keys` from the DB. Closes the
+  Plan 8 D8.29 step-11 deferral that the LOCK skipped.
+- **`DashboardCookieMiddleware`**: now reads
+  `request.app.state.dashboard_internal_keys` at request time —
+  no constructor kwarg, no per-pod ephemeral key.
+
+### Added — operations + observability (D9.4 / D9.5 / D9.12 / D9.B1)
+
+- **`deploy/k8s/`** (D9.4): namespace + configmap + secret
+  template + deployment (InitContainer-driven Alembic migrate,
+  readOnlyRootFilesystem, emptyDir volumes, preStop drain hook,
+  RollingUpdate maxUnavailable=0) + service (sessionAffinity:
+  ClientIP) + HPA on `gg_relay_sessions_active` + PDB
+  (minAvailable=2) + NetworkPolicy + ServiceMonitor + kustomize
+  entry.
+- **`deploy/helm/gg-relay/`** (D9.B1): Helm chart wrapping the
+  raw manifests 1:1 with toggles for HPA / PDB / NetworkPolicy /
+  ServiceMonitor. `values.example.yaml` covers production secrets
+  via `existingSecret`. `helm lint` + `helm template` are wired
+  into `tests/integration/test_k8s_manifests.py`.
+- **Cluster Prometheus metrics** (D9.5):
+  `gg_relay_redis_xadd_total`, `gg_relay_redis_xread_total`,
+  `gg_relay_redis_wire_version_unsupported_total`,
+  `gg_relay_redis_rate_limit_{allowed,denied,eval_errors}_total`,
+  `gg_relay_redis_connection_errors_total`,
+  `gg_relay_dashboard_key_rotations_total`,
+  `gg_relay_drain_requests_total`, plus D9.8 additions below.
+- **`POST / DELETE /api/v1/admin/drain`** (D9.12): operator-driven
+  drain endpoint that flips `app.state.drained=True` so `/readyz`
+  returns 503 `drained` before SIGTERM lands. Wired into the K8s
+  Deployment's `lifecycle.preStop` hook.
+- **`docs/cluster.md`** (D9.12 runbook): single-worker →
+  multi-worker pre-flight checklist, preStop drain timing, key
+  rotation flow, Grafana queries, suggested alerts.
+
+### Added — opt-in K8s Job executor (D9.8)
+
+- **`Config.executor_kind: Literal["inprocess","docker","k8s_job"]`**
+  (default `inprocess`). K8s mode is feature-flagged opt-in
+  behind the new `[k8s]` extra (`pip install 'gg-relay[k8s]'`).
+- **`TcpTransport` + `TcpServer`**: NDJSON over TCP with first-
+  frame auth handshake. Wire format identical to
+  `UnixSocketTransport` so the runner-side bridge stays uniform.
+  The auth handshake uses a one-shot 32-byte token sourced from
+  the per-Job K8s Secret — never an env literal.
+- **Runner listener mode**: `wire_runner.py` now honours
+  `GG_RELAY_TCP_LISTEN=host:port` + `RELAY_RUNNER_AUTH_TOKEN` env
+  vars and binds a TCP server instead of dialling an AF_UNIX
+  socket. The Unix socket path is untouched (Plan 3 docker flow
+  works bit-for-bit).
+- **`K8sJobExecutor`** + injectable `K8sClient` Protocol: creates
+  a per-session K8s `Secret` (token) and `Job` (with
+  `ownerReferences` to the Secret so deleting the Secret
+  cascade-GCs the Pod), waits for the runner Pod IP, opens the
+  TCP transport. Admission control via
+  `Config.k8s_max_concurrent_jobs` (default 50);
+  `ttlSecondsAfterFinished=600` caps the etcd object count.
+- **`KubernetesAsyncIOClient`**: lazy production adapter behind
+  the `[k8s]` extra; only module that imports
+  `kubernetes_asyncio` so default `inprocess`/`docker` deployments
+  don't pay the import cost.
+- **`deploy/k8s/runner-networkpolicy.yaml`**: ingress to runner
+  pods restricted to pods with label `app=gg-relay`; egress to
+  DNS + HTTPS public IPs (Anthropic) only.
+- **K8s metrics**: `gg_relay_k8s_job_queue_depth` (gauge) +
+  `gg_relay_k8s_job_creation_failures_total{reason=...}` (counter).
+
+### Other Plan 9 closures
+
+- **DingTalk + Slack backends removed** (D9.7): files deleted in
+  Plan 9 v0.9.0-rc; `[dingtalk]` / `[slack]` extras removed from
+  `pyproject.toml`; OOS gate enforces 0 references.
+- **Plan 8 D8.29 step-11 closure** (D9.10): the LOCK-time
+  deferral of `KeyInvalidateSubscriber` lifespan registration is
+  now closed — every pod reloads dashboard keys on the
+  broadcast.
+
+### Changed
+
+- **`pyproject.toml`**: version bumped 0.8.0 → 0.9.0; new
+  optional extras `[redis]` (`redis>=5.0,<6.0`), `[k8s]`
+  (`kubernetes-asyncio>=29,<32`).
+
+### Verification
+
+- 913 unit tests pass; 4 K8s manifest lint gates pass (`helm lint` +
+  `helm template` + `kubectl kustomize` + `kubectl apply
+  --dry-run=client`); `ruff` clean on all Plan 9 modules; mypy
+  clean on all Plan 9 modules.
+- Pre-existing mypy errors in `api/main.py` (EventBusBackend vs
+  EventBus arg-type) are tracked separately and predate D9.8.
 
 ## [0.9.0-rc1] - 2026-05-24 (pre-release, superseded by 0.9.0)
 
