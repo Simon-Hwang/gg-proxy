@@ -1,0 +1,47 @@
+deploy/docker-compose.dev.yml
+  s_527dcce5a3077f::t_05a7578ccc42ae 94-154,160-161
+deploy/grafana/gg-relay-dashboard.json
+  s_527dcce5a3077f::t_69ff82594ac0ab 1-84
+src/gg_relay/cli.py
+  s_527dcce5a3077f::t_78f1f235b1e3cb 314-398
+  s_527dcce5a3077f::t_5378737669c36e 10-11
+tests/unit/test_prometheus_scrape_config.py
+  s_527dcce5a3077f::t_ad964a610d13c6 1-40
+deploy/prometheus/prometheus.yml
+  s_527dcce5a3077f::t_63f6dba21c1d16 1-19
+src/gg_relay/maintenance/__init__.py
+  s_527dcce5a3077f::t_162851ef7e830c 1-20
+deploy/grafana/provisioning/datasources/prometheus.yaml
+  s_527dcce5a3077f::t_aa7b8e77d0fba9 1-14
+tests/unit/maintenance/test_retention.py
+  s_527dcce5a3077f::t_996dff8c5c3918 1-119,124-203
+  s_527dcce5a3077f::t_7c3dca42859177 120-123
+tests/unit/test_grafana_dashboard_valid.py
+  s_527dcce5a3077f::t_0c2ad01293f258 1-72
+src/gg_relay/maintenance/retention.py
+  s_527dcce5a3077f::t_8b8b574dee10d7 1-226
+tests/unit/cli/test_maintenance_cmd.py
+  s_527dcce5a3077f::t_c4098fbefb4bab 1-111
+src/gg_relay/api/main.py
+  s_527dcce5a3077f::t_e9bfab6f623ccf 363-385
+deploy/grafana/provisioning/dashboards/gg-relay.yaml
+  s_527dcce5a3077f::t_b750799c4f5d26 1-17
+tests/unit/api/test_startup_admin_warning.py
+  s_527dcce5a3077f::t_170139a979f91d 1-110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "fca2b2d24c1733f38f1580a761a6b14fa7ebd69f",
+  "prompts": {},
+  "sessions": {
+    "s_527dcce5a3077f": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "c64b0152-3801-4c25-adfe-794dc1bf528a",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
