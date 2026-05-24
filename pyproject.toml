@@ -85,7 +85,7 @@ dev = [
     # testcontainers: real Redis container for cross-version /
     #   end-to-end integration tests where fakeredis behaviour
     #   diverges from real redis-py 5.x semantics.
-    "fakeredis>=2.20",
+    "fakeredis[lua]>=2.20",
     "pytest-xdist>=3.5",
     "testcontainers>=4.5",
 ]

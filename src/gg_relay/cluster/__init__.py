@@ -18,6 +18,8 @@ from gg_relay.cluster.boot_check import (
     DeploymentModeError,
     validate_deployment_mode,
 )
+from gg_relay.cluster.redis_bus import RedisStreamEventBus
+from gg_relay.cluster.redis_rate_limit import RedisRateLimitStore
 from gg_relay.cluster.wire import (
     SCHEMA_VERSION,
     STREAM_KEY,
@@ -31,6 +33,8 @@ __all__ = [
     "SCHEMA_VERSION",
     "STREAM_KEY",
     "DeploymentModeError",
+    "RedisRateLimitStore",
+    "RedisStreamEventBus",
     "UnsupportedWireVersionError",
     "decode_event",
     "encode_event",
