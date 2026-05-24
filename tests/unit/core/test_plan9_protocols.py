@@ -93,19 +93,20 @@ class TestRateLimitStoreBackendProtocol:
         assert params[1].name == "key"
 
 
-class TestDurableEventStoreFetchAfterSeq:
-    """D9.0 + D9.9a — DurableEventStore Protocol must expose the new
-    fetch_after_seq method so the Plan 9 D9.9a v2 SSE cursor can
-    dispatch through the Protocol without isinstance loopholes."""
+class TestDurableEventStoreFetchAfter:
+    """D9.9 — DurableEventStore Protocol exposes ``fetch_after`` driven
+    by the ``events.seq`` column. Pre-prod simplification dropped the
+    legacy ``fetch_after`` (microsecond) variant; this is now the only
+    cursor path."""
 
-    def test_in_memory_store_has_fetch_after_seq(self) -> None:
+    def test_in_memory_store_has_fetch_after(self) -> None:
         store = InMemoryDurableEventStore()
-        assert hasattr(store, "fetch_after_seq")
+        assert hasattr(store, "fetch_after")
         assert isinstance(store, DurableEventStore)
 
-    def test_sql_store_has_fetch_after_seq(self) -> None:
+    def test_sql_store_has_fetch_after(self) -> None:
         store = SqlAlchemyDurableEventStore(engine=None)  # type: ignore[arg-type]
-        assert hasattr(store, "fetch_after_seq")
+        assert hasattr(store, "fetch_after")
         assert isinstance(store, DurableEventStore)
 
     def test_protocol_module_reexports_match_init(self) -> None:

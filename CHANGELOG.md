@@ -7,13 +7,57 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
-Plan 9.1 features (`v0.9.1`) land here:
-RedisStreamEventBus / RedisRateLimitStore / K8s manifests / Helm
-chart / DB-backed dashboard internal keys / runbooks. See
-`docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md`
-§"v0.9.1 scope".
+## [0.9.0] - 2026-05-24
 
-## [0.9.0-rc1] - 2026-05-24
+Plan 9 — *Cluster Scaling Infrastructure* (consolidated GA). Ships
+**every** Plan 9 deliverable in a single release since gg-relay is
+pre-production and never needed a phased rolling-deploy compat
+window. Closes all 13 Plan 9 deliverables (D9.0–D9.13).
+
+**Pre-production simplification** (this release vs. the v0.9.0-rc1
+shipped a day earlier — squashed into v0.9.0): removed every
+backward-compatibility component that v0.9.0-rc1 carried for a
+"v0.8.x → v0.9 rolling deploy" that doesn't exist:
+
+- **Removed v1 SSE cursor** (`<microsecond-seq>:<event_id>`).
+  The only cursor is now `<events.seq>:<event_id>` (drops the
+  `v2:` prefix because there's no v1 to disambiguate against).
+- **Merged Alembic 0012a + 0012b + 0013 into single 0012**.
+  Direct add-column + sequence + UNIQUE INDEX + backfill +
+  `dashboard_internal_keys` table — all in one migration since
+  pre-prod databases are empty.
+- **Removed `deployment_mode_strict` config**. Multi-worker boot
+  check is now always fail-fast; the warn-only escape hatch was
+  removed because nobody is running a "soak window" config.
+- **Removed `DashboardCookieMiddleware(dashboard_internal_keys=…)`
+  legacy ctor kwarg**. Middleware now reads `app.state` exclusively.
+- **Removed `SqlAlchemyDurableEventStore.persist` legacy fallback**
+  to microsecond-derived seq (pre-0012a behaviour). The schema now
+  guarantees `events.seq` NOT NULL from creation.
+- **Removed Plan 8 ADDENDUM** docs note for Task 22 step 11 — no
+  formal deprecation needed pre-prod.
+
+### Added
+
+- **EventBusBackend + RateLimitStoreBackend Protocols** (D9.0):
+  `runtime_checkable` Protocols in `gg_relay.core.protocol` that
+  the in-process `EventBus` / `TokenBucketRateLimiter` and the new
+  `RedisStreamEventBus` / `RedisRateLimitStore` both satisfy
+  structurally. Dual-method design — `subscribe(topic)` for legacy
+  fan-out + `subscribe_all(after_seq)` for cross-worker durable
+  replay.
+- **events.seq monotonic column** (D9.9): Alembic `0012` adds
+  `events.seq BIGINT NOT NULL` + Postgres `events_seq_seq`
+  sequence + `ix_events_seq UNIQUE` in one step.
+  `SqlAlchemyDurableEventStore.persist` stamps a strictly-monotonic
+  per-row seq (Postgres `nextval` + RETURNING / SQLite atomic
+  `SELECT MAX(seq)+1 → INSERT`).
+- **SSE durable cursor** (D9.9): `Last-Event-ID:
+  <events.seq>:<event_id>` drives `EventBus.replay_after`. The
+  microsecond cursor is gone — single format, no schema_version
+  dispatch.
+
+## [0.9.0-rc1] - 2026-05-24 (pre-release, superseded by 0.9.0)
 
 Plan 9 v0.9.0-rc — *Cluster Scaling Infrastructure (single-worker
 release)*. Ships every prerequisite for the v0.9.1 multi-worker

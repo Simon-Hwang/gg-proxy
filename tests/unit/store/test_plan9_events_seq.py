@@ -1,17 +1,14 @@
-"""Plan 9 v0.9.0-rc D9.9 + D9.9a — events.seq + fetch_after_seq tests.
+"""Plan 9 D9.9 — events.seq + fetch_after tests.
 
 Exercises:
 
-1. ``SqlAlchemyDurableEventStore.persist`` against a SQLite engine
-   that has run Alembic 0012a — verifies the new INSERT...SELECT
-   path stamps a strictly-monotonic per-row seq.
-2. ``fetch_after_seq`` returns events ordered by seq (not by
-   microsecond ts), with deterministic tiebreakers when seqs collide
-   (legacy NULL → COALESCE(seq, 0) fallback).
-3. ``InMemoryDurableEventStore.fetch_after_seq`` is a no-op alias of
-   ``fetch_after`` so unit-test code stays interchangeable.
-4. The new ``seq`` schema column is nullable (0012a only, 0012b runs
-   later by operator).
+1. The ``events.seq`` column (Alembic 0012) is NOT NULL with a
+   unique index — confirms the simplified single-step migration.
+2. ``SqlAlchemyDurableEventStore.persist`` against a SQLite engine
+   stamps a strictly-monotonic per-row seq via the INSERT...SELECT
+   COALESCE(MAX(seq),0)+1 path inside ``engine.begin()``.
+3. ``fetch_after`` returns events ordered by seq (the only cursor
+   format post-simplification) with the new row-seq semantics.
 """
 from __future__ import annotations
 
@@ -41,12 +38,7 @@ def _make_event(sid: str, *, occurred_at: datetime | None = None) -> SessionCrea
 
 @pytest.fixture
 async def sqlite_engine():
-    """Fresh in-memory SQLite engine with the schema applied.
-
-    Uses the full ``metadata.create_all`` (which reflects the
-    Plan 9 ``seq`` column added in 0012a) so we can exercise the
-    new persist path without manually running Alembic.
-    """
+    """Fresh in-memory SQLite engine with the full schema applied."""
     engine = create_async_engine("sqlite+aiosqlite:///:memory:")
     async with engine.begin() as conn:
         await conn.run_sync(metadata.create_all)
@@ -66,12 +58,11 @@ class TestSeqColumnPresence:
             cols = await conn.run_sync(
                 lambda _: {c["name"] for c in inspector.get_columns("events")}
             )
-        assert "seq" in cols, "Alembic 0012a should add events.seq"
+        assert "seq" in cols, "Alembic 0012 should add events.seq"
 
-    def test_seq_column_is_nullable_in_schema(self) -> None:
-        """0012a ships nullable; 0012b flips NOT NULL later."""
-        seq_col = events.c.seq
-        assert seq_col.nullable is True
+    def test_seq_column_is_not_nullable(self) -> None:
+        """Post-simplification: seq is NOT NULL from creation."""
+        assert events.c.seq.nullable is False
 
 
 class TestPersistFillsSeq:
@@ -102,8 +93,8 @@ class TestPersistFillsSeq:
         assert row_seq == 1
 
 
-class TestFetchAfterSeq:
-    """D9.9a — fetch_after_seq uses the seq column, not the ts cursor."""
+class TestFetchAfter:
+    """D9.9 — fetch_after walks the seq column."""
 
     @pytest.mark.asyncio
     async def test_returns_events_with_seq_greater_than_cursor(
@@ -112,10 +103,8 @@ class TestFetchAfterSeq:
         store = SqlAlchemyDurableEventStore(sqlite_engine)
         for i in range(5):
             await store.persist(_make_event(f"s{i}"))
-        rows = await store.fetch_after_seq(last_seq=2)
-        # seq=3,4,5 → 3 rows.
+        rows = await store.fetch_after(last_seq=2)
         assert len(rows) == 3
-        # And they come back in ascending seq order.
         seqs = [getattr(r, "seq", None) for r in rows]
         assert seqs == [3, 4, 5]
 
@@ -124,7 +113,7 @@ class TestFetchAfterSeq:
         store = SqlAlchemyDurableEventStore(sqlite_engine)
         for i in range(3):
             await store.persist(_make_event(f"s{i}"))
-        rows = await store.fetch_after_seq(last_seq=0)
+        rows = await store.fetch_after(last_seq=0)
         assert len(rows) == 3
 
     @pytest.mark.asyncio
@@ -132,24 +121,22 @@ class TestFetchAfterSeq:
         store = SqlAlchemyDurableEventStore(sqlite_engine)
         for i in range(10):
             await store.persist(_make_event(f"s{i}"))
-        rows = await store.fetch_after_seq(last_seq=0, limit=4)
+        rows = await store.fetch_after(last_seq=0, limit=4)
         assert len(rows) == 4
         seqs = [getattr(r, "seq", None) for r in rows]
         assert seqs == [1, 2, 3, 4]
 
 
-class TestInMemoryStoreFetchAfterSeqAlias:
-    """D9.9a — InMemoryDurableEventStore.fetch_after_seq must equal
-    fetch_after so existing unit-tested code paths stay valid."""
+class TestInMemoryFetchAfter:
+    """InMemoryDurableEventStore parity — single fetch_after method."""
 
     @pytest.mark.asyncio
-    async def test_alias_delegates(self) -> None:
+    async def test_in_memory_fetch_after_uses_seq(self) -> None:
         store = InMemoryDurableEventStore()
         await store.persist(_make_event("s1"))
         await store.persist(_make_event("s2"))
-        seq_path = list(await store.fetch_after_seq(last_seq=0))
-        ts_path = list(await store.fetch_after(last_seq=0))
-        assert [type(e).__name__ for e in seq_path] == [
-            type(e).__name__ for e in ts_path
-        ]
-        assert len(seq_path) == 2
+        events_list = list(await store.fetch_after(last_seq=0))
+        assert len(events_list) == 2
+        # Cursor at seq=1 → only seq=2 returned.
+        rest = list(await store.fetch_after(last_seq=1))
+        assert len(rest) == 1

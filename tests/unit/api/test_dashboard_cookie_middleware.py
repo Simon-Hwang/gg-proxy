@@ -97,10 +97,7 @@ def _build_app(
         async def dispatch(self, request, call_next):  # noqa: ANN001
             return await _seed(request, call_next)
 
-    app.add_middleware(
-        DashboardCookieMiddleware,
-        dashboard_internal_keys=dashboard_internal_keys or {},
-    )
+    app.add_middleware(DashboardCookieMiddleware)
     app.add_middleware(_SeedMW)
     app.add_middleware(
         SessionMiddleware,
@@ -108,6 +105,10 @@ def _build_app(
         session_cookie="gg_relay_session",
         same_site="lax",
     )
+    # Plan 9 D9.0a — middleware reads app.state at request time.
+    # Populate AFTER add_middleware so the fixture matches the
+    # production lifespan contract.
+    app.state.dashboard_internal_keys = dashboard_internal_keys or {}
     return app
 
 

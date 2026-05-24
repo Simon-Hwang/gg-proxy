@@ -1,4 +1,4 @@
-"""Core Protocols — Plan 7 D7.17 / Plan 8 D8.1 / Plan 9 v0.9.0-rc D9.0.
+"""Core Protocols — Plan 7 D7.17 / Plan 9 v0.9.0 forward.
 
 Defines the contract surface for the swappable backend tiers of the
 event-bus and the rate-limit store. The Protocols live in
@@ -9,16 +9,23 @@ imports — concrete implementations live in:
   :class:`gg_relay.store.durable_event.InMemoryDurableEventStore`
   for :class:`DurableEventStore`.
 * :class:`gg_relay.core.event_bus.EventBus` (in-memory fan-out)
-  satisfies :class:`EventBusBackend` directly; Plan 9.1 will add
-  a ``RedisStreamEventBus`` that wires the same Protocol.
+  satisfies :class:`EventBusBackend` directly;
+  :class:`gg_relay.cluster.redis_bus.RedisStreamEventBus` is the
+  multi-worker variant.
 * :class:`gg_relay.api.middleware.rate_limit.TokenBucketRateLimiter`
-  satisfies :class:`RateLimitStoreBackend` directly; Plan 9.1 will
-  add ``RedisRateLimitStore``.
+  satisfies :class:`RateLimitStoreBackend` for single-worker;
+  :class:`gg_relay.cluster.redis_rate_limit.RedisRateLimitStore` is
+  the multi-worker variant.
 
-Plan 9 v0.9.0-rc (D9.0) extracts these Protocols as a no-op refactor:
-the existing in-memory implementations satisfy them structurally so
-zero call-sites change. Plan 9.1 adds Redis-backed variants that
-implement the same shape.
+Cursor model (post-v0.9.0 simplification):
+
+Pre-production we dropped the dual-version cursor (Plan 9 v1.4
+shipped v1 microsecond + v2 row-seq compat for "rolling upgrade"
+safety). Since gg-relay had no installed userbase, the v1
+microsecond path was net-negative complexity. ``persist`` returns
+the monotonic ``events.seq`` (BIGSERIAL); ``fetch_after`` walks the
+same column; SSE ``Last-Event-ID`` is ``"<seq>:<event_id>"`` (no
+schema_version prefix).
 """
 from __future__ import annotations
 
@@ -33,27 +40,20 @@ if TYPE_CHECKING:
 class DurableEventStore(Protocol):
     """Persistence backend for the durable tier of :class:`EventBus`.
 
-    Three operations (``fetch_after_seq`` added in Plan 9 D9.9a):
+    Two operations:
 
     * :meth:`persist` — append a :class:`RelayEvent` to the store and
-      return a monotonic ``seq`` integer. The cursor format on the
-      wire is governed by Plan 9 D9.9a (``api/sse.py``):
-      v0.8.x ships a microsecond timestamp; v0.9.0+ may emit a
-      ``"v2:<row-seq>"`` form once D9.9 Alembic 0012a ships an
-      `events.seq BIGSERIAL`. ``persist`` itself stays Protocol-agnostic
-      about cursor format — it always returns the implementation's
-      native monotonic int.
-    * :meth:`fetch_after` — replay events with `microsecond-cursor >
-      last_seq`. Kept for backward compatibility with v0.8.x clients
-      whose `Last-Event-ID` is a microsecond timestamp.
-    * :meth:`fetch_after_seq` — Plan 9 D9.9a — replay events with
-      `events.seq > last_seq`. The SSE router dispatches between the
-      two `fetch_after*` paths based on the cursor's `schema_version`
-      prefix (``v2:`` → row-seq path, otherwise → microsecond path).
+      return its monotonic ``events.seq`` (BIGSERIAL). The SSE
+      ``Last-Event-ID`` cursor (``"<seq>:<event_id>"``) uses this
+      value to resume replay after a disconnect.
+    * :meth:`fetch_after` — yield every event with ``seq > last_seq``
+      in ascending order, up to ``limit`` rows. Implementations MAY
+      return a subclass that carries additional fields (e.g.
+      :class:`ReplayedEvent` for SQL reconstruction).
 
     Implementations MUST be safe to call concurrently from the same
     ``EventBus`` instance — the bus may interleave ``persist`` and
-    either ``fetch_after*`` variant freely.
+    ``fetch_after`` freely.
     """
 
     async def persist(self, event: RelayEvent) -> int:
@@ -63,46 +63,27 @@ class DurableEventStore(Protocol):
     async def fetch_after(
         self, *, last_seq: int, limit: int = 1000
     ) -> Sequence[RelayEvent]:
-        """Replay events with microsecond-cursor > ``last_seq``."""
-        ...
-
-    async def fetch_after_seq(
-        self, *, last_seq: int, limit: int = 1000
-    ) -> Sequence[RelayEvent]:
-        """Plan 9 D9.9a — replay events with ``events.seq > last_seq``.
-
-        Default behaviour for in-memory implementations (where the
-        microsecond timestamp and row-seq are equivalent) is to
-        delegate to :meth:`fetch_after`; SQL implementations override
-        with a true ``WHERE seq > :n`` predicate after Alembic 0012a
-        ships the column.
-        """
+        """Replay events with ``seq > last_seq``, ordered ascending."""
         ...
 
 
 @runtime_checkable
 class EventBusBackend(Protocol):
-    """Pluggable event-bus backend (Plan 9 v0.9.0-rc D9.0).
+    """Pluggable event-bus backend (Plan 9 D9.0).
 
-    Two-method design (Santa Round 3 Reviewer F BLOCKER #1):
+    Three methods cover every existing call site:
 
-    * :meth:`subscribe` — existing topic-based fan-out used by ~17
-      call sites (``api/sse.py``, ``im/subscriber.py``,
-      ``tracing/metrics_subscriber.py``, etc.). Returns an async
-      iterator scoped to a single topic (typed class, class-name
-      string, legacy string, or ``"*"`` wildcard).
+    * :meth:`subscribe` — topic-based fan-out (typed class,
+      class-name string, legacy string, or ``"*"`` wildcard).
     * :meth:`publish` — overloaded for the canonical typed form and
-      the legacy 2-arg ``(topic_str, payload)`` form. Matches
-      :meth:`EventBus.publish` exactly.
-    * :meth:`subscribe_all` — Plan 9.1 forward — durable replay /
-      cross-worker fan-out using a single ``events.seq`` cursor.
-      Default in-memory implementation derives this from the bus's
-      attached :class:`DurableEventStore`.
-
-    The existing :class:`gg_relay.core.event_bus.EventBus` satisfies
-    this Protocol structurally — no constructor change, no caller
-    change. Plan 9.1 will add ``RedisStreamEventBus`` that implements
-    the same shape so the lifespan can swap backends from config.
+      the legacy 2-arg ``(topic_str, payload)`` form.
+    * :meth:`subscribe_all` — cross-worker durable replay using the
+      single ``events.seq`` cursor. The single-worker
+      :class:`EventBus` derives this from its attached
+      :class:`DurableEventStore`; the multi-worker
+      :class:`RedisStreamEventBus` derives this from XREAD on
+      ``gg-relay:events``.
+    * :meth:`close` — drain + tear down every subscriber.
     """
 
     def subscribe(
@@ -133,14 +114,12 @@ class EventBusBackend(Protocol):
         *,
         after_seq: int | None = None,
     ) -> AsyncIterator[RelayEvent]:
-        """Plan 9 D9.0 — cross-worker durable replay.
+        """Cross-worker durable replay.
 
-        Yields every event with ``seq > after_seq`` in monotonic order.
-        ``after_seq=None`` is reserved for "start at end" semantics
-        used by fresh SSE subscribers that don't want a replay.
-        In-memory implementations may treat ``None`` the same as the
-        store's current head; Redis implementations use ``$`` (XREAD
-        from-end).
+        Yields every event with ``seq > after_seq`` in monotonic
+        order. ``after_seq=None`` means "start at end" (no replay,
+        live tail only). Redis implementations use XREAD ``$`` for
+        the None case; in-memory implementations yield nothing.
         """
         ...
 
@@ -151,26 +130,26 @@ class EventBusBackend(Protocol):
 
 @runtime_checkable
 class RateLimitStoreBackend(Protocol):
-    """Pluggable rate-limit backend (Plan 9 v0.9.0-rc D9.0).
+    """Pluggable rate-limit backend (Plan 9 D9.0).
 
-    Distinct from :class:`gg_relay.api.middleware.rate_limit.RateLimitMiddleware`
-    (which is the Starlette adapter) — the backend owns the bucket
-    state only. The existing
-    :class:`gg_relay.api.middleware.rate_limit.TokenBucketRateLimiter`
-    satisfies this Protocol structurally so the swap to Plan 9.1
-    ``RedisRateLimitStore`` is local to the lifespan.
+    Distinct from
+    :class:`gg_relay.api.middleware.rate_limit.RateLimitMiddleware`
+    (the Starlette adapter) — the backend owns the bucket state
+    only.
 
-    ``acquire`` is the only required method (`start_sweep` and `stop`
-    are convenience hooks on the in-memory impl; Redis impl will be
-    fire-and-forget).
+    Single-worker:
+    :class:`gg_relay.api.middleware.rate_limit.TokenBucketRateLimiter`.
+    Multi-worker:
+    :class:`gg_relay.cluster.redis_rate_limit.RedisRateLimitStore`
+    (Lua-atomic).
     """
 
     async def acquire(self, key: str) -> tuple[bool, float]:
         """Try to spend one token for ``key``.
 
-        Returns ``(allowed, retry_after_seconds)``. ``retry_after`` is
-        ``0`` when allowed; otherwise the time until ``key`` has at
-        least one token again.
+        Returns ``(allowed, retry_after_seconds)``. ``retry_after``
+        is ``0`` when allowed; otherwise the time until ``key`` has
+        at least one token again.
         """
         ...
 

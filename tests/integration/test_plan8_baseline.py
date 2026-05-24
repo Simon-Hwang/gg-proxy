@@ -97,9 +97,10 @@ def test_alembic_head_advances_with_plan_8() -> None:
 
     Phase 0 froze on ``0005`` (Plan 7 baseline). Each Plan 8 task that
     lands a migration bumps this gate so a regression that drops a
-    migration is caught immediately. Plan 9 v0.9.0-rc adds 0012a +
-    0012b (events.seq backfill) and 0013 (dashboard_internal_keys);
-    head must be ≥ ``0013`` post v0.9.0-rc.
+    migration is caught immediately. Plan 9 v0.9.0 (pre-prod
+    simplification) collapses the original 0012a/0012b/0013 trio
+    into a single 0012 (events.seq + dashboard_internal_keys); head
+    must be exactly ``0012`` post v0.9.0.
     """
     result = subprocess.run(
         ["uv", "run", "alembic", "heads"],
@@ -107,7 +108,7 @@ def test_alembic_head_advances_with_plan_8() -> None:
         text=True,
         cwd=REPO_ROOT,
     )
-    assert "0013" in result.stdout, (
-        f"alembic head not 0013: stdout={result.stdout!r} "
+    assert "0012" in result.stdout, (
+        f"alembic head not 0012: stdout={result.stdout!r} "
         f"stderr={result.stderr!r}"
     )

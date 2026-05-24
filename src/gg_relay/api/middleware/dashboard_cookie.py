@@ -83,78 +83,48 @@ _API_PREFIX: str = "/api/v1/"
 class DashboardCookieMiddleware(BaseHTTPMiddleware):
     """Bind cookie session → internal API key for dashboard mutations.
 
-    Construction (Plan 9 v0.9.0-rc D9.0a):
+    Construction (Plan 9 D9.0a):
 
     * ``cookie_session_key`` — name of the entry in ``request.session``
-      (NOT the raw cookie name; the cookie itself is signed and managed
-      by Starlette's :class:`SessionMiddleware`).
-      Default ``"dashboard_user"``.
-    * ``dashboard_internal_keys`` — **deprecated keyword arg** kept for
-      backward compatibility with v0.8.x test fixtures that construct
-      the middleware directly. When supplied, the mapping is stashed on
-      the middleware instance and used as a fallback if
-      ``app.state.dashboard_internal_keys`` is absent. New code SHOULD
-      omit this kwarg and rely entirely on the runtime ``app.state``
-      lookup so the Plan 9.1 D9.10 DB-backed key swap can hot-replace
-      the mapping inside the lifespan without rebuilding the middleware
-      chain (FastAPI forbids ``add_middleware`` after lifespan start).
+      (NOT the raw cookie name; the cookie itself is signed and
+      managed by Starlette's :class:`SessionMiddleware`). Default
+      ``"dashboard_user"``.
 
-    Runtime resolution order:
-
-    1. ``request.app.state.dashboard_internal_keys`` — primary source
-       since v0.9.0-rc; populated at startup by ``create_app`` and
-       reassignable from inside the lifespan (Plan 9.1 D9.10 will swap
-       this for a DB-backed mapping that survives process restart).
-    2. Legacy ``dashboard_internal_keys`` ctor kwarg — fallback so
-       existing direct-construction tests (e.g.
-       ``tests/unit/api/test_dashboard_cookie_middleware.py``) keep
-       working without modification.
-    3. Empty mapping → middleware is a no-op for header injection.
+    The ``{username: raw_key}`` mapping lives entirely on
+    ``app.state.dashboard_internal_keys``. The lifespan populates it
+    at startup; Plan 9 D9.10 swaps it for a DB-backed mapping that
+    survives process restart. The middleware reads
+    ``request.app.state.dashboard_internal_keys`` at dispatch time
+    so the lifespan can hot-replace it without rebuilding the
+    middleware chain (FastAPI forbids ``add_middleware`` after
+    lifespan start).
 
     Idempotency / safety:
 
-    * Missing ``request.session`` (SessionMiddleware not installed) →
-      middleware passes through silently rather than raising.
-    * Missing ``app.state.dashboard_internal_keys`` AND no legacy
-      kwarg supplied → middleware is a no-op (the cookie may still be
-      read for templates, but no header is ever injected).
+    * Missing ``request.session`` (SessionMiddleware not installed)
+      → middleware passes through silently rather than raising.
+    * Missing ``app.state.dashboard_internal_keys`` → middleware is
+      a no-op (the cookie may still be read for templates, but no
+      header is ever injected).
     """
 
     def __init__(
         self,
         app: ASGIApp,
         *,
-        dashboard_internal_keys: Mapping[str, str] | None = None,
         cookie_session_key: str = SESSION_KEY,
     ) -> None:
         super().__init__(app)
-        # Legacy fallback: stash the ctor-supplied mapping for tests
-        # that construct the middleware in isolation (no app.state
-        # context). When ``None``, the middleware relies entirely on
-        # the runtime ``request.app.state.dashboard_internal_keys``
-        # lookup — which is the v0.9.0-rc+ path.
-        self._legacy_user_to_key: dict[str, str] | None = (
-            dict(dashboard_internal_keys)
-            if dashboard_internal_keys is not None
-            else None
-        )
         self._cookie_session_key = cookie_session_key
 
-    def _resolve_user_to_key(self, request: Request) -> Mapping[str, str]:
-        """Return the live ``{username: raw_key}`` mapping for this request.
-
-        Plan 9 v0.9.0-rc D9.0a — prefers
-        ``request.app.state.dashboard_internal_keys`` so the lifespan
-        can hot-swap the mapping (Plan 9.1 D9.10 DB-backed keys).
-        Falls back to the legacy ctor kwarg, then to an empty dict.
-        """
+    @staticmethod
+    def _resolve_user_to_key(request: Request) -> Mapping[str, str]:
+        """Return the live ``{username: raw_key}`` mapping."""
         state_keys = getattr(
             request.app.state, "dashboard_internal_keys", None
         )
         if isinstance(state_keys, Mapping):
             return state_keys
-        if self._legacy_user_to_key is not None:
-            return self._legacy_user_to_key
         return {}
 
     @staticmethod

@@ -1,23 +1,27 @@
 """Server-Sent Events helpers (Plan 5 D5.4=A + filter + Last-Event-ID).
 
-The single entry point is :func:`session_event_stream` which builds an
-``EventSourceResponse`` filtered to a given ``session_id``. Three
-behaviours worth flagging:
+The single entry point is :func:`session_event_stream` which builds
+an ``EventSourceResponse`` filtered to a given ``session_id``.
 
-1. **SSE event field** = ``type(event).__name__`` (e.g. ``SessionCreated``)
-   so consumers can switch on event class without parsing data.
-2. **Event id** = ``event.event_id`` UUID stringified. Per-event IDs let
-   future Plan 7+ event-log indexing reconnect missed events by event_id;
-   the v1 cursor uses *frame seq* (see below).
-3. **Last-Event-ID back-fill** is best-effort: when the header is parseable
-   as an integer the endpoint emits stored frames with ``seq > N`` from
-   the persistence layer *before* attaching the live bus subscriber. Frame
-   seqs are per-session monotonic (Plan 4 store schema enforces this), so
-   ``seq`` is a stable cursor for the lifetime of a single session.
+Three behaviours worth flagging:
 
-When the client disconnects the underlying async generator's ``finally``
-clause invokes the EventBus subscriber's ``aclose``, which removes its
-deque from ``EventBus._subs`` so we don't leak buffers.
+1. **SSE event field** = ``type(event).__name__`` (e.g.
+   ``SessionCreated``) so consumers can switch on event class
+   without parsing data.
+2. **Event id** = ``"<seq>:<event_id>"`` for replayed events
+   (drives durable replay), bare ``event_id`` UUID for live ones.
+3. **Last-Event-ID back-fill** is best-effort: when the header
+   parses as ``"<seq>:<uuid>"`` (durable cursor) the endpoint
+   emits stored events with ``seq > N`` from
+   :meth:`EventBus.replay_after` *before* attaching the live
+   subscriber. When the header is the legacy ``"seq:<N>"`` or bare
+   integer per-session frame cursor, the back-fill consults the
+   ``frames`` table instead.
+
+When the client disconnects the underlying async generator's
+``finally`` clause invokes the EventBus subscriber's ``aclose``,
+which removes its deque from ``EventBus._subs`` so we don't leak
+buffers.
 """
 from __future__ import annotations
 
@@ -40,17 +44,18 @@ from gg_relay.store.durable_event import ReplayedEvent
 def _event_to_sse(event: RelayEvent | Mapping[str, Any]) -> ServerSentEvent | None:
     """Render a typed ``RelayEvent`` (or legacy frame dict) as an SSE chunk.
 
-    Plan 9 v0.9.0-rc D9.9a — the SSE id for :class:`ReplayedEvent` is
-    now emitted in the v2 format ``"v2:<row-seq>:<event_id>"`` so the
-    next reconnect drives :meth:`EventBus.replay_after_seq`. v0.8.x
-    cursors (``"<microsecond-seq>:<event_id>"`` without the ``v2:``
-    prefix) continue to be parseable by
-    :func:`_parse_durable_last_event_id` for the backward-compat
-    window (≥2 minor releases).
+    SSE id format:
+    * :class:`ReplayedEvent` → ``"<events.seq>:<event_id>"`` — the
+      next reconnect's ``Last-Event-ID`` drives
+      :meth:`EventBus.replay_after` directly.
+    * Live :class:`RelayEvent` → bare ``event_id`` UUID — replay
+      isn't possible for an event the durable store hasn't seen yet.
+    * Legacy frame dict → ``"seq:<N>"`` — per-session frame cursor
+      (Plan 5 back-compat).
     """
     if isinstance(event, ReplayedEvent):
         return ServerSentEvent(
-            id=f"v2:{event.seq}:{event.event_id}",
+            id=f"{event.seq}:{event.event_id}",
             event=event.type_name or "RelayEvent",
             data=json.dumps(event.payload, default=str),
         )
@@ -76,9 +81,9 @@ def _parse_last_event_id(request: Request) -> int | None:
     """Parse a numeric frame-seq cursor out of ``Last-Event-ID``.
 
     Accepts either the bare integer form (``42``) or the ``"seq:42"``
-    prefixed form emitted by legacy str-topic frames. Returns ``None``
-    when the header is missing or unparseable so the caller can skip the
-    back-fill step entirely.
+    prefixed form emitted by legacy str-topic frames. Returns
+    ``None`` when the header is missing or unparseable so the caller
+    can skip the back-fill step entirely.
     """
     header = request.headers.get("Last-Event-ID")
     if not header:
@@ -92,58 +97,37 @@ def _parse_last_event_id(request: Request) -> int | None:
         return None
 
 
-def _parse_durable_last_event_id(
-    request: Request,
-) -> tuple[int, int] | None:
-    """Parse the durable cursor with schema version (Plan 7 + Plan 9 D9.9a).
+def _parse_durable_last_event_id(request: Request) -> int | None:
+    """Parse the durable ``"<seq>:<event_id>"`` cursor.
 
-    Returns ``(schema_version, last_seq)`` so the caller can dispatch
-    between two replay paths:
-
-    * ``schema_version == 1`` — Plan 7 D7.17 v1 cursor
-      ``"<microsecond-seq>:<event_id>"``. The seq is a microsecond
-      timestamp; replay uses :meth:`EventBus.replay_after`.
-    * ``schema_version == 2`` — Plan 9 D9.9a v2 cursor
-      ``"v2:<row-seq>:<event_id>"``. The seq is the strictly
-      monotonic ``events.seq`` column populated by Alembic 0012a;
-      replay uses :meth:`EventBus.replay_after_seq`.
-
-    Compatibility window: v0.9.0+ servers emit v2 cursors going
-    forward; v0.8.x clients reconnecting after upgrade still send v1
-    cursors and walk the microsecond path. v0.10.0 may freeze the v1
-    path; v0.11.0 may remove it (≥2-minor compat window).
+    Distinct from :func:`_parse_last_event_id` (which parses the
+    per-session frame-seq cursor ``42`` / ``seq:42`` used by the
+    in-session back-fill). The durable cursor uses the
+    ``events.seq`` prefix + UUID suffix emitted by
+    :func:`_event_to_sse` for :class:`ReplayedEvent` instances; only
+    the seq half is needed for :meth:`EventBus.replay_after`.
 
     Returns ``None`` when:
 
     * the header is missing,
-    * the header is the legacy per-session ``"seq:<n>"`` frame cursor
-      (handled by :func:`_parse_last_event_id`),
-    * the format is unrecognisable (garbage value → degrade to live
-      tail rather than crash).
+    * it starts with ``"seq:"`` (legacy frame cursor — handled
+      separately),
+    * there's no ``:`` separator (so it's a bare int = frame cursor),
+    * the prefix doesn't parse as an integer (garbage value —
+      silently ignored so EventSource auto-reconnect with an old /
+      opaque id degrades to a live tail rather than crashing).
     """
     header = request.headers.get("Last-Event-ID")
     if not header:
         return None
     value = header.strip()
     if value.startswith("seq:"):
-        # Legacy per-session frame cursor — parsed elsewhere.
         return None
-    if value.startswith("v2:"):
-        # v2 cursor: "v2:<row-seq>:<event_id>" or "v2:<row-seq>".
-        tail = value[3:]
-        prefix = tail.split(":", 1)[0]
-        try:
-            return (2, int(prefix))
-        except ValueError:
-            return None
     if ":" not in value:
-        # Bare integer — could be a v1 cursor without event_id
-        # suffix (rare) or a legacy frame cursor without ``seq:``
-        # prefix. Treat as v1 to keep the existing behavior.
         return None
     prefix = value.split(":", 1)[0]
     try:
-        return (1, int(prefix))
+        return int(prefix)
     except ValueError:
         return None
 
@@ -160,25 +144,17 @@ async def _stream(
     # Subscribe FIRST so events arriving during back-fill aren't lost.
     sub = bus.subscribe("*", maxsize=initial_buffer_size)
     try:
-        # ── Plan 7 D7.17 + Plan 9 D9.9a: durable-tier replay ─────────
+        # ── Durable replay (Plan 7 D7.17 + Plan 9 D9.9) ──────────
         # When the client supplies ``Last-Event-ID: <seq>:<uuid>``
-        # (v1 microsecond cursor) OR ``Last-Event-ID: v2:<seq>:<uuid>``
-        # (v2 row-seq cursor) we walk the durable store first to
-        # flush every persisted event past the cursor in order.
-        # Filtered to ``session_id`` so multi-session feeds stay
-        # isolated. Falls through silently when no durable store is
-        # wired or the header is invalid — see
+        # (emitted by ReplayedEvent rendering) we walk the durable
+        # store first to flush every persisted event with seq >
+        # cursor in order. Filtered to ``session_id`` so multi-
+        # session feeds stay isolated. Falls through silently when
+        # no durable store is wired or the header is invalid — see
         # :func:`_parse_durable_last_event_id`.
-        cursor = _parse_durable_last_event_id(request)
-        if cursor is not None:
-            schema_version, durable_seq = cursor
-            if schema_version == 2:
-                # Plan 9 D9.9a — strict row-seq cursor (post-0012a).
-                replay_iter = bus.replay_after_seq(last_seq=durable_seq)
-            else:
-                # v1 microsecond cursor — backward-compat path.
-                replay_iter = bus.replay_after(last_seq=durable_seq)
-            async for evt in replay_iter:
+        durable_seq = _parse_durable_last_event_id(request)
+        if durable_seq is not None:
+            async for evt in bus.replay_after(last_seq=durable_seq):
                 if isinstance(evt, ReplayedEvent):
                     if evt.session_id and evt.session_id != session_id:
                         continue
@@ -235,10 +211,10 @@ def session_event_stream(
 ) -> EventSourceResponse:
     """Build an SSE response that streams ``session_id`` events.
 
-    ``heartbeat_s`` is the comment-frame keep-alive sent by sse-starlette
-    so intermediate proxies (nginx, Cloudflare) don't close idle
-    connections. A value of 15s keeps cleanly under typical 30-60s
-    timeouts while not adding noticeable bandwidth.
+    ``heartbeat_s`` is the comment-frame keep-alive sent by
+    sse-starlette so intermediate proxies (nginx, Cloudflare) don't
+    close idle connections. A value of 15s keeps cleanly under
+    typical 30-60s timeouts while not adding noticeable bandwidth.
     """
     return EventSourceResponse(
         _stream(bus, store, session_id, request),

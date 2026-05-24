@@ -208,17 +208,18 @@ events = Table(
     # ``in_process`` | ``disk`` | ``redis`` (Plan 8 adds the Redis tier;
     # Plan 7 only emits in_process | disk).
     Column("delivery_tier", String(10), nullable=False),
-    # Plan 9 v0.9.0-rc D9.9 — monotonic per-row sequence backing the
-    # Plan 9 D9.9a SSE v2 cursor (``Last-Event-ID: v2:<seq>``). Nullable
-    # in v0.9.0-rc (Alembic 0012a) so rolling-deploy windows where old
-    # v0.8.x pods still write to this table don't 500. v0.9.1 Alembic
-    # 0012b backfills + flips NOT NULL + creates the unique index
-    # CONCURRENTLY. Postgres has a dedicated ``events_seq_seq`` sequence
-    # populated by the application layer via ``nextval('events_seq_seq')``;
-    # SQLite uses an INSERT...SELECT pattern (``COALESCE(MAX(seq),0)+1``)
-    # for cross-dialect atomicity without depending on a server-side
-    # sequence object.
-    Column("seq", BigInteger, nullable=True),
+    # Plan 9 D9.9 — strictly-monotonic per-row sequence backing the
+    # SSE ``Last-Event-ID: <seq>:<event_id>`` cursor. Postgres has a
+    # dedicated ``events_seq_seq`` sequence object populated by the
+    # application layer via ``nextval('events_seq_seq')``; SQLite uses
+    # an INSERT...SELECT pattern (``COALESCE(MAX(seq),0)+1``) for
+    # cross-dialect atomicity without depending on a server-side
+    # sequence object. The unique index is built directly at column
+    # creation (Alembic 0012) — pre-production simplification dropped
+    # the two-phase 0012a/0012b ceremony that v1.4 LOCKED carried for
+    # rolling-deploy safety.
+    Column("seq", BigInteger, nullable=False),
+    Index("ix_events_seq", "seq", unique=True),
     # ``ix_events_ts`` powers range-scan replay (e.g. "events since T").
     # ``ix_events_session_id`` powers per-session replay.
     Index("ix_events_ts", "ts"),

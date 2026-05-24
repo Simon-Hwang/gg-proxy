@@ -101,10 +101,8 @@ def _build_full_chain_app(
         keys_with_labels=keys_with_labels,
         protected_prefix="/api/v1",
     )
-    app.add_middleware(
-        DashboardCookieMiddleware,
-        dashboard_internal_keys=dashboard_internal_keys or {},
-    )
+    app.add_middleware(DashboardCookieMiddleware)
+    app.state.dashboard_internal_keys = dashboard_internal_keys or {}
     app.add_middleware(_SeedMW)
     app.add_middleware(
         SessionMiddleware,

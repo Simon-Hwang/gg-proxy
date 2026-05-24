@@ -195,12 +195,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # to crash the lifespan than silently boot a misconfigured relay.
     cfg.validate_required_secrets()
 
-    # Plan 9 v0.9.0-rc D9.11 — multi-worker boot-time safety check.
+    # Plan 9 D9.11 — multi-worker boot-time safety check.
     # Validates that ``deployment_mode=multi_worker`` is paired with
-    # cluster-safe backends (Redis). Warn-only by default; raises
-    # DeploymentModeError when ``deployment_mode_strict=True``.
-    # Runs BEFORE engine / bus init so a strict-mode misconfig fails
-    # fast without spending any DB connections.
+    # cluster-safe backends (Redis). Always fail-fast: raises
+    # DeploymentModeError on any violation so K8s readinessProbe
+    # marks the pod unhealthy instead of accepting silently-broken
+    # cross-worker traffic. Runs BEFORE engine / bus init so a
+    # misconfig fails fast without spending any DB connections.
     from gg_relay.cluster import validate_deployment_mode
 
     deployment_violations = validate_deployment_mode(cfg)
@@ -626,14 +627,11 @@ def create_app(config: Config | None = None) -> FastAPI:
     # This guarantees the single identity contract (D8.25): the
     # cookie wins over any accidentally-attached X-API-Key header.
     #
-    # Plan 9 v0.9.0-rc D9.0a — the middleware now reads
-    # ``app.state.dashboard_internal_keys`` at request time instead of
-    # being constructed with a frozen mapping. This unblocks the
-    # Plan 9.1 D9.10 DB-backed key swap: the lifespan can replace
-    # ``app.state.dashboard_internal_keys`` after the middleware chain
-    # is built (FastAPI forbids ``add_middleware`` after lifespan
-    # start). The ctor kwarg is retained as a fallback for direct
-    # construction in unit tests that don't build a full app.
+    # Plan 9 D9.0a — the middleware reads
+    # ``app.state.dashboard_internal_keys`` at request time so the
+    # D9.10 DB-backed key swap can replace the mapping after the
+    # middleware chain is built (FastAPI forbids ``add_middleware``
+    # after lifespan start). Single source of truth — no ctor kwarg.
     app.add_middleware(DashboardCookieMiddleware)
     # Outermost: SessionMiddleware decodes the signed cookie into
     # ``request.scope['session']`` so DashboardCookieMiddleware can

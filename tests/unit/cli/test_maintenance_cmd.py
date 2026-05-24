@@ -54,6 +54,7 @@ def seeded_db(tmp_path: Path, monkeypatch) -> str:
                         session_id=None,
                         payload={},
                         delivery_tier="disk",
+                        seq=1,
                     )
                 )
                 await conn.execute(
@@ -64,6 +65,7 @@ def seeded_db(tmp_path: Path, monkeypatch) -> str:
                         session_id=None,
                         payload={},
                         delivery_tier="disk",
+                        seq=2,
                     )
                 )
         finally:

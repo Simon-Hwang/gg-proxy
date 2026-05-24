@@ -37,6 +37,13 @@ async def engine(tmp_path):
 
 async def _insert_event(eng, *, event_id: str, ts: datetime) -> None:
     async with eng.begin() as conn:
+        # Plan 9 D9.9 — events.seq is NOT NULL; pick MAX(seq)+1 since
+        # the retention fixture writes raw rows (bypasses persist()).
+        from sqlalchemy import text as _text
+
+        max_seq = (
+            await conn.execute(_text("SELECT COALESCE(MAX(seq), 0) FROM events"))
+        ).scalar_one()
         await conn.execute(
             events.insert().values(
                 event_id=event_id,
@@ -45,6 +52,7 @@ async def _insert_event(eng, *, event_id: str, ts: datetime) -> None:
                 session_id=None,
                 payload={"x": 1},
                 delivery_tier="disk",
+                seq=int(max_seq) + 1,
             )
         )
 
