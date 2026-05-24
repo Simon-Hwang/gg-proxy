@@ -54,7 +54,13 @@ postgres = ["asyncpg>=0.29"]
 # install still has zero Redis dependency. Reinstating the extra here
 # lets operators opt in via ``pip install -e '.[redis]'`` /
 # ``uv sync --extra redis`` without re-litigating the deletion.
-redis = ["redis>=5.0"]
+#
+# Plan 9 v0.9.0-rc (D9.0b) — upper-bound lock to <6.0. The 5.x→6.x
+# transition is far enough off that we'd rather discover the break
+# in our own CI than let an operator's `pip install --upgrade`
+# silently swap in an untested major. fakeredis is a dev-only test
+# helper and lives under [dev] to keep this extra production-clean.
+redis = ["redis>=5.0,<6.0"]
 otel-http = ["opentelemetry-exporter-otlp-proto-http>=1.24"]
 feishu = []  # FeishuBackend uses only httpx (already a core dep); kept
             # as an empty extra so deployment recipes can pin a future
@@ -70,6 +76,18 @@ dev = [
     "respx>=0.21",
     "mypy>=1.10",
     "ruff>=0.4",
+    # Plan 9 v0.9.0-rc (D9.0b) — test infra for upcoming Redis tier.
+    # fakeredis: in-process Redis stub for fast unit tests of the
+    #   D9.1 RedisStreamEventBus / D9.2 RedisRateLimitStore wiring
+    #   without needing a Redis container in CI.
+    # pytest-xdist: parallel test execution for the D9.6 multi-worker
+    #   integration tests (spawn 2 ASGI processes per test).
+    # testcontainers: real Redis container for cross-version /
+    #   end-to-end integration tests where fakeredis behaviour
+    #   diverges from real redis-py 5.x semantics.
+    "fakeredis>=2.20",
+    "pytest-xdist>=3.5",
+    "testcontainers>=4.5",
 ]
 all = ["gg-relay[postgres,redis,otel-http,feishu,dev]"]
 

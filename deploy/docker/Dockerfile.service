@@ -34,10 +34,18 @@ COPY --from=docker-cli /usr/local/bin/docker /usr/local/bin/docker
 
 # Install gg-relay (no Node / claude-cli / gg-plugins — those belong to the
 # runner image so the service can stay small).
+#
+# Plan 9 v0.9.0-rc (D9.0b) — `redis` extra added so the image carries
+# the redis-py 5.x client. RELAY_EVENT_BUS_BACKEND defaults to
+# `inmemory` so a fresh container still runs single-worker out of the
+# box; operators flipping to `redis` need only set the env var
+# (no rebuild). The redis client is ~150 KB so the image-size cost is
+# negligible vs the operational benefit of zero-rebuild upgrades to
+# multi-worker mode.
 COPY pyproject.toml /opt/gg-relay/
 COPY src/ /opt/gg-relay/src/
 WORKDIR /opt/gg-relay
-RUN pip install --no-cache-dir ".[postgres,otel-http]"
+RUN pip install --no-cache-dir ".[postgres,otel-http,redis]"
 
 # Run as non-root so the socket mount (group ``docker``) is still reachable
 # via the ``--group-add`` flag on the host compose file.

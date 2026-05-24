@@ -41,7 +41,11 @@ from gg_relay.core.exceptions import (
     TemplateConflictError,
     classify_sdk_error,
 )
-from gg_relay.core.protocol import DurableEventStore
+from gg_relay.core.protocol import (
+    DurableEventStore,
+    EventBusBackend,
+    RateLimitStoreBackend,
+)
 
 __all__ = [
     "LEGAL_TRANSITIONS",
@@ -51,6 +55,8 @@ __all__ = [
     "DurableEventDropError",
     "DurableEventStore",
     "EventBus",
+    "EventBusBackend",
+    "RateLimitStoreBackend",
     "HITLAlreadyResolved",
     "Heartbeat",
     "HITLRequested",

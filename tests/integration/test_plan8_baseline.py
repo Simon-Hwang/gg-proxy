@@ -93,12 +93,13 @@ def test_d7_26_contract_landed() -> None:
 
 
 def test_alembic_head_advances_with_plan_8() -> None:
-    """Alembic head must monotonically advance through Plan 8.
+    """Alembic head must monotonically advance through Plans 8 + 9.
 
     Phase 0 froze on ``0005`` (Plan 7 baseline). Each Plan 8 task that
     lands a migration bumps this gate so a regression that drops a
-    migration is caught immediately. Current expected head:
-    ``0011`` (Task 22, D8.29 api_keys).
+    migration is caught immediately. Plan 9 v0.9.0-rc adds 0012a +
+    0012b (events.seq backfill) and 0013 (dashboard_internal_keys);
+    head must be ≥ ``0013`` post v0.9.0-rc.
     """
     result = subprocess.run(
         ["uv", "run", "alembic", "heads"],
@@ -106,7 +107,7 @@ def test_alembic_head_advances_with_plan_8() -> None:
         text=True,
         cwd=REPO_ROOT,
     )
-    assert "0011" in result.stdout, (
-        f"alembic head not 0011: stdout={result.stdout!r} "
+    assert "0013" in result.stdout, (
+        f"alembic head not 0013: stdout={result.stdout!r} "
         f"stderr={result.stderr!r}"
     )

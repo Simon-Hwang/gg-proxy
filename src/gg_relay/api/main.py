@@ -195,6 +195,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # to crash the lifespan than silently boot a misconfigured relay.
     cfg.validate_required_secrets()
 
+    # Plan 9 v0.9.0-rc D9.11 — multi-worker boot-time safety check.
+    # Validates that ``deployment_mode=multi_worker`` is paired with
+    # cluster-safe backends (Redis). Warn-only by default; raises
+    # DeploymentModeError when ``deployment_mode_strict=True``.
+    # Runs BEFORE engine / bus init so a strict-mode misconfig fails
+    # fast without spending any DB connections.
+    from gg_relay.cluster import validate_deployment_mode
+
+    deployment_violations = validate_deployment_mode(cfg)
+    app.state.deployment_violations = deployment_violations
+
     # Plan 7 Task 11 (D7.15) — register the redaction processor FIRST
     # in the structlog pipeline so all downstream logs (DB init, bus
     # subscribers, IM subscriber, …) flow through it.
@@ -614,10 +625,16 @@ def create_app(config: Config | None = None) -> FastAPI:
     # rewrites the X-API-Key header BEFORE APIKey middleware runs.
     # This guarantees the single identity contract (D8.25): the
     # cookie wins over any accidentally-attached X-API-Key header.
-    app.add_middleware(
-        DashboardCookieMiddleware,
-        dashboard_internal_keys=dashboard_internal_keys,
-    )
+    #
+    # Plan 9 v0.9.0-rc D9.0a — the middleware now reads
+    # ``app.state.dashboard_internal_keys`` at request time instead of
+    # being constructed with a frozen mapping. This unblocks the
+    # Plan 9.1 D9.10 DB-backed key swap: the lifespan can replace
+    # ``app.state.dashboard_internal_keys`` after the middleware chain
+    # is built (FastAPI forbids ``add_middleware`` after lifespan
+    # start). The ctor kwarg is retained as a fallback for direct
+    # construction in unit tests that don't build a full app.
+    app.add_middleware(DashboardCookieMiddleware)
     # Outermost: SessionMiddleware decodes the signed cookie into
     # ``request.scope['session']`` so DashboardCookieMiddleware can
     # read it on the way in (BaseHTTPMiddleware's ``request.session``

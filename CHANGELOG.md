@@ -7,7 +7,141 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
-Plan 9+ features land here.
+Plan 9.1 features (`v0.9.1`) land here:
+RedisStreamEventBus / RedisRateLimitStore / K8s manifests / Helm
+chart / DB-backed dashboard internal keys / runbooks. See
+`docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md`
+§"v0.9.1 scope".
+
+## [0.9.0-rc1] - 2026-05-24
+
+Plan 9 v0.9.0-rc — *Cluster Scaling Infrastructure (single-worker
+release)*. Ships every prerequisite for the v0.9.1 multi-worker
+activation: backend Protocol abstractions, monotonic event seq
+column, dual-version SSE cursor, app-state DashboardCookieMiddleware
+wiring, multi-worker boot-time safety check, Plan 9.1-ready release
+artifacts. **Operationally a no-op** for existing v0.8.x single-worker
+deployments — every change is backward-compatible or opt-in. Closes
+7 of Plan 9's 17 deliverables (D9.0 / D9.0a / D9.0b / D9.7 retained +
+D9.9 / D9.9a / D9.11); see `PLAN.md` §P9 for the v0.9.1 scope.
+
+### Added
+
+- **EventBusBackend + RateLimitStoreBackend Protocols** (D9.0): new
+  `runtime_checkable` Protocols in `gg_relay.core.protocol` that the
+  existing in-process `EventBus` and `TokenBucketRateLimiter`
+  satisfy structurally — zero call-site change today, but the v0.9.1
+  `RedisStreamEventBus` / `RedisRateLimitStore` will plug in via the
+  same Protocol shape. The dual-method design
+  (`subscribe(topic)` for legacy fan-out + `subscribe_all(after_seq)`
+  for cross-worker durable replay) preserves every existing call
+  site (api/sse.py, im/subscriber.py, tracing/metrics_subscriber.py).
+- **events.seq monotonic column** (D9.9): Alembic `0012a` adds a
+  nullable `events.seq BIGINT` + Postgres `events_seq_seq` sequence;
+  `SqlAlchemyDurableEventStore.persist` now stamps a strictly-
+  monotonic per-row seq (Postgres `nextval` + RETURNING / SQLite
+  atomic `SELECT MAX(seq)+1 → INSERT`). The legacy microsecond-
+  derived seq remains as a fallback when 0012a hasn't run yet, so
+  v0.9.0-rc is safe to deploy against a pre-0012a database. Alembic
+  `0012b` (operator-triggered) backfills NULL rows, flips the
+  column NOT NULL, and creates `ix_events_seq UNIQUE CONCURRENTLY`
+  with `autocommit_block`.
+- **SSE v2 cursor (schema_version dispatch)** (D9.9a): `Last-Event-ID`
+  now accepts both the v0.8.x `<microsecond-seq>:<event_id>` v1 form
+  AND the new `v2:<row-seq>:<event_id>` form.
+  `_parse_durable_last_event_id` returns `(schema_version, last_seq)`
+  so `_stream` dispatches v1 → `EventBus.replay_after` and v2 →
+  `EventBus.replay_after_seq`. SSE renderer emits the v2 form
+  going forward. Compat window: v0.9.x and v0.10.x will keep
+  parsing v1; v0.11.x may remove it.
+- **DashboardCookieMiddleware app.state lookup** (D9.0a): the
+  middleware now reads `request.app.state.dashboard_internal_keys`
+  at request time instead of being constructed with a frozen
+  mapping. Unblocks the v0.9.1 D9.10 DB-backed shared-key swap:
+  the lifespan can replace the mapping after the middleware chain
+  is built (FastAPI forbids `add_middleware` after lifespan start).
+  The legacy ctor kwarg is retained as a no-op fallback for direct-
+  construction unit tests.
+- **Multi-worker deployment-mode safety check** (D9.11):
+  `RELAY_DEPLOYMENT_MODE=multi_worker` + `inmemory` backends now
+  triggers a boot-time validation (warn-only by default;
+  `RELAY_DEPLOYMENT_MODE_STRICT=true` to fail-fast). Defuses the
+  silent multi-worker failure mode where `replicas: 3` + inmemory
+  backends produce non-deterministic SSE delivery + 3× rate-limit
+  leakage. Backend safety set is data-driven
+  (`MULTI_WORKER_SAFE_BACKENDS`) so future Kafka / NATS backends
+  opt in without touching the check function.
+- **`dashboard_internal_keys` table** (D9.9 / Alembic `0013`):
+  schema for the v0.9.1 D9.10 multi-pod cookie-key fix. Table is
+  empty in v0.9.0-rc; v0.9.1 lifespan reads it via
+  `ApiKeyStore.get_or_create_dashboard_internal_key(username)`.
+  Plaintext storage is a deliberate threat-model trade-off
+  documented in the schema docstring — operators MUST restrict
+  GRANT on this table to the gg-relay app role.
+- **Release artifacts** (D9.0b): `release.yml` + `Dockerfile.service`
+  now install the `[redis]` extra so the published Docker image
+  carries the redis-py client (no rebuild needed to flip
+  `RELAY_EVENT_BUS_BACKEND=redis` in v0.9.1).
+  `pyproject.toml` adds `redis>=5.0,<6.0` upper bound (prevents
+  silent 6.x drift) and ships `fakeredis` / `pytest-xdist` /
+  `testcontainers` under `[dev]` for the v0.9.1 multi-worker tests.
+
+### Changed
+
+- **DashboardCookieMiddleware constructor** (D9.0a): `create_app` no
+  longer passes `dashboard_internal_keys=` to `add_middleware`. The
+  mapping now lives entirely on `app.state.dashboard_internal_keys`.
+  This is backward-compatible for direct-construction unit tests
+  (the ctor kwarg is still accepted as a fallback).
+- **SSE durable cursor wire format** (D9.9a): newly-emitted cursors
+  use the `v2:<seq>:<uuid>` prefix. v0.8.x clients reconnecting
+  against v0.9.0-rc continue to send v1 cursors and walk the
+  microsecond replay path — no client-side change required.
+
+### Migrations
+
+- **`0012a` events_seq_column** — auto-applied by
+  `gg-relay migrate` (default `head`). DDL-only; safe during a
+  rolling deploy of v0.8.x ↔ v0.9.0-rc pods.
+- **`0012b` events_seq_backfill** — operator-triggered via
+  `gg-relay migrate --to 0012b`. Backfills + flips NOT NULL +
+  creates the unique index `CONCURRENTLY` (Postgres). Run only
+  after confirming v0.8.x pods are fully drained (≥24h of zero
+  `events.seq IS NULL` writes).
+- **`0013` dashboard_internal_keys** — auto-applied. Table is
+  empty in v0.9.0-rc; v0.9.1 D9.10 populates.
+
+### Breaking changes
+
+- **DingTalk / Slack IM backends removed**: the in-tree
+  `DingTalkBackend` and `SlackBackend` stubs were deleted (they were
+  never implemented past the protocol stub). Only `FeishuBackend`
+  remains in-tree; third-party backends are still discoverable via
+  the `gg_relay.im_backends` entry point. **Migration**: if your
+  deployment referenced `RELAY_IM_BACKEND=dingtalk|slack` (it never
+  worked), remove the env var.
+- **DashboardCookieMiddleware ctor kwarg deprecation**: the
+  `dashboard_internal_keys=` kwarg still works for unit tests but is
+  effectively shadowed by `app.state.dashboard_internal_keys` in
+  production paths. Direct callers that need ctor-frozen mappings
+  should migrate to populating `app.state` before request
+  dispatch.
+
+### Deprecated
+
+- `EventBus.replay_after` (the v1 microsecond cursor path) is
+  retained for back-compat with v0.8.x SSE clients. Mark for
+  removal in v0.11.x once telemetry confirms v1 cursors are below
+  1% of `Last-Event-ID` traffic.
+
+### Security
+
+- **`dashboard_internal_keys.raw_key` plaintext storage trade-off**:
+  v0.9.1 D9.10 will write 43-byte `secrets.token_urlsafe(32)` output
+  to this table so all pods sign cookies with the same key. Operators
+  MUST `REVOKE` audit-role read access on the table and restrict
+  GRANT to the gg-relay app role only. Plan 11+ may upgrade to a
+  bcrypt-hashed variant.
 
 ## [0.8.0] - 2026-05-24
 

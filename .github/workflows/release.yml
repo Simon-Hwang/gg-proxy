@@ -40,8 +40,14 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@v3
 
-      - name: Install (frozen, dev extras)
-        run: uv sync --frozen --extra dev
+      - name: Install (frozen, dev + redis extras)
+        # Plan 9 v0.9.0-rc (D9.0b) — `--extra redis` is required so
+        # the built Docker image carries `redis` Python client. v0.9.0
+        # ships the [redis] extra capable of opt-in multi-worker mode
+        # via RELAY_EVENT_BUS_BACKEND=redis; without this flag the
+        # image would silently lack the import and any operator who
+        # flipped the config would CrashLoopBackOff at lifespan init.
+        run: uv sync --frozen --extra dev --extra redis
 
       - name: 3-source version check
         run: |

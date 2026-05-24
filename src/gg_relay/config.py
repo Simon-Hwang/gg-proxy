@@ -437,6 +437,34 @@ class Config(BaseSettings):
     multi-worker production where the inmemory fallback would silently
     diverge per-worker state."""
 
+    # ── Plan 9 v0.9.0-rc D9.11 — multi-worker deployment safety check ──
+    deployment_mode: Literal["single_worker", "multi_worker"] = "single_worker"
+    """Declares whether this gg-relay instance is part of a
+    multi-worker cluster (replicas > 1 sharing a Postgres + Redis).
+
+    In ``multi_worker`` mode the lifespan validates that backend
+    configuration is cluster-safe (see
+    :data:`MULTI_WORKER_SAFE_BACKENDS`). The check is **warn-only by
+    default** to avoid bricking an operator who flips ``replicas: 3``
+    in their helm values without first wiring Redis. Set
+    :attr:`deployment_mode_strict` to ``True`` to make the check
+    fail-fast (recommended for production).
+
+    Single-worker mode (default) skips the check entirely — backwards-
+    compatible with every pre-v0.9.0-rc deployment.
+    """
+
+    deployment_mode_strict: bool = False
+    """When ``True``, multi-worker config violations
+    (:attr:`event_bus_backend` or :attr:`rate_limit_backend` not in
+    :data:`MULTI_WORKER_SAFE_BACKENDS`, or :attr:`redis_url` missing)
+    raise :class:`RuntimeError` at lifespan startup. When ``False``
+    (default), violations log a ``warning`` and increment the
+    ``gg_relay_partial_multiworker_config`` gauge so monitoring can
+    flag the divergence. Switching ``False → True`` is the
+    final step of the v0.9.0 → multi-worker upgrade runbook
+    (Plan 9.1 D9.12)."""
+
     # ── Plan 8 D8.10 — Postgres pool tuning ────────────────────────────
     # Task 2 reads these in ``store/engine.make_async_engine``. Defaults
     # match Plan 5 single-worker sqlite/Postgres profile; multi-worker

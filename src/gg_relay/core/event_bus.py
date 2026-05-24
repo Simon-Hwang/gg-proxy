@@ -298,19 +298,77 @@ class EventBus:
         """Yield durable events with seq > ``last_seq`` in order.
 
         Plan 7 D7.17 — backs the SSE ``Last-Event-ID: "<seq>:<uuid>"``
-        cursor. ``last_seq=None`` (header missing or unparseable) or
-        ``durable_store=None`` (bus has no disk tier) yields nothing:
-        the SSE generator falls through to the live subscriber tail.
-        Otherwise we delegate to :meth:`DurableEventStore.fetch_after`
-        and yield each row; the SSE renderer is responsible for
-        formatting ids as ``"<seq>:<event_id>"`` so the next reconnect
-        resumes from the right place.
+        cursor (v1 microsecond format). ``last_seq=None`` (header
+        missing or unparseable) or ``durable_store=None`` (bus has no
+        disk tier) yields nothing: the SSE generator falls through to
+        the live subscriber tail. Otherwise we delegate to
+        :meth:`DurableEventStore.fetch_after` and yield each row; the
+        SSE renderer is responsible for formatting ids as
+        ``"<seq>:<event_id>"`` so the next reconnect resumes from
+        the right place.
+
+        Plan 9 D9.9a adds :meth:`replay_after_seq` for the v2
+        row-seq cursor; this method stays for the microsecond
+        backward-compat window.
         """
         if last_seq is None or self._durable_store is None:
             return
         rows = await self._durable_store.fetch_after(
             last_seq=last_seq, limit=limit
         )
+        for evt in rows:
+            yield evt
+
+    async def replay_after_seq(
+        self, *, last_seq: int | None, limit: int = 1000
+    ) -> AsyncIterator[RelayEvent]:
+        """Plan 9 D9.9a — yield events with `events.seq > last_seq`.
+
+        Same contract as :meth:`replay_after` but uses the v2 row-seq
+        cursor (`Last-Event-ID: v2:<row-seq>`). Delegates to
+        :meth:`DurableEventStore.fetch_after_seq`.
+        """
+        if last_seq is None or self._durable_store is None:
+            return
+        rows = await self._durable_store.fetch_after_seq(
+            last_seq=last_seq, limit=limit
+        )
+        for evt in rows:
+            yield evt
+
+    # ── Plan 9 v0.9.0-rc D9.0 — EventBusBackend Protocol conformance ──
+    # `subscribe_all` is the cross-worker durable-replay surface the
+    # Plan 9.1 `RedisStreamEventBus` will implement natively (XREAD on
+    # the gg-relay:events stream). For the in-process bus we delegate
+    # to the attached durable_store; if no store is wired, we yield
+    # nothing — callers in single-worker mode should use `subscribe`
+    # for live tailing, not `subscribe_all` for replay.
+    async def subscribe_all(
+        self,
+        *,
+        after_seq: int | None = None,
+        limit: int = 1000,
+    ) -> AsyncIterator[RelayEvent]:
+        """Cross-worker durable replay (Plan 9 D9.0).
+
+        ``after_seq=None`` means "start at current head" — yields
+        nothing for the in-memory bus (live events come via
+        :meth:`subscribe`). Plan 9.1 ``RedisStreamEventBus`` will
+        replace this with XREAD ``$`` (read from end) semantics.
+        """
+        if after_seq is None or self._durable_store is None:
+            return
+        # Prefer the new fetch_after_seq Protocol method when the
+        # store implements it (Plan 9 D9.9a); fall back to fetch_after
+        # so InMemoryDurableEventStore (counter-based seq) still works.
+        if hasattr(self._durable_store, "fetch_after_seq"):
+            rows = await self._durable_store.fetch_after_seq(
+                last_seq=after_seq, limit=limit
+            )
+        else:
+            rows = await self._durable_store.fetch_after(
+                last_seq=after_seq, limit=limit
+            )
         for evt in rows:
             yield evt
 

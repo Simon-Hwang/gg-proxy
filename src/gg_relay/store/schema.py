@@ -17,6 +17,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -207,6 +208,17 @@ events = Table(
     # ``in_process`` | ``disk`` | ``redis`` (Plan 8 adds the Redis tier;
     # Plan 7 only emits in_process | disk).
     Column("delivery_tier", String(10), nullable=False),
+    # Plan 9 v0.9.0-rc D9.9 — monotonic per-row sequence backing the
+    # Plan 9 D9.9a SSE v2 cursor (``Last-Event-ID: v2:<seq>``). Nullable
+    # in v0.9.0-rc (Alembic 0012a) so rolling-deploy windows where old
+    # v0.8.x pods still write to this table don't 500. v0.9.1 Alembic
+    # 0012b backfills + flips NOT NULL + creates the unique index
+    # CONCURRENTLY. Postgres has a dedicated ``events_seq_seq`` sequence
+    # populated by the application layer via ``nextval('events_seq_seq')``;
+    # SQLite uses an INSERT...SELECT pattern (``COALESCE(MAX(seq),0)+1``)
+    # for cross-dialect atomicity without depending on a server-side
+    # sequence object.
+    Column("seq", BigInteger, nullable=True),
     # ``ix_events_ts`` powers range-scan replay (e.g. "events since T").
     # ``ix_events_session_id`` powers per-session replay.
     Index("ix_events_ts", "ts"),
@@ -435,4 +447,30 @@ api_keys = Table(
     UniqueConstraint("label", name="ux_api_keys_label"),
     Index("ix_api_keys_key_hash", "key_hash"),
     Index("ix_api_keys_role_revoked", "role", "revoked_at"),
+)
+
+# ── Plan 9 v0.9.0-rc D9.9 (Alembic 0013): dashboard shared keys ─────
+# Backs Plan 9.1 D9.10 — the multi-worker fix for the per-pod
+# ``secrets.token_urlsafe`` derivation that today (v0.8.x) breaks
+# cookie-signed cross-pod requests. v0.9.0-rc only provisions the
+# table; v0.9.1 D9.10 wires the lifespan to read it via
+# ``ApiKeyStore.get_or_create_dashboard_internal_key(username)`` so
+# every pod in the cluster shares the same raw_key for a username.
+#
+# Plaintext storage is a deliberate trade-off (Santa Round 3 Reviewer
+# G #5 BLOCKER + Plan 9 v1.4 §"DB-stored Threat Model"): operators
+# MUST restrict GRANT on this table to the gg-relay app role; audit
+# roles MUST NOT read raw_key. Plan 11+ may upgrade to a bcrypt-hashed
+# variant with the plaintext held only in lifespan-process memory.
+dashboard_internal_keys = Table(
+    "dashboard_internal_keys",
+    metadata,
+    Column("username", String(64), primary_key=True),
+    Column("raw_key", String(43), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("rotated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(
+        "length(raw_key) = 43",
+        name="ck_dashboard_internal_keys_raw_key_length",
+    ),
 )

@@ -1,13 +1,21 @@
 # gg-relay — Implementation Plan
 
-> **Note**: Plan 5/6/7 implementation deviates from §8/§16 in several places — see [spec §17](docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md#plan-7-contract-reconciliation) for canonical contract.
+> **v1 文档说明**: 本文档是 2026-05-21 锁定的 v1 总体规划。实际实现已分裂为 8 个增量 plan
+> (Plan 1-8)，落地在 `docs/superpowers/plans/` 目录下。当前发布版本 **0.8.0**。
+>
+> - **§0 Implementation Progress** 新增章节汇总 v1 → v0.8.0 的实际进展、契约调整与未来 plan 路线图
+> - **§6 P3 / §6 P5** 已根据实际交付收敛：DingTalk / Slack 后端不再承诺；K8s manifests 与 Redis 多 worker tier 推至 Plan 9
+> - **§7 / §11 / 附录** 同步收敛
+> - **Plan 5/6/7 实施细节偏离**: 见 [spec §17](docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md#plan-7-contract-reconciliation) 的 canonical contract
 
-*Final · 2026-05-21 · Santa Method verified (2 rounds, 4 independent reviewers)*
+*v1 锁定: 2026-05-21 · Santa Method verified (2 rounds, 4 independent reviewers)*
+*v1.1 收敛: 2026-05-24 · 实现状态同步 + DingTalk/Slack deprecate + Plan 9 路线图*
 
 ---
 
 ## Table of Contents
 
+0. [Implementation Progress (v1.1 新增)](#0-implementation-progress)
 1. [Project Overview](#1-project-overview)
 2. [Repository Placement](#2-repository-placement)
 3. [Architecture Overview](#3-architecture-overview)
@@ -28,6 +36,60 @@
 
 ---
 
+## 0. Implementation Progress
+
+> *新增于 v1.1 (2026-05-24)。此章节是阅读后续 §1-17 时的"实际状态对照镜"。*
+
+### 0.1 当前发布状态
+
+| 维度 | v1 计划 | v0.8.0 实际 |
+|---|---|---|
+| 版本 | — | **0.8.0** (2026-05-24) |
+| 增量 plan 数量 | 单一 PLAN.md | 8 个增量 plan (P1-P8) |
+| Alembic 迁移 | 1 (baseline) | 11 (0001 → 0011) |
+| 路由端点 | ~13 | 50+ (含 dashboard) |
+| 订阅者类型 | 3 (OTel/IM/SSE) | 6 (新增 metrics/task-trace/failure) |
+| 测试数量 | — | ~990+ |
+| Coverage gate | 80% | 88% (实际 90%+) |
+
+### 0.2 增量 plan 路线图
+
+| Plan | 主题 | 状态 | 文档 |
+|---|---|---|---|
+| Plan 1 | Walking Skeleton — In-Process Backend | ✅ 0.1.0 | `docs/superpowers/plans/2026-05-22-walking-skeleton-inprocess.md` |
+| Plan 2 | Plugin Assembly + Real SDK Dataclass Dispatch | ✅ 0.2.0 | `2026-05-22-plan-2-...` |
+| Plan 3 | Docker Backend + UnixSocketTransport + MinimalProxy | ✅ 0.3.0 | `2026-05-22-plan-3-...` |
+| Plan 4 | SessionManager + HTTP API + Dashboard + Store + IM + OTel | ✅ 0.4.0 | `2026-05-22-plan-4-...` |
+| Plan 5 | Foundation Hardening & DX | ✅ 0.5.0 | `2026-05-22-plan-5-...` |
+| Plan 6 | Pause/Resume + Dashboard UX + IM Decoupling | ✅ 0.6.0 | `2026-05-22-plan-6-...` |
+| Plan 7 | Foundation Recovery & Production Readiness | ✅ 0.7.0 | `2026-05-23-plan-7-foundation-polish.md` |
+| Plan 8 | Team Collaboration & Cost Attribution | ✅ 0.8.0 | `2026-05-23-plan-8-team-scale-and-collab.md` |
+| **Plan 9** | **Cluster Scaling & K8s Manifests** | 🟡 **DRAFT** | **`2026-05-24-plan-9-cluster-scaling-and-k8s.md`** |
+| Plan 10+ | Session replay UI / 长尾增强 | ❌ 未启动 | — |
+| Plan 11+ | 多租户 / mTLS / OIDC / Redis Cluster | ❌ 未启动 | — |
+
+### 0.3 v1 → v0.8.0 主要契约调整
+
+下列内容是 PLAN v1 与实际实现的差异，**实际实现为准**，本文档保留 v1 用于历史追溯：
+
+1. **模块拆分调整** —— v1 中的 `core/states.py` + `core/bus.py` + `core/models.py` + `core/events.py` 合并为 `core/domain.py` + `core/event_bus.py` + `core/events.py`；`secrets.py` 单独模块取消，整合到 `config.py::validate_required_secrets` + `redaction/engine.py`
+2. **Store 拆分增强** —— v1 单一 `AsyncStore` Protocol，实际拆为 7 个 Protocol：`SessionStore` / `FrameStore` / `HITLStore` / `AuditStore` / `CommentStore` / `FavoriteStore` / `TemplateStore` (Plan 7 D7.4 + Plan 8)
+3. **SessionManager API 升级** —— v1 `create/run/pause/resume/cancel`，实际 `submit/list/get/cancel/pause/resume/retry/shutdown`
+4. **路由命名调整** —— v1 `DELETE /sessions/{id}/pause` → 实际 `POST /sessions/{id}/pause`（Plan 6 D6.9=A）
+5. **新增能力远超 v1** —— Plan 4-8 增加了：Docker 执行器、Wire 控制环、Durable 事件存储、乐观锁、SDK 错误分类、RBAC、审计日志、评论、批量、收藏、模板、成本归因、维护 CLI、Grafana 预设、DB-backed key 自助管理 等 15+ 项 v1 未规划的能力
+
+### 0.4 v1 承诺但 deprecate 的项
+
+| v1 条目 | 处置 | 原因 |
+|---|---|---|
+| P3-4 DingTalk 后端 | **Deprecated (Plan 9 D9.7)** | 单团队场景下 Feishu 已满足；DingTalk/Slack 未触达用户需求；`IMBackend` Protocol + entry-point 机制对社区开放 |
+| P3-5 Slack 后端 | **Deprecated (Plan 9 D9.7)** | 同上；`[slack]` extra 在 Plan 5 D5.15 已删除 |
+| P5-1/2/3 Redis 多 worker tier | **推至 Plan 9 (D9.1/D9.2/D9.3)** | Plan 8 v2 决策：默认单 worker；Redis 作为可选 multi-worker tier，由 Plan 9 正式实现 |
+| P5-7 K8s manifests | **推至 Plan 9 (D9.4)** | 与 Redis 多 worker tier 一同交付，避免单 worker 用户无谓维护 K8s YAML |
+| P6 Cluster Distribution | **拆分推至 Plan 9 + Plan 12+** | Plan 9 覆盖多 worker / HPA / SSE 跨 worker；跨集群 / 多 region failover 推至 Plan 12+ |
+
+---
+
 ## 1. Project Overview
 
 **`gg-relay`** is a Python middleware service that sits between operators/bots and the `claude-code-sdk`. It provides:
@@ -36,9 +98,9 @@
 |---|---|
 | Session relay | Manages `claude-code-sdk` sessions with lifecycle state tracking |
 | OTel tracing | Emits per-session spans and token-cost attributes to any OTLP endpoint |
-| IM integration | Bi-directional Feishu / DingTalk / Slack integration with HITL approval flow |
+| IM integration | Bi-directional Feishu integration with HITL approval flow (DingTalk/Slack 由社区通过 `IMBackend` entry-point 自行实现，见 Plan 9 D9.7) |
 | Dashboard | FastAPI + HTMX Kanban board with SSE for live session status |
-| Future scale | Architecture pre-wired for P5 Redis Streams fan-out and cluster sharding |
+| Future scale | Architecture pre-wired for Plan 9 Redis Streams fan-out + K8s manifests (原 P5/P6 重组) |
 
 **Non-goals (v1):** Multi-tenant auth, billing, fine-grained RBAC, horizontal session sharding.
 
@@ -246,18 +308,21 @@ curl localhost:8000/sessions/{id}
 
 **Goal:** Bi-directional IM with HITL approval. Webhook verification mandatory.
 
-| # | Deliverable |
-|---|---|
-| P3-1 | `IMBackend` Protocol (verify_webhook is non-optional) |
-| P3-2 | `CardBuilder` Protocol + `RenderedCard` frozen dataclass |
-| P3-3 | Feishu backend (implements Protocol incl. verify_webhook) |
-| P3-4 | DingTalk backend |
-| P3-5 | Slack backend |
-| P3-6 | Webhook router — `verify_webhook()` called unconditionally before parsing |
-| P3-7 | `IMSubscriber` — EventBus subscriber, sends cards on session events |
-| P3-8 | `POST /hitl/{session_id}/approve` + `/reject` (HITL reverse channel) |
-| P3-9 | Backend discovery via `importlib.metadata` entry points |
-| P3-10 | Tests with mocked HTTP (respx) |
+> **v1.1 收敛 (2026-05-24)**: P3-4 DingTalk 与 P3-5 Slack 后端已 deprecate (Plan 9 D9.7)。
+> `IMBackend` Protocol + `gg_relay.im_backends` entry-point 机制对社区开放；维护者仅承诺 Feishu。
+
+| # | Deliverable | 状态 |
+|---|---|---|
+| P3-1 | `IMBackend` Protocol (verify_webhook is non-optional) | ✅ Plan 6 实现 |
+| P3-2 | `CardBuilder` Protocol + `RenderedCard` frozen dataclass | ✅ Plan 6 实现 |
+| P3-3 | Feishu backend (implements Protocol incl. verify_webhook) | ✅ Plan 4 / Plan 7 加固 |
+| ~~P3-4~~ | ~~DingTalk backend~~ | ❌ **Deprecated (Plan 9 D9.7)** — 社区可通过 entry-point 自行实现 |
+| ~~P3-5~~ | ~~Slack backend~~ | ❌ **Deprecated (Plan 9 D9.7)** — 同上；`[slack]` extra 已删除 (Plan 5 D5.15) |
+| P3-6 | Webhook router — `verify_webhook()` called unconditionally before parsing | ✅ Plan 7 D7.16 |
+| P3-7 | `IMSubscriber` — EventBus subscriber, sends cards on session events | ✅ Plan 6 |
+| P3-8 | `POST /hitl/{session_id}/approve` + `/reject` (HITL reverse channel) | ✅ Plan 4 / Plan 8 批量增强 |
+| P3-9 | Backend discovery via `importlib.metadata` entry points | ✅ 机制就位（仅注册 Feishu） |
+| P3-10 | Tests with mocked HTTP (respx) | ✅ |
 
 ---
 
@@ -278,30 +343,69 @@ curl localhost:8000/sessions/{id}
 
 ### P5 — Production Hardening & Scale (Week 11-12+)
 
-**Goal:** Redis Streams swap, rate limiting, cluster readiness.
+**Goal:** Rate limiting, pool tuning, prod compose, load testing.
 
-| # | Deliverable |
-|---|---|
-| P5-1 | `RedisEventBus` — implements EventBus Protocol (drop-in swap) |
-| P5-2 | Redis Pub/Sub for SSE multi-worker delivery |
-| P5-3 | Session affinity strategy for SSE connections |
-| P5-4 | Rate limiting (per-API-key) |
-| P5-5 | Postgres connection pool tuning |
-| P5-6 | Docker Compose production variant |
-| P5-7 | K8s manifests (Deployment, Service, HPA) |
-| P5-8 | Load testing (k6/locust: 100 concurrent sessions) |
+> **v1.1 收敛 (2026-05-24)**: Redis 多 worker tier (P5-1/2/3) 与 K8s manifests (P5-7) 已推至 **Plan 9**
+> (`docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md`)。本阶段保留单 worker 生产加固。
+
+| # | Deliverable | 状态 |
+|---|---|---|
+| ~~P5-1~~ | ~~`RedisEventBus` — implements EventBus Protocol~~ | ➡️ **Plan 9 D9.1** |
+| ~~P5-2~~ | ~~Redis Pub/Sub for SSE multi-worker delivery~~ | ➡️ **Plan 9 D9.3** |
+| ~~P5-3~~ | ~~Session affinity strategy for SSE connections~~ | ➡️ **Plan 9 D9.3 / D9.6** |
+| P5-4 | Rate limiting (per-API-key) | ✅ Plan 7 (token bucket 60/min) |
+| P5-5 | Postgres connection pool tuning | ✅ Plan 8 D8.10 |
+| P5-6 | Docker Compose production variant | ✅ Plan 5 D5.6 |
+| ~~P5-7~~ | ~~K8s manifests (Deployment, Service, HPA)~~ | ➡️ **Plan 9 D9.4** |
+| P5-8 | Load testing (k6/locust: 100 concurrent sessions) | ✅ Plan 7 D7.10 (`scripts/load_test.py`) |
 
 ### P6 — Cluster Distribution (Future)
 
-**Goal:** Multiple worker instances with central coordinator.
+> **v1.1 收敛 (2026-05-24)**: P6 已被拆分 —— 多 worker 水平扩展 + HPA 推至 **Plan 9**；
+> 跨集群 / 多 region failover / 协调器架构推至 **Plan 12+**。本节保留作历史参考。
 
-| # | Deliverable |
-|---|---|
-| P6-1 | Coordinator API (task queue, node registry) |
-| P6-2 | Worker node (headless: SDK runner + trace emitter only) |
-| P6-3 | Redis Streams for task queue + worker heartbeats |
-| P6-4 | Distributed OTel traces (coordinator → worker → claude) |
-| P6-5 | Horizontal autoscaling on `active_sessions` metric |
+| # | Deliverable | 状态 |
+|---|---|---|
+| ~~P6-1~~ | ~~Coordinator API (task queue, node registry)~~ | ➡️ Plan 12+（如有真实多 region 需求再设计） |
+| ~~P6-2~~ | ~~Worker node (headless: SDK runner + trace emitter only)~~ | ➡️ Plan 9 D9.B2 (K8s `Job` per session) |
+| ~~P6-3~~ | ~~Redis Streams for task queue + worker heartbeats~~ | ➡️ Plan 9 D9.1 (Redis Streams 用于事件 fan-out，不做任务队列；任务调度仍由 SessionManager 单进程持有) |
+| ~~P6-4~~ | ~~Distributed OTel traces (coordinator → worker → claude)~~ | ✅ Plan 7 D7.19 (`RELAY_TRACE_ID` 已注入；多 worker tier 直接复用) |
+| ~~P6-5~~ | ~~Horizontal autoscaling on `active_sessions` metric~~ | ➡️ Plan 9 D9.4 (HPA 已规划) |
+
+### P9 — Cluster Scaling & K8s（LOCKED v1.4，2026-05-24；Santa 4 轮认证）
+
+**Goal:** Redis Streams 多 worker tier 落地 + K8s manifests 补齐 + IM 后端契约收敛。
+
+**🛡️ Santa Method 认证**: 4 轮（B/C → D/E → F/G → H/I）8 独立 reviewer；MAX_ITERATIONS 已用尽 + 1 破例；Round 4 Reviewer I I7 PASS 确认收敛真实；产品负责人最终决策 = v0.9.0-rc 分资。
+
+**📦 Release 分资（v1.4 关键变化）**:
+
+- **v0.9.0-rc — 单 worker 基础设施（立即实施）**：D9.0 Protocol + D9.0a Middleware 重构 + D9.0b release.yml/Dockerfile 校正 + D9.7 deprecate + D9.9 events.seq 迁移 + D9.9a SSE cursor 双兼容 + D9.11 启动校验（warn-only）
+- **v0.9.1 — 多 worker 激活（v0.9.0-rc soak ≥ 2 周后启动）**：D9.1 RedisStreamEventBus + D9.2 RedisRateLimitStore + D9.3 SSE 抽象 + D9.4 K8s manifests + Helm chart（升 in-scope）+ D9.5 metrics 扩展 + D9.6 跨 worker SSE 测试 + D9.8 K8sJobExecutor（P1 feature flag）+ D9.10 DB-stored dashboard key + D9.12 runbook + D9.13 wire schema
+
+详见独立计划文档：[`docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md`](docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md)
+
+| # | Deliverable | Release | 状态 |
+|---|---|---|---|
+| D9.0 | EventBusBackend + RateLimitStoreBackend Protocol（双方法 `subscribe(topic)` + `subscribe_all(after_seq)`） | v0.9.0-rc | 🟡 待实现 |
+| D9.0a | DashboardCookieMiddleware `app.state` 运行时读重构 | v0.9.0-rc | 🟡 待实现 |
+| D9.0b | `release.yml` + `Dockerfile.service` `--extra redis` 同步 + pyproject `redis<6.0` 上限锁 | v0.9.0-rc | 🟡 待实现 |
+| D9.7 | DingTalk / Slack 正式 deprecate（已在本 PLAN v1.1 落地） | v0.9.0-rc | ✅ 文档同步完成 |
+| D9.9 | events.seq 两段迁移（0012a + 0012b + 0013 dashboard_internal_keys） | v0.9.0-rc | 🟡 待实现 |
+| D9.9a | SSE cursor schema_version 双兼容 (v1 微秒 / v2 行号) | v0.9.0-rc | 🟡 待实现 |
+| D9.11 | 多 worker 启动校验（warn-only 模式 in 0.9.0-rc；strict 默认 in 0.9.1） | v0.9.0-rc + v0.9.1 | 🟡 待实现 |
+| D9.1 | `RedisStreamEventBus` + TLS/ACL + 可选 payload 加密 | v0.9.1 | 🟡 待实现 |
+| D9.2 | `RedisRateLimitStore` Lua 原子 token-bucket | v0.9.1 | 🟡 待实现 |
+| D9.3 | SSE 走 `EventBusBackend.subscribe_all` 抽象 | v0.9.1 | 🟡 待实现 |
+| D9.4 | K8s manifests + Helm chart (升 in-scope) | v0.9.1 | 🟡 待实现 |
+| D9.5 | 7 个 gauge/counter + Grafana 5 panel + dashboard banner | v0.9.1 | 🟡 待实现 |
+| D9.6 | 跨 worker SSE 续传集成测试（testcontainers + 2 ASGI 进程） | v0.9.1 | 🟡 待实现 |
+| D9.8 | `K8sJobExecutor` (P1 feature flag + TCP NDJSON transport + K8s Secret token) | v0.9.1 | 🟡 待实现 |
+| D9.10 | DB-stored shared dashboard internal key + `KeyInvalidateSubscriber` Redis 广播 | v0.9.1 | 🟡 待实现 |
+| D9.12 | Operator runbook + admin endpoint `POST /api/v1/admin/workers/drain` + CLI | v0.9.1 | 🟡 待实现 |
+| D9.13 | Redis stream wire schema 固化（`schema_version: 1`） | v0.9.1 | 🟡 待实现 |
+
+**Plan 8 LOCK addendum**: 见 `docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab-ADDENDUM.md`（v0.9.0-rc 实施时创建；记录 D8.29 step 11 跳过事实及 Plan 9 D9.10 闭合关系）。
 
 ---
 
@@ -327,10 +431,14 @@ gg-relay/
 │   ├── docker/
 │   │   ├── Dockerfile
 │   │   └── docker-compose.yml        # dev: relay + Jaeger + Redis
-│   └── k8s/                          # P5+
-│       ├── deployment.yaml
-│       ├── service.yaml
-│       └── hpa.yaml
+│   └── k8s/                          # ➡️ Plan 9 D9.4 — 待实现
+│       ├── deployment.yaml           #   含 readiness/liveness + securityContext
+│       ├── service.yaml              #   sessionAffinity: ClientIP
+│       ├── hpa.yaml                  #   基于 active_sessions custom metric
+│       ├── configmap.yaml
+│       ├── secret.yaml               #   kustomize replacement 友好
+│       ├── pdb.yaml                  #   PodDisruptionBudget minAvailable: 1
+│       └── networkpolicy.yaml        #   默认收紧的 egress allowlist
 │
 ├── src/
 │   └── gg_relay/
@@ -375,9 +483,7 @@ gg-relay/
 │       │   ├── subscriber.py         # IMSubscriber (EventBus subscriber)
 │       │   └── backends/
 │       │       ├── __init__.py       # Entry-point backed registry
-│       │       ├── feishu.py
-│       │       ├── dingtalk.py
-│       │       └── slack.py
+│       │       └── feishu.py         # 唯一官方维护后端；DingTalk/Slack 见 Plan 9 D9.7
 │       │
 │       ├── api/
 │       │   ├── __init__.py
@@ -566,13 +672,23 @@ class AsyncEventBus:
                 self._drop_counter += 1  # metric
 ```
 
-### P5 Swap: RedisEventBus
+### Plan 9 Swap: RedisStreamEventBus（原 P5-1，已推至 Plan 9 D9.1）
+
+> **v1.1 收敛**: 实际 Protocol 名为 `EventBusBackend`（Plan 8 D8.1 落定）。Plan 9 D9.1 实现
+> `RedisStreamEventBus`；Postgres `events.seq` 仍为 source-of-truth。详见
+> [`docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md`](docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md)。
 
 ```python
-class RedisEventBus:
-    """Drop-in Protocol conformant. Redis Streams + consumer groups."""
-    async def publish(self, event: RelayEvent) -> None: ...
-    def subscribe(self, group: str | None = None) -> Subscription: ...
+# Protocol（Plan 8 D8.1 已落定）
+class EventBusBackend(Protocol):
+    async def publish(self, event: RelayEvent, *, durable_seq: int | None) -> None: ...
+    def subscribe(self, *, after_seq: int | None = None) -> AsyncIterator[RelayEvent]: ...
+
+# Plan 9 D9.1 实现：单 global stream + Postgres 回填
+class RedisStreamEventBus:
+    """XADD MAXLEN ~ 50000 + XREAD COUNT 200 BLOCK 1000；
+    after_seq < first_id_in_stream 时 fallback 到 Postgres backfill。"""
+    ...
 ```
 
 ---
@@ -630,12 +746,19 @@ POST /api/v1/hitl/{session_id}/reject    # body: {"reason": "..."}
 
 ### Backend Discovery
 
+> **v1.1 收敛 (2026-05-24)**: 仅 Feishu 为官方维护后端。`IMBackend` Protocol +
+> `gg_relay.im_backends` entry-point 机制对社区/下游开放；第三方实现作为独立 Python 包
+> 安装并自动注册，无需修改本仓库源码。
+
 ```toml
-# pyproject.toml entry points
+# pyproject.toml entry points（官方）
 [project.entry-points."gg_relay.im_backends"]
-feishu   = "gg_relay.im.backends.feishu:FeishuBackend"
-dingtalk = "gg_relay.im.backends.dingtalk:DingTalkBackend"
-slack    = "gg_relay.im.backends.slack:SlackBackend"
+feishu = "gg_relay.im.backends.feishu:FeishuBackend"
+
+# 社区 / 下游：在自己的 pyproject.toml 中声明同名 entry point group
+# [project.entry-points."gg_relay.im_backends"]
+# dingtalk = "my_org_dingtalk_backend.backend:DingTalkBackend"
+# slack    = "my_org_slack_backend.backend:SlackBackend"
 ```
 
 ---
@@ -787,8 +910,8 @@ A thin `/gg:relay-status` plugin in gg-plugins calls `GET /api/v1/sessions?limit
 ### Packaging Model
 
 - IM backends bundled in core repo → use `importlib.metadata` entry points for self-registration
-- Third-party backends install as separate packages with own entry points
-- Optional extras (`[feishu]`, `[slack]`) control dependency installation, not discovery
+- Third-party backends install as separate packages with own entry points（v1.1: DingTalk/Slack 走此路径，见 Plan 9 D9.7）
+- 官方仅维护 `[feishu]` extra（`httpx` 已是 core 依赖，extra 为空占位以便未来 SDK 迁移）；其他 IM 后端依赖由第三方包自行声明
 
 ### Store Details
 
@@ -844,7 +967,7 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
-slack    = ["slack-sdk>=3.27"]
+# Plan 9 D9.1/D9.2 — Redis 多 worker tier 的可选依赖（默认 InMemory，不安装 Redis）
 redis    = ["redis>=5.0"]
 dev      = [
     "pytest>=8.1",
@@ -854,14 +977,15 @@ dev      = [
     "mypy>=1.10",
     "ruff>=0.4",
 ]
+# 注：[slack] extra 在 Plan 5 D5.15 删除（无 Slack 后端使用）；DingTalk / Slack 见 Plan 9 D9.7
 
 [project.scripts]
 gg-relay = "gg_relay.cli:app"
 
+# 仅注册官方维护的 Feishu 后端。社区 / 下游可在独立 Python 包内通过同 group
+# 名注册自己的 IM 后端（如 dingtalk / slack），entry-point 机制自动发现。
 [project.entry-points."gg_relay.im_backends"]
-feishu   = "gg_relay.im.backends.feishu:FeishuBackend"
-dingtalk = "gg_relay.im.backends.dingtalk:DingTalkBackend"
-slack    = "gg_relay.im.backends.slack:SlackBackend"
+feishu = "gg_relay.im.backends.feishu:FeishuBackend"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gg_relay"]
