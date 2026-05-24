@@ -155,11 +155,11 @@ class FailureSubscriber:
             return None, []
         owner = row.get("owner") if hasattr(row, "get") else None
         tags_raw = row.get("tags") if hasattr(row, "get") else None
-        tags: list[str]
-        if isinstance(tags_raw, list | tuple):
-            tags = [str(t) for t in tags_raw]
-        else:
-            tags = []
+        tags: list[str] = (
+            [str(t) for t in tags_raw]
+            if isinstance(tags_raw, list | tuple)
+            else []
+        )
         return owner, tags
 
     def start(self) -> asyncio.Task[None]:

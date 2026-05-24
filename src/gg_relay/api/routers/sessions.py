@@ -509,15 +509,13 @@ async def star_session(request: Request, session_id: str) -> None:
         session_id=session_id, user_label=label
     )
     if added and audit is not None:
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - defensive
             await audit.record(
                 actor=label,
                 action="session_star",
                 target_type="session",
                 target_id=session_id,
             )
-        except Exception:  # pragma: no cover - defensive
-            pass
     return None
 
 
@@ -541,15 +539,13 @@ async def unstar_session(request: Request, session_id: str) -> None:
         session_id=session_id, user_label=label
     )
     if removed and audit is not None:
-        try:
+        with contextlib.suppress(Exception):  # pragma: no cover - defensive
             await audit.record(
                 actor=label,
                 action="session_unstar",
                 target_type="session",
                 target_id=session_id,
             )
-        except Exception:  # pragma: no cover - defensive
-            pass
     return None
 
 
@@ -782,7 +778,7 @@ async def batch_sessions(
                 # without falling through to ``session_cancel`` (which
                 # the manager already wrote inside ``cancel``).
                 if audit is not None:
-                    try:
+                    with contextlib.suppress(Exception):  # pragma: no cover - defensive
                         await audit.record(
                             actor=label,
                             action="session_batch_cancel",
@@ -793,8 +789,6 @@ async def batch_sessions(
                                 "batch_size": batch_size,
                             },
                         )
-                    except Exception:  # pragma: no cover - defensive
-                        pass
                 items.append(BatchSessionItem(id=sid, status="ok"))
                 ok_count += 1
             else:  # retry

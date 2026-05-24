@@ -288,7 +288,9 @@ async def test_last_admin_revoke_forbidden(
         json={"label": "helper", "role": "admin"},
     )
     assert r9.status_code == 201
-    helper_key = r9.json()["raw_key"]
+    # raw_key intentionally discarded — we mint `helper` solely to
+    # bring the active-admin count back to 2 before the next revoke,
+    # then drop it immediately on the line below.
     # Two admins. Revoke `helper` via `extra` → 1 admin.
     r10 = await client.delete(
         "/api/v1/admin/keys/helper", headers={"X-API-Key": extra_key}

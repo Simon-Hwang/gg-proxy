@@ -20,6 +20,7 @@ decision so the loser sees what actually happened.
 """
 from __future__ import annotations
 
+import contextlib
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -252,7 +253,7 @@ async def batch_hitl(
                 expected_version=expected_v,
             )
             if audit is not None:
-                try:
+                with contextlib.suppress(Exception):  # pragma: no cover - defensive
                     await audit.record(
                         actor=label,
                         action=f"hitl_batch_{payload.action}",
@@ -264,8 +265,6 @@ async def batch_hitl(
                             "decision": decision,
                         },
                     )
-                except Exception:  # pragma: no cover - defensive
-                    pass
             items.append(BatchHITLItem(id=hid, status="ok"))
             ok_count += 1
         except HITLAlreadyResolved as exc:

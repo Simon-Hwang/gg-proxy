@@ -82,12 +82,9 @@ def _is_exempt(path: str) -> bool:
     """
     if any(path.startswith(pre) for pre in _EXEMPT_PATH_PREFIXES):
         return True
-    if (
-        path.startswith(_SSE_EVENTS_PREFIX)
-        and path.endswith(_SSE_EVENTS_SUFFIX)
-    ):
-        return True
-    return False
+    return path.startswith(_SSE_EVENTS_PREFIX) and path.endswith(
+        _SSE_EVENTS_SUFFIX
+    )
 
 
 class AuditFallbackMiddleware(BaseHTTPMiddleware):
