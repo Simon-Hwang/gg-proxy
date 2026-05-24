@@ -1,0 +1,35 @@
+tests/unit/store/test_dashboard_keys.py
+  s_16e85383ae8215::t_146e5651cd8c64 1-121
+src/gg_relay/api/main.py
+  s_16e85383ae8215::t_d26368eb892537 579-584
+  s_16e85383ae8215::t_ba758b45ebc009 362-382,385-386,388-403,405-415,418-419,421-434
+src/gg_relay/core/events.py
+  s_16e85383ae8215::t_af50ca1e40a46b 203-230,246
+  s_16e85383ae8215::t_33621b732f3543 38
+tests/unit/core/test_events_hierarchy.py
+  s_16e85383ae8215::t_51cc990fe3b45f 47
+  s_16e85383ae8215::t_f6e8c5527bf4dc 23
+tests/unit/cluster/test_key_invalidate.py
+  s_16e85383ae8215::t_8ed9a1cb81f3ac 1-195
+src/gg_relay/cluster/key_invalidate.py
+  s_16e85383ae8215::t_272eb045cfac22 1-153
+src/gg_relay/store/dashboard_keys.py
+  s_16e85383ae8215::t_8b13cac20f48ae 1-125,127-157
+  s_16e85383ae8215::t_86a963af5496b5 126
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "09317bbfc1a5041f99a9e4b5033c27176036953d",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
