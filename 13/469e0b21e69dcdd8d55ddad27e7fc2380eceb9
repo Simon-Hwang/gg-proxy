@@ -1,0 +1,107 @@
+PLAN.md
+  s_16e85383ae8215::t_16f8d9650c6e86 101,103
+  s_16e85383ae8215::t_967818dc23849b 311-325
+  s_16e85383ae8215::t_d5504b33a549be 346,348-360,364-365,367-374,376-378,386
+  s_16e85383ae8215::t_4aa99ce5dba283 3-9,11-12,18,39-89
+  s_16e85383ae8215::t_7549356c27b5e5 486
+  s_16e85383ae8215::t_396b8335dfcaf1 675-679,682-691
+  s_16e85383ae8215::t_dfc515a93ae79b 375,379-385,387-408
+  s_16e85383ae8215::t_e94e0ff9dc7c7f 749-752,754,756-761
+  s_16e85383ae8215::t_a132751f556c78 913-914
+  s_16e85383ae8215::t_50619d0a5b637d 970,980,985-986,988
+  s_16e85383ae8215::t_59779ae41842fb 434-441
+pyproject.toml
+  s_16e85383ae8215::t_7066f2f0dc5674 57-63
+  s_16e85383ae8215::t_22586bb951b9e3 79-90
+src/gg_relay/store/migrations/versions/0012b_events_seq_backfill.py
+  s_16e85383ae8215::t_215ea6e2b1436f 1-117
+src/gg_relay/store/schema.py
+  s_16e85383ae8215::t_6e076e3aa8a1dd 211-221
+  s_16e85383ae8215::t_b9e9f898b7c2b9 451-476
+  s_16e85383ae8215::t_1a0fca0e00091d 20
+src/gg_relay/store/migrations/versions/0013_dashboard_internal_keys.py
+  s_16e85383ae8215::t_07c5b2e73ba936 1-85
+.env.example
+  s_16e85383ae8215::t_4008731e9fa1e0 196-211
+tests/unit/cluster/test_boot_check.py
+  s_16e85383ae8215::t_3c9a6b315c1e7d 1-186
+src/gg_relay/api/main.py
+  s_16e85383ae8215::t_f5ddc6eb1d0340 198-208
+  s_16e85383ae8215::t_1c54cbd4b92dba 628-637
+CHANGELOG.md
+  s_16e85383ae8215::t_0d403c01068872 10-144
+deploy/docker/Dockerfile.service
+  s_16e85383ae8215::t_9b829f13e5c725 37-44,48
+tests/unit/store/test_plan9_events_seq.py
+  s_16e85383ae8215::t_2d5437813d3e5b 1-36,39-155
+  s_16e85383ae8215::t_fc34ee00820487 37-38
+src/gg_relay/store/migrations/versions/0012a_events_seq_column.py
+  s_16e85383ae8215::t_8b3092fc202c6f 1-69
+  s_16e85383ae8215::t_113f26a517f635 70-77
+src/gg_relay/core/event_bus.py
+  s_16e85383ae8215::t_57500fe3da5f59 301-312,322-371
+src/gg_relay/cluster/__init__.py
+  s_16e85383ae8215::t_403269a34208b5 1-21
+tests/unit/api/test_sse_cursor_schema_version.py
+  s_16e85383ae8215::t_031bfd50aa915b 1-103
+.github/workflows/release.yml
+  s_16e85383ae8215::t_f2459bf678c592 43-50
+src/gg_relay/cluster/boot_check.py
+  s_16e85383ae8215::t_e5f8c29e11e9a9 1-129
+src/gg_relay/api/sse.py
+  s_16e85383ae8215::t_1faeb8fd8f8d5d 95-109,111-114,119-122,129,131-138,140-142,146
+  s_16e85383ae8215::t_c688b690f737a8 41-50,53
+  s_16e85383ae8215::t_b06b5b481a468d 163,165-170,172-181
+tests/integration/test_plan8_baseline.py
+  s_16e85383ae8215::t_7fa6a34fb1cfd8 96,100-102,110-111
+docs/superpowers/plans/2026-05-24-plan-9-cluster-scaling-and-k8s.md
+  s_16e85383ae8215::t_ed617a7ba1b4ff 3-174
+  s_16e85383ae8215::t_3fdecd13ae900b 513-514,680,689-690,697,727-729,732,756,771,871,885,890,892-894,904,943,971,976,992-994
+  s_16e85383ae8215::t_8d1352280fac60 1-2,512,691-694,696,699-707,721-725,748-750,752-754,757-762,765-767,769,778-780,944-945,947-949,967-969,997-999,1001-1003,1006,1018-1020,1022,1025,1032,1035-1037
+  s_16e85383ae8215::t_c0ff89108f75c5 515-679,681-688,695,698,708-720,726,730-731,733-747,751,755,763-764,768,770,772-777,781-870,872-884,886-889,891,895-903,905-942,946,950-966,970,972-975,977-991,995-996,1000,1004-1005,1007-1017,1021,1023-1024,1026-1031,1033-1034,1038
+  s_16e85383ae8215::t_dc4143c4cd00ae 175-511
+src/gg_relay/store/durable_event.py
+  s_16e85383ae8215::t_02ba54d7696f9b 174-180,184-186,195,198
+  s_16e85383ae8215::t_34b1e6a74ef630 121-137,141,149-163,165-167,181-183,187-192,194,196-197,205,217
+  s_16e85383ae8215::t_a45b362c3faabf 331-342
+  s_16e85383ae8215::t_3449d07eb7872a 37
+  s_16e85383ae8215::t_01e0e72b953191 142-148,164,168-173,193,199-204
+  s_16e85383ae8215::t_590a8d4d35fdfd 234-247,249-261,263,265-299
+  s_16e85383ae8215::t_22191367ec8928 7-18,29-31
+  s_16e85383ae8215::t_fd58015e8b9a15 43
+  s_16e85383ae8215::t_d0784639803b8a 248
+src/gg_relay/api/middleware/dashboard_cookie.py
+  s_16e85383ae8215::t_73571dc6048331 86,88-90,92-112,118-120,131-140,143-159,187-188,192,196-199,209
+src/gg_relay/core/protocol.py
+  s_16e85383ae8215::t_aa67dac2eb79bc 1,3-6,8-16,18-21,25-26,36,39-52,55-56,66-174,178-182
+tests/unit/core/test_plan9_protocols.py
+  s_16e85383ae8215::t_9f100014acbfc6 1-114
+src/gg_relay/config.py
+  s_16e85383ae8215::t_70f28bb0095141 440-467
+src/gg_relay/core/__init__.py
+  s_16e85383ae8215::t_3a3ee58d6e073a 44-48,58-59
+tests/unit/test_plan9_release_artifacts.py
+  s_16e85383ae8215::t_ab488bfaaed583 1-101
+tests/unit/api/test_dashboard_cookie_app_state.py
+  s_16e85383ae8215::t_1443ab13f7dfa5 1-200
+docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab-ADDENDUM.md
+  s_16e85383ae8215::t_4c88297bde96f5 1-91
+uv.lock
+  ai_agent 839-873,1185,1191,1195,1198,1203,1206,1232,1249,1251,1257,2508-2520,2704,2708,2710,2712,2923-2931,3025-3040,3395-3467
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "13469e0b21e69dcdd8d55ddad27e7fc2380eceb9",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
