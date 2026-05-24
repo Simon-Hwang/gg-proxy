@@ -1,0 +1,43 @@
+src/gg_relay/api/main.py
+  s_16e85383ae8215::t_ca4bf9156131ec 35
+  s_16e85383ae8215::t_02689168791141 772-776
+src/gg_relay/cluster/redis_rate_limit.py
+  s_16e85383ae8215::t_73f9b0da88b5e1 138,147-151,155-164
+src/gg_relay/cluster/redis_bus.py
+  s_16e85383ae8215::t_0641f6eef12701 213-218
+  s_16e85383ae8215::t_771adb77799fb8 308-316,323
+  s_16e85383ae8215::t_d36a6c91023e70 348-359
+docs/cluster.md
+  s_16e85383ae8215::t_d79c9a89eb1a72 1,3-4,6,8,10,12-118
+tests/unit/api/test_admin_drain.py
+  s_16e85383ae8215::t_fcbf34187e592b 17,25-27,29-31
+  s_16e85383ae8215::t_955c0ca325ebac 1-16,18-24,28,32-35,49-117
+  s_16e85383ae8215::t_f3577c28cc51ca 36-48
+src/gg_relay/api/routers/admin_drain.py
+  s_16e85383ae8215::t_1e54cc03d74dad 1-43,45-68,70-81
+  s_16e85383ae8215::t_df59cadced2c98 44
+  s_16e85383ae8215::t_7872d7f5256b84 69
+src/gg_relay/api/routers/__init__.py
+  s_16e85383ae8215::t_64068797f5b943 2,16
+src/gg_relay/api/routers/health.py
+  s_16e85383ae8215::t_41285121947da7 37-41
+src/gg_relay/tracing/metrics.py
+  s_16e85383ae8215::t_bd7ed003837c8d 140-191
+  s_16e85383ae8215::t_d1a6e50ecd51a8 53-62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "c8ccf6e09bd6ca908a0ed62a206ca476d6140bef",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
