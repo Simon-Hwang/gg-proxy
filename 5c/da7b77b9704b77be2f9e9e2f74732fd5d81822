@@ -1,0 +1,86 @@
+tests/unit/auth/test_api_key_store.py
+  s_b65356ef6db5d5::t_a1deab5d6f41ab 1-112
+src/gg_relay/auth/db_resolver.py
+  s_b65356ef6db5d5::t_9b0d5152973c8b 1-153,164-230
+  s_b65356ef6db5d5::t_b6908497584f43 154-163
+src/gg_relay/core/exceptions.py
+  s_b65356ef6db5d5::t_4541a49d702ce5 66-104
+  s_b65356ef6db5d5::t_ac433d82b3783d 298,301,310
+src/gg_relay/auth/env_resolver.py
+  s_b65356ef6db5d5::t_c13617eab4d64e 1-101
+src/gg_relay/api/routers/__init__.py
+  s_b65356ef6db5d5::t_6ceee515b6bd56 2,15
+docs/openapi.snapshot.json
+  s_b65356ef6db5d5::t_74743ac0a436f7 4-51,1460-1585,3478-3494
+src/gg_relay/api/main.py
+  s_b65356ef6db5d5::t_686deeaa55dd67 35,47-50
+  s_b65356ef6db5d5::t_efa0bee845f061 301-362
+  s_b65356ef6db5d5::t_caf35c4450fe64 642-648
+src/gg_relay/auth/protocol.py
+  s_b65356ef6db5d5::t_dc2d673959054a 1-118
+tests/integration/test_migrations_chain.py
+  s_b65356ef6db5d5::t_85591d71851ebf 742-839
+src/gg_relay/store/schema.py
+  s_b65356ef6db5d5::t_da0d0ae5b7013e 393-438
+src/gg_relay/cli.py
+  s_b65356ef6db5d5::t_35f4e0c0cf22d2 4-9,16
+  s_b65356ef6db5d5::t_23691e5e0728ca 219-311
+tests/unit/auth/test_env_resolver.py
+  s_b65356ef6db5d5::t_9d8db0eb5af9c5 1-86
+src/gg_relay/dashboard/templates/admin_keys.html
+  s_b65356ef6db5d5::t_01cb6d561239ea 1-101
+tests/integration/test_admin_keys_e2e.py
+  s_b65356ef6db5d5::t_eb126587d8b8e2 1-30,32-72,78-378
+  s_b65356ef6db5d5::t_f7726011dc0c83 73-77
+  s_b65356ef6db5d5::t_c8502024f73481 31
+tests/integration/test_plan8_baseline.py
+  s_422d88295d7244::t_031b74ae6a7beb 82,90-91
+src/gg_relay/dashboard/router.py
+  s_b65356ef6db5d5::t_5849bb6957b31c 1528-1606
+src/gg_relay/api/routers/admin_keys.py
+  s_b65356ef6db5d5::t_f26de2f5d5bbe6 1-276
+tests/unit/api/test_api_key_middleware_db.py
+  s_b65356ef6db5d5::t_ebc8302d7380d8 1-141
+src/gg_relay/auth/__init__.py
+  s_b65356ef6db5d5::t_aa29be797d5568 1-24
+src/gg_relay/core/__init__.py
+  s_b65356ef6db5d5::t_5a30451a6e6d68 28,31,40
+  s_b65356ef6db5d5::t_f9cfdee9d9b5a3 49,60,71
+src/gg_relay/api/middleware/api_key_auth.py
+  s_b65356ef6db5d5::t_118e60cdc91369 9,20-38,45,72,76-85,89,91-101,114,121,137-158,168
+tests/integration/test_bootstrap_admin_cli.py
+  s_b65356ef6db5d5::t_48855f887a8fee 10-12,16,27-29,32-40,46,49,55-68,70
+  s_b65356ef6db5d5::t_64e2fbb9676041 1-9,13-15,17-26,30-31,41-45,47-48,50-54,69,71-78
+src/gg_relay/auth/store.py
+  s_b65356ef6db5d5::t_b351476e33da66 1-220
+src/gg_relay/store/migrations/versions/0011_add_api_keys_table.py
+  s_b65356ef6db5d5::t_83809a6f06f689 1-89
+tests/unit/auth/test_db_resolver.py
+  s_b65356ef6db5d5::t_02bef9c343d1a8 1-132
+src/gg_relay/api/dependencies/require_role.py
+  s_b65356ef6db5d5::t_ae2b27b5e8afe7 88-103,118-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "5cda7b77b9704b77be2f9e9e2f74732fd5d81822",
+  "prompts": {},
+  "sessions": {
+    "s_422d88295d7244": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "308c5e08-92bd-450d-b9a1-cf6aa774f218",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_b65356ef6db5d5": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "62a0fafd-3c30-40a3-8875-c65a827a0a6a",
+        "model": "claude-opus-4-7-thinking-xhigh"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
