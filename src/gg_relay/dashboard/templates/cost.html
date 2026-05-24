@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Cost attribution — gg-relay{% endblock %}
+{% block content %}
+<section class="cost-page">
+    <h2>Cost attribution</h2>
+
+    <div class="summary-banner" role="region" aria-label="My usage this month">
+        <div class="stat">
+            <span class="stat-label">Your sessions this month</span>
+            <span class="stat-value">{{ summary.session_count }}</span>
+        </div>
+        <div class="stat">
+            <span class="stat-label">Your cost this month (USD)</span>
+            <span class="stat-value">${{ "%.4f"|format(summary.total_cost_usd or 0.0) }}</span>
+        </div>
+        <div class="stat stat-meta">
+            <span class="stat-label">Window start (UTC)</span>
+            <span class="stat-value"><time datetime="{{ summary.from_ts }}">{{ summary.from_ts }}</time></span>
+        </div>
+    </div>
+
+    {% if is_admin %}
+    <h3>Top owners by cost</h3>
+    {% else %}
+    <h3>Your usage</h3>
+    {% endif %}
+
+    {% if top_owners %}
+    <table class="cost-table" id="cost-table">
+        <thead>
+            <tr>
+                <th>Owner</th>
+                <th>Sessions</th>
+                <th>Cost (USD)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in top_owners %}
+            <tr class="cost-row">
+                <td>
+                    <span class="owner-badge" style="background-color: {{ r.owner|owner_color }};">{{ r.owner or '—' }}</span>
+                </td>
+                <td>{{ r.session_count }}</td>
+                <td>${{ "%.4f"|format(r.total_cost_usd or 0.0) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="empty">No sessions yet.</p>
+    {% endif %}
+
+    {% if is_admin %}
+    <div class="export-section">
+        <a href="/api/v1/cost/export.csv" class="btn" download>Export CSV (admin only)</a>
+        <p class="export-hint">CSV row format: <code>owner,session_count,total_cost_usd</code>. Capped at 1000 rows. Every download writes an <code>audit_log</code> row.</p>
+    </div>
+    {% endif %}
+</section>
+{% endblock %}

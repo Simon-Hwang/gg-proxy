@@ -213,6 +213,53 @@ class SessionStore(Protocol):
         """Move every ``running`` row to ``interrupted`` (recovery)."""
         ...
 
+    async def aggregate_cost_by_owner(
+        self,
+        *,
+        from_ts: datetime | None = None,
+        to_ts: datetime | None = None,
+        limit: int = 50,
+        order_by: str = "cost",
+    ) -> list[dict[str, Any]]:
+        """Plan 8 D8.30 / Task 23 — GROUP BY owner with SUM cost + COUNT.
+
+        ``order_by`` selects the desc/asc ordering of the grouped
+        rows: ``"cost"`` (default, DESC by sum), ``"sessions"`` (DESC
+        by count), or ``"owner"`` (ASC alphabetical for stable CSV
+        diffs).
+        """
+        ...
+
+    async def list_sessions_with_cost(
+        self,
+        *,
+        owner: str | None = None,
+        from_ts: datetime | None = None,
+        to_ts: datetime | None = None,
+        after: str | None = None,
+        limit: int = 50,
+    ) -> tuple[Sequence[Mapping[str, Any]], str | None]:
+        """Plan 8 D8.30 / Task 23 — list sessions w/ per-row cost.
+
+        ``after`` and ``next_cursor`` are reserved for follow-up
+        plans; the MVP returns ``next_cursor=None`` and relies on
+        the CSV export endpoint for the long-tail consumer.
+        """
+        ...
+
+    async def summary_for_user(
+        self,
+        *,
+        user_label: str,
+        period: str = "this_month",
+    ) -> Mapping[str, Any]:
+        """Plan 8 D8.30 / Task 23 — single-user (count, cost) over period.
+
+        ``period`` is one of ``"today" | "this_month" | "last_30d"``;
+        any other value falls back to ``last_30d``.
+        """
+        ...
+
     async def list_paused(self) -> Sequence[Mapping[str, Any]]:
         """List every ``paused`` session row with a non-null ``paused_at``.
 

@@ -1351,6 +1351,119 @@ async def check_duplicate_prompt(
     )
 
 
+@router.get("/", response_class=HTMLResponse)
+async def dashboard_root(
+    request: Request,
+    _: None = _RequireSessionDep,
+    manager: SessionManager = _ManagerDep,
+) -> Any:
+    """Per-role default view (Plan 8 D8.30 / Task 23 step 5).
+
+    Submitters (and viewers) are redirected to their own kanban
+    slice — ``/dashboard/kanban?owner=<self-label>`` — so the
+    landing experience matches the "show me MY work" mental model
+    operators actually have. Admins see the full unfiltered kanban
+    (same path as the explicit ``/dashboard/kanban`` link in the
+    nav) because their job is the team-wide view.
+
+    HTTP 302 was chosen over a JS-only behaviour for three reasons:
+
+      1. Server-side preserves the redirect across browser tabs
+         opened from links (the operator's bookmark stays correct).
+      2. The dashboard's HTMX layer never sees this path — kanban
+         polling continues to talk to ``/dashboard/kanban/board``
+         directly so the redirect doesn't add a hop to the hot
+         path.
+      3. ``/dashboard`` is the natural URL for the role-aware
+         landing; without this redirect a submitter typing the
+         bare URL gets a 404, which is hostile.
+
+    The redirect target carries the caller's owner label as a
+    query parameter so :func:`kanban_page` renders the filtered
+    slice. Admin callers land on the same handler with no filter,
+    matching the unfiltered behaviour the existing
+    ``/dashboard/kanban`` nav link drives.
+    """
+    label = _dashboard_label(request)
+    role = _dashboard_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+
+    if label and not is_admin:
+        return RedirectResponse(
+            url=f"/dashboard/kanban?owner={urllib.parse.quote(label)}",
+            status_code=302,
+        )
+    # Admin (or anon with no label) — delegate to the kanban page
+    # handler so the same template + RBAC logic runs without
+    # duplicating the rendering branch here.
+    return await kanban_page(
+        request,
+        owner=None,
+        status=None,
+        tag=None,
+        _=None,
+        manager=manager,
+    )
+
+
+@router.get("/cost", response_class=HTMLResponse)
+async def cost_page(
+    request: Request,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Render the per-role cost attribution page (Plan 8 D8.30 / Task 23).
+
+    Admin sees the top-N owners across the team; everyone else sees
+    only their own row. The page consumes :meth:`store.summary_for_user`
+    for the at-a-glance banner and :meth:`store.aggregate_cost_by_owner`
+    for the table — the same two store calls the API endpoints use,
+    so the dashboard and API render identical numbers without a
+    parallel aggregation path.
+
+    Identity resolution mirrors :func:`favorites_page` /
+    :func:`templates_page` — the cookie session collapses to a
+    ``dashboard-<username>`` label and the role lookup hits
+    ``cfg.role_mapping``. A missing label means the cookie
+    middleware didn't see a session; we render an unauthenticated
+    placeholder rather than 401 because the upstream session-
+    required dependency would already have redirected un-authed
+    callers.
+    """
+    store: SessionRepository = request.app.state.store
+    label = _dashboard_label(request)
+    role = _dashboard_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+
+    if not label:
+        return HTMLResponse("Login required", status_code=401)
+
+    if is_admin:
+        top_owners = await store.aggregate_cost_by_owner(limit=10)
+    else:
+        # Single-owner slice: aggregate then filter to the caller.
+        # We still run the GROUP BY (vs a per-user count + sum) so
+        # the same SQL path serves both branches — kept in lockstep
+        # with the API endpoint so a future query optimisation
+        # propagates uniformly.
+        all_rows = await store.aggregate_cost_by_owner(limit=200)
+        top_owners = [r for r in all_rows if r.get("owner") == label]
+
+    own_summary = await store.summary_for_user(
+        user_label=label, period="this_month"
+    )
+
+    return templates.TemplateResponse(
+        request,
+        "cost.html",
+        {
+            "top_owners": top_owners,
+            "summary": own_summary,
+            "current_actor": label,
+            "is_admin": is_admin,
+        },
+    )
+
+
 @router.get("/templates", response_class=HTMLResponse)
 async def templates_page(
     request: Request,

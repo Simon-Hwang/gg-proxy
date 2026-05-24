@@ -17,6 +17,7 @@ Wiring is two-step (see ``gg_relay.api.main.lifespan``):
    lifespan ``finally`` drains it gracefully.
 """
 from gg_relay.subscribers.alert_router import AlertRouter
+from gg_relay.subscribers.cost_metric_subscriber import CostMetricSubscriber
 from gg_relay.subscribers.failure_subscriber import FailureSubscriber
 
-__all__ = ["AlertRouter", "FailureSubscriber"]
+__all__ = ["AlertRouter", "CostMetricSubscriber", "FailureSubscriber"]

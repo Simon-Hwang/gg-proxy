@@ -452,6 +452,75 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "OwnerCostResponse": {
+        "additionalProperties": false,
+        "description": "``GET /api/v1/cost/per-owner`` response.\n\n``from_ts`` / ``to_ts`` echo the request filters (ISO 8601) so\na client can confirm the window the totals were computed for\nwithout re-parsing the query string.",
+        "properties": {
+          "from_ts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Ts"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerCostSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "to_ts": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "To Ts"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "OwnerCostResponse",
+        "type": "object"
+      },
+      "OwnerCostSummary": {
+        "additionalProperties": false,
+        "description": "One row in :class:`OwnerCostResponse.items`.\n\n``owner`` is the API key / dashboard label; ``None`` when the\nsession was submitted before Plan 7 D7.26 added the owner\ncolumn (legacy rows). The dashboard renders ``None`` as\n``\"\u2014\"`` to keep the table column aligned.",
+        "properties": {
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "session_count": {
+            "default": 0,
+            "title": "Session Count",
+            "type": "integer"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          }
+        },
+        "title": "OwnerCostSummary",
+        "type": "object"
+      },
       "PauseRequest": {
         "additionalProperties": false,
         "description": "POST /api/v1/sessions/{id}/pause body. Both fields are optional \u2014\na plain ``{}`` is the most common case (operator hits the pause\nbutton with no annotation). The ``reason`` is propagated into the\nSessionStateChanged event so dashboards / Feishu can show why.",
@@ -665,6 +734,89 @@
           "items"
         ],
         "title": "SearchSessionsResponse",
+        "type": "object"
+      },
+      "SessionCostBreakdown": {
+        "additionalProperties": false,
+        "description": "One row in :class:`SessionCostListResponse.items`.\n\nCompact shape \u2014 only the fields the cost breakdown table needs;\nno spec dump or frames. ``ended_at`` is included so the dashboard\ncan render the elapsed wall-clock alongside cost for incomplete\nruns that already accumulated tokens.",
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "submitted_at": {
+            "format": "date-time",
+            "title": "Submitted At",
+            "type": "string"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "submitted_at"
+        ],
+        "title": "SessionCostBreakdown",
+        "type": "object"
+      },
+      "SessionCostListResponse": {
+        "additionalProperties": false,
+        "description": "``GET /api/v1/cost/per-session`` response.\n\nCursor pagination shape mirrors :class:`SessionListResponse` so\na future ``after=...`` upgrade is non-breaking; the Task-23 MVP\nalways returns ``next_cursor=None``.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SessionCostBreakdown"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "SessionCostListResponse",
         "type": "object"
       },
       "SessionDetailResponse": {
@@ -1158,6 +1310,57 @@
         "title": "TemplateUpdate",
         "type": "object"
       },
+      "UserCostSummary": {
+        "additionalProperties": false,
+        "description": "``GET /api/v1/cost/summary`` response.\n\n``team_total_cost_usd`` is admin-only \u2014 non-admin callers see\n``None``. The dashboard renders it as the \"team\" stat next to\nthe per-user stat so admins can compare their personal share\nagainst the team total at a glance.",
+        "properties": {
+          "from_ts": {
+            "title": "From Ts",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "session_count": {
+            "default": 0,
+            "title": "Session Count",
+            "type": "integer"
+          },
+          "team_total_cost_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Team Total Cost Usd"
+          },
+          "total_cost_usd": {
+            "default": 0.0,
+            "title": "Total Cost Usd",
+            "type": "number"
+          },
+          "user": {
+            "title": "User",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user",
+          "role",
+          "period",
+          "from_ts"
+        ],
+        "title": "UserCostSummary",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1442,6 +1645,322 @@
         "summary": "Update Comment",
         "tags": [
           "comments"
+        ]
+      }
+    },
+    "/api/v1/cost/export.csv": {
+      "get": {
+        "description": "CSV export of the per-owner aggregate \u2014 admin only.\n\nPlan 8 D8.30 / Task 23. Writes a single ``audit_log`` row with\n``action='cost_export'`` so every download is traceable. The\n``target_id`` carries the requested time window so a follow-up\naudit query can correlate downloads with billing periods.\n\nCapped at 1000 rows \u2014 single-team scale fits easily; larger\ndeployments should drive ad-hoc Postgres queries.",
+        "operationId": "cost_export_csv_api_v1_cost_export_csv_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from_ts",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ts"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_ts",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ts"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cost Export Csv",
+        "tags": [
+          "cost"
+        ]
+      }
+    },
+    "/api/v1/cost/per-owner": {
+      "get": {
+        "description": "Aggregate cost per owner (admin sees all; submitter forced self).\n\nPlan 8 D8.30 / Task 23. ``order_by`` controls the secondary\nordering of the response items:\n\n  * ``cost``     \u2014 DESC by ``total_cost_usd`` (default; top\n                   spenders first).\n  * ``sessions`` \u2014 DESC by ``session_count`` (heaviest users\n                   by activity).\n  * ``owner``    \u2014 ASC alphabetical (stable diff-friendly\n                   order for CSV consumers).\n\nThe optional ``owner`` filter narrows the GROUP BY result to a\nsingle row; submitters cannot pass an ``owner`` other than\ntheir own label (403 ``forbidden_cost_view``).",
+        "operationId": "cost_per_owner_api_v1_cost_per_owner_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from_ts",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ts"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_ts",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ts"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order_by",
+            "required": false,
+            "schema": {
+              "default": "cost",
+              "pattern": "^(cost|sessions|owner)$",
+              "title": "Order By",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OwnerCostResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cost Per Owner",
+        "tags": [
+          "cost"
+        ]
+      }
+    },
+    "/api/v1/cost/per-session": {
+      "get": {
+        "description": "List sessions with per-row cost (newest first).\n\nPlan 8 D8.30 / Task 23. Mirrors :func:`cost_per_owner`'s RBAC:\nsubmitters are forced to ``owner=<self-label>``. ``next_cursor``\nis always ``None`` in the MVP \u2014 operators with large result\nsets should use the CSV export endpoint instead.",
+        "operationId": "cost_per_session_api_v1_cost_per_session_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "owner",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 64,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Owner"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from_ts",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From Ts"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to_ts",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To Ts"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCostListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cost Per Session",
+        "tags": [
+          "cost"
+        ]
+      }
+    },
+    "/api/v1/cost/summary": {
+      "get": {
+        "description": "User-centric summary with 30s TTL cache.\n\nPlan 8 D8.30 / Task 23. Cache key ``(label, period, is_admin)``\n\u2014 admin role affects whether ``team_total_cost_usd`` is\npopulated so it MUST be in the key. A second call within the\nTTL hits the cache without touching the store at all.\n\nAdmin callers get the team-wide total computed from a single\nextra :meth:`aggregate_cost_by_owner` call (limit=1000); for\nlarger team sizes consider denormalising into a daily snapshot\ntable (future plan).",
+        "operationId": "cost_summary_api_v1_cost_summary_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "period",
+            "required": false,
+            "schema": {
+              "default": "this_month",
+              "pattern": "^(today|this_month|last_30d)$",
+              "title": "Period",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserCostSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cost Summary",
+        "tags": [
+          "cost"
         ]
       }
     },
@@ -2760,6 +3279,28 @@
         ]
       }
     },
+    "/dashboard/": {
+      "get": {
+        "description": "Per-role default view (Plan 8 D8.30 / Task 23 step 5).\n\nSubmitters (and viewers) are redirected to their own kanban\nslice \u2014 ``/dashboard/kanban?owner=<self-label>`` \u2014 so the\nlanding experience matches the \"show me MY work\" mental model\noperators actually have. Admins see the full unfiltered kanban\n(same path as the explicit ``/dashboard/kanban`` link in the\nnav) because their job is the team-wide view.\n\nHTTP 302 was chosen over a JS-only behaviour for three reasons:\n\n  1. Server-side preserves the redirect across browser tabs\n     opened from links (the operator's bookmark stays correct).\n  2. The dashboard's HTMX layer never sees this path \u2014 kanban\n     polling continues to talk to ``/dashboard/kanban/board``\n     directly so the redirect doesn't add a hop to the hot\n     path.\n  3. ``/dashboard`` is the natural URL for the role-aware\n     landing; without this redirect a submitter typing the\n     bare URL gets a 404, which is hostile.\n\nThe redirect target carries the caller's owner label as a\nquery parameter so :func:`kanban_page` renders the filtered\nslice. Admin callers land on the same handler with no filter,\nmatching the unfiltered behaviour the existing\n``/dashboard/kanban`` nav link drives.",
+        "operationId": "dashboard_root_dashboard__get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Dashboard Root",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/dashboard/comments/{comment_id}/edit": {
       "get": {
         "description": "HTMX endpoint serving the inline edit form (author only).\n\nResolves the caller's ``dashboard-<username>`` label via\n:func:`_dashboard_label` and refuses to render the form unless\nit matches the comment's stored ``author`` field. The PATCH\nendpoint on the API side re-checks the same condition, so this\nlayer is just a UX gate \u2014 a tampered DOM cannot bypass the\nserver-side rule.\n\nReturns a 404 ``<li>`` fragment when the comment does not exist\nor has been soft-deleted (so a stale Edit button after a\nconcurrent delete swaps cleanly into the row's slot instead of\nleaking a JSON error blob).",
@@ -2798,6 +3339,28 @@
           }
         },
         "summary": "Comment Edit Form",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/cost": {
+      "get": {
+        "description": "Render the per-role cost attribution page (Plan 8 D8.30 / Task 23).\n\nAdmin sees the top-N owners across the team; everyone else sees\nonly their own row. The page consumes :meth:`store.summary_for_user`\nfor the at-a-glance banner and :meth:`store.aggregate_cost_by_owner`\nfor the table \u2014 the same two store calls the API endpoints use,\nso the dashboard and API render identical numbers without a\nparallel aggregation path.\n\nIdentity resolution mirrors :func:`favorites_page` /\n:func:`templates_page` \u2014 the cookie session collapses to a\n``dashboard-<username>`` label and the role lookup hits\n``cfg.role_mapping``. A missing label means the cookie\nmiddleware didn't see a session; we render an unauthenticated\nplaceholder rather than 401 because the upstream session-\nrequired dependency would already have redirected un-authed\ncallers.",
+        "operationId": "cost_page_dashboard_cost_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Cost Page",
         "tags": [
           "dashboard"
         ]

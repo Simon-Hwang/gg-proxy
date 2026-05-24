@@ -915,6 +915,199 @@ class SqlAlchemyStore:
                 f"aggregate_tokens_by_bucket: unsupported dialect {dialect!r}"
             )
 
+    # ── Plan 8 D8.30 / Task 23 — per-owner cost attribution ──────────
+    # All three methods below feed the ``/api/v1/cost/*`` router and
+    # the ``/dashboard/cost`` page. ``cost_usd`` is the existing
+    # per-session aggregate column (Plan 6 D6.12) so we sum directly
+    # in SQL — no per-row Python loop. ``submitted_at`` is the time
+    # axis: ``ended_at`` would only capture completed sessions and
+    # bias the totals; ``submitted_at`` includes in-flight rows whose
+    # cost is still 0 (server_default) and converges as they finish.
+    #
+    # ``cost_usd`` is NOT NULL with a 0 default at the schema layer
+    # so ``func.coalesce(SUM(cost_usd), 0)`` is belt-and-braces — the
+    # SUM over zero rows still returns NULL on Postgres and we want
+    # a deterministic ``0`` in that case.
+    #
+    # The cursor pagination on :meth:`list_sessions_with_cost`
+    # intentionally stays simple (NULL cursor) because the cost
+    # breakdown UI is a single-page snapshot — operators reach for
+    # CSV export when they need the long tail. The signature reserves
+    # ``after`` and ``next_cursor`` so a follow-up plan can swap in
+    # the same urlsafe-base64 cursor pattern :meth:`list_sessions`
+    # uses without changing the API surface.
+
+    async def aggregate_cost_by_owner(
+        self,
+        *,
+        from_ts: datetime | None = None,
+        to_ts: datetime | None = None,
+        limit: int = 50,
+        order_by: str = "cost",
+    ) -> list[dict[str, Any]]:
+        """GROUP BY owner with SUM(cost_usd) + COUNT(*).
+
+        Plan 8 D8.30 / Task 23. ``order_by`` selects the secondary
+        ordering of the grouped rows:
+
+          * ``"cost"``     — DESC by ``SUM(cost_usd)`` (default; biggest
+                             spenders first — the dashboard top-N pane).
+          * ``"sessions"`` — DESC by ``COUNT(*)``       (heaviest users
+                             by activity even when their cost is small).
+          * ``"owner"``    — ASC by ``owner``           (alphabetical;
+                             stable view for CSV export consumers that
+                             diff snapshots over time).
+
+        ``from_ts`` / ``to_ts`` filter on ``submitted_at`` (inclusive)
+        — same time axis as :meth:`search_sessions` so the dashboard's
+        "this month" pill renders the same set of rows whether the
+        operator filters by cost or by metadata. ``limit`` caps at
+        the value the caller asked for (the API router enforces a
+        200-row ceiling; CSV export uses 1000).
+        """
+        where: list[sa.ColumnElement[bool]] = []
+        if from_ts is not None:
+            where.append(sessions.c.submitted_at >= from_ts)
+        if to_ts is not None:
+            where.append(sessions.c.submitted_at <= to_ts)
+
+        cost_sum = func.coalesce(
+            func.sum(sessions.c.cost_usd), 0
+        ).label("total_cost_usd")
+        session_count = func.count().label("session_count")
+
+        if order_by == "sessions":
+            order_clause = session_count.desc()
+        elif order_by == "owner":
+            order_clause = sessions.c.owner.asc()
+        else:
+            order_clause = cost_sum.desc()
+
+        stmt = (
+            select(
+                sessions.c.owner,
+                session_count,
+                cost_sum,
+            )
+            .where(*where)
+            .group_by(sessions.c.owner)
+            .order_by(order_clause)
+            .limit(limit)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            rows = result.mappings().all()
+        return [
+            {
+                "owner": r["owner"],
+                "session_count": int(r["session_count"] or 0),
+                "total_cost_usd": float(r["total_cost_usd"] or 0.0),
+            }
+            for r in rows
+        ]
+
+    async def list_sessions_with_cost(
+        self,
+        *,
+        owner: str | None = None,
+        from_ts: datetime | None = None,
+        to_ts: datetime | None = None,
+        after: str | None = None,
+        limit: int = 50,
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """List sessions with per-row cost for the breakdown view.
+
+        Plan 8 D8.30 / Task 23. Pagination is intentionally simple
+        — the dashboard's "view breakdown" page renders one snapshot
+        and the long-tail consumer is the CSV export instead. The
+        ``after`` and ``next_cursor`` slots are reserved so a
+        follow-up plan can add cursor pagination without changing
+        the wire shape.
+
+        Order: ``submitted_at DESC, id DESC`` so the most recent
+        sessions surface first — same tiebreaker shape as
+        :meth:`list_sessions`. ``cost_usd`` rides through verbatim
+        (the column is NOT NULL with default 0 so in-flight rows
+        report 0 rather than None).
+        """
+        del after  # reserved for future cursor pagination
+        where: list[sa.ColumnElement[bool]] = []
+        if owner is not None:
+            where.append(sessions.c.owner == owner)
+        if from_ts is not None:
+            where.append(sessions.c.submitted_at >= from_ts)
+        if to_ts is not None:
+            where.append(sessions.c.submitted_at <= to_ts)
+
+        stmt = (
+            select(sessions)
+            .where(*where)
+            .order_by(
+                sessions.c.submitted_at.desc(),
+                sessions.c.id.desc(),
+            )
+            .limit(limit)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            rows = list(result.mappings().all())
+        return [dict(r) for r in rows], None
+
+    async def summary_for_user(
+        self,
+        *,
+        user_label: str,
+        period: str = "this_month",
+    ) -> dict[str, Any]:
+        """Compute (session_count, total_cost_usd) for a single user
+        over a fixed period.
+
+        Plan 8 D8.30 / Task 23. ``period`` is one of:
+
+          * ``"today"``      — midnight UTC → now.
+          * ``"this_month"`` — first of the month UTC → now.
+          * ``"last_30d"``   — 30 days back → now (rolling).
+
+        Any other string falls back to ``last_30d`` so an
+        unrecognised pill on the dashboard still renders something
+        sensible. The return shape carries the period start as
+        ``from_ts`` (ISO 8601) so callers can echo it in the UI
+        and prove the cache miss happened against the correct
+        window.
+        """
+        now = _utcnow()
+        if period == "today":
+            from_ts = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif period == "this_month":
+            from_ts = now.replace(
+                day=1, hour=0, minute=0, second=0, microsecond=0
+            )
+        else:
+            # last_30d (and any unknown string) fall back to a 30d window.
+            from_ts = now - timedelta(days=30)
+
+        cost_sum = func.coalesce(
+            func.sum(sessions.c.cost_usd), 0
+        ).label("total_cost_usd")
+        session_count = func.count().label("session_count")
+        stmt = (
+            select(session_count, cost_sum)
+            .where(sessions.c.owner == user_label)
+            .where(sessions.c.submitted_at >= from_ts)
+        )
+        async with self._engine.connect() as conn:
+            result = await conn.execute(stmt)
+            row = result.mappings().first()
+        return {
+            "user": user_label,
+            "period": period,
+            "from_ts": from_ts.isoformat(),
+            "session_count": int((row or {}).get("session_count", 0) or 0),
+            "total_cost_usd": float(
+                (row or {}).get("total_cost_usd", 0.0) or 0.0
+            ),
+        }
+
     async def list_paused(self) -> list[RowMapping]:
         """List sessions currently in the ``paused`` state.
 

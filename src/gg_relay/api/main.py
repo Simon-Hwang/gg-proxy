@@ -34,6 +34,7 @@ from gg_relay.api.middleware.rate_limit import (
 from gg_relay.api.routers import (
     audit_router,
     comments_router,
+    cost_router,
     events_router,
     health_router,
     hitl_batch_router,
@@ -564,6 +565,12 @@ def create_app(config: Config | None = None) -> FastAPI:
     # collaboration block (comments → templates) reads in roughly
     # the order users encounter them in the dashboard.
     app.include_router(templates_router, prefix="/api/v1")
+    # Plan 8 Task 23 / D8.30 — per-owner cost attribution. Router's
+    # internal prefix is ``/cost`` so the mounted path is
+    # ``/api/v1/cost/*``. Sits after templates so the OpenAPI v1
+    # block ends with the collaboration + accounting endpoints
+    # together (a natural read order on the docs page).
+    app.include_router(cost_router, prefix="/api/v1")
     app.include_router(health_router)
     app.include_router(metrics_router)
     app.include_router(dashboard_router)

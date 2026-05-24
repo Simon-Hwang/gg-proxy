@@ -367,3 +367,99 @@ class BatchHITLResponse(BaseModel):
 
     items: list[BatchHITLItem]
     summary: dict[str, int]
+
+
+# ── Plan 8 D8.30 / Task 23 — per-owner cost attribution ──────────────
+# Three response models powering the ``/api/v1/cost/*`` router and
+# the dashboard cost page. Each carries explicit float fields rather
+# than a generic ``dict[str, Any]`` so OpenAPI clients (and the
+# golden snapshot in ``docs/openapi.snapshot.json``) document the
+# wire shape exactly. The ``total_cost_usd`` field is non-Optional
+# because the underlying ``sessions.cost_usd`` column is NOT NULL
+# with a 0 default — a row that never recorded a cost surfaces as
+# ``0.0`` rather than ``null`` so downstream consumers (charts, CSV
+# diff) don't have to special-case the absent case.
+
+
+class OwnerCostSummary(BaseModel):
+    """One row in :class:`OwnerCostResponse.items`.
+
+    ``owner`` is the API key / dashboard label; ``None`` when the
+    session was submitted before Plan 7 D7.26 added the owner
+    column (legacy rows). The dashboard renders ``None`` as
+    ``"—"`` to keep the table column aligned.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    owner: str | None = None
+    session_count: int = 0
+    total_cost_usd: float = 0.0
+
+
+class OwnerCostResponse(BaseModel):
+    """``GET /api/v1/cost/per-owner`` response.
+
+    ``from_ts`` / ``to_ts`` echo the request filters (ISO 8601) so
+    a client can confirm the window the totals were computed for
+    without re-parsing the query string.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[OwnerCostSummary]
+    from_ts: str | None = None
+    to_ts: str | None = None
+
+
+class SessionCostBreakdown(BaseModel):
+    """One row in :class:`SessionCostListResponse.items`.
+
+    Compact shape — only the fields the cost breakdown table needs;
+    no spec dump or frames. ``ended_at`` is included so the dashboard
+    can render the elapsed wall-clock alongside cost for incomplete
+    runs that already accumulated tokens.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    owner: str | None = None
+    status: str
+    submitted_at: datetime
+    ended_at: datetime | None = None
+    total_cost_usd: float = 0.0
+
+
+class SessionCostListResponse(BaseModel):
+    """``GET /api/v1/cost/per-session`` response.
+
+    Cursor pagination shape mirrors :class:`SessionListResponse` so
+    a future ``after=...`` upgrade is non-breaking; the Task-23 MVP
+    always returns ``next_cursor=None``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[SessionCostBreakdown]
+    next_cursor: str | None = None
+
+
+class UserCostSummary(BaseModel):
+    """``GET /api/v1/cost/summary`` response.
+
+    ``team_total_cost_usd`` is admin-only — non-admin callers see
+    ``None``. The dashboard renders it as the "team" stat next to
+    the per-user stat so admins can compare their personal share
+    against the team total at a glance.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    user: str
+    role: str
+    period: str
+    from_ts: str
+    session_count: int = 0
+    total_cost_usd: float = 0.0
+    team_total_cost_usd: float | None = None
