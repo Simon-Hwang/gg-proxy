@@ -390,3 +390,49 @@ prompt_templates = Table(
         "ix_prompt_templates_shared_name", "shared", "name"
     ),
 )
+
+# ── Plan 8 D8.29 (Task 22): DB-backed API key self-service ──────────
+# Replaces the in-process ``cfg.api_keys_with_labels`` frozen dict at
+# request time. The lifespan still bootstraps env keys into this
+# table on startup (idempotent), but every subsequent admin POST /
+# DELETE on ``/api/v1/admin/keys`` mutates DB rows directly — no env
+# rotation / process restart required.
+#
+# Plaintext is **NEVER** stored. The :func:`gg_relay.auth.store.hash_key`
+# sha256 digest is what :class:`DBKeyResolver` looks up on each
+# request, so a database leak cannot expose the raw keys to an
+# attacker. The plaintext is returned ONCE by the admin POST endpoint
+# and that's it.
+#
+# Constraints + indexes:
+#   * ``ux_api_keys_label`` — unique label. Creating a second key
+#     with an existing label raises :class:`gg_relay.core.exceptions.ApiKeyConflictError`
+#     → HTTP 409 ``api_key_label_conflict``.
+#   * ``ix_api_keys_key_hash`` — O(1) middleware lookup on the
+#     request hot-path.
+#   * ``ix_api_keys_role_revoked`` — composite ``(role, revoked_at)``
+#     for :meth:`ApiKeyStore.count_active_admins` (used by the
+#     last-admin guard on the DELETE endpoint).
+#
+# ``revoked_at`` is soft-delete; ``last_used_at`` is updated at most
+# once per 60s per key from :class:`DBKeyResolver` to avoid
+# write-amplification on hot keys. ``expires_at`` is checked in
+# Python (the resolver) rather than via a DB CHECK constraint so
+# the cache can short-circuit without a round-trip.
+api_keys = Table(
+    "api_keys",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("label", String(64), nullable=False),
+    Column("key_hash", String(64), nullable=False),
+    Column("role", String(16), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("created_by_label", String(64), nullable=True),
+    Column("expires_at", DateTime(timezone=True), nullable=True),
+    Column("revoked_at", DateTime(timezone=True), nullable=True),
+    Column("last_used_at", DateTime(timezone=True), nullable=True),
+    Column("notes", String(500), nullable=True),
+    UniqueConstraint("label", name="ux_api_keys_label"),
+    Index("ix_api_keys_key_hash", "key_hash"),
+    Index("ix_api_keys_role_revoked", "role", "revoked_at"),
+)

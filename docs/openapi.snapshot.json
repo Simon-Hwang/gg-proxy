@@ -1,6 +1,54 @@
 {
   "components": {
     "schemas": {
+      "ApiKeyCreate": {
+        "description": "POST body schema for ``POST /api/v1/admin/keys``.\n\nField constraints:\n\n  * ``label``           \u2014 printable label safe for log lines.\n    Pattern ``[A-Za-z0-9_.-]+`` is the same charset the env\n    parser allows for ``RELAY_API_KEYS_RAW`` (D7.26), so a\n    label minted here can later be referenced in env-driven\n    config without escaping.\n  * ``role``            \u2014 restricted to the three legal roles\n    so a typo doesn't silently create a key the\n    ``require_role`` ladder can't compare against.\n  * ``notes``           \u2014 free-form, capped at 500 chars to\n    match the column.\n  * ``expires_in_days`` \u2014 optional; when set the lifespan of\n    the key is bounded by ``now + N days`` and the resolver\n    refuses the key past that point.",
+        "properties": {
+          "expires_in_days": {
+            "anyOf": [
+              {
+                "maximum": 365.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires In Days"
+          },
+          "label": {
+            "maxLength": 64,
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9_.-]+$",
+            "title": "Label",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "role": {
+            "pattern": "^(viewer|submitter|admin)$",
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "role"
+        ],
+        "title": "ApiKeyCreate",
+        "type": "object"
+      },
       "BatchHITLItem": {
         "additionalProperties": false,
         "description": "One row in :class:`BatchHITLResponse.items`.\n\n``error_code`` mirrors the single-resolve endpoint's taxonomy:\n\n  * ``hitl_not_pending``     \u2014 request not currently pending in\n    the in-process coordinator (already drained).\n  * ``hitl_already_resolved`` \u2014 DB row shows a previous winning\n    decision (cross-worker race or post-resolve replay).\n  * ``internal_error``       \u2014 anything else; ``error_message``\n    carries the original exception's message.",
@@ -1409,6 +1457,132 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/keys": {
+      "get": {
+        "description": "List api_keys, newest-first. NEVER includes plaintext.\n\n``include_revoked=True`` surfaces soft-deleted rows so operators\ncan audit prior keys; the default omits them so the working\nlist stays compact.",
+        "operationId": "list_api_keys_api_v1_admin_keys_get",
+        "parameters": [
+          {
+            "description": "Surface soft-deleted rows.",
+            "in": "query",
+            "name": "include_revoked",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Surface soft-deleted rows.",
+              "title": "Include Revoked",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Api Keys Api V1 Admin Keys Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Api Keys",
+        "tags": [
+          "admin-keys"
+        ]
+      },
+      "post": {
+        "description": "Mint a new api_key.\n\nThe plaintext is returned ONCE in the response body and never\nstored. Operators MUST capture it from this response \u2014 there is\nno recovery path. The DB only ever sees ``hash_key(plaintext)``.\n\n409 ``api_key_label_conflict`` on duplicate label. Cache is\ninvalidated by label so a label that was previously revoked +\nrecreated doesn't serve a stale negative cache hit.",
+        "operationId": "create_api_key_api_v1_admin_keys_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApiKeyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Create Api Key Api V1 Admin Keys Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Api Key",
+        "tags": [
+          "admin-keys"
+        ]
+      }
+    },
+    "/api/v1/admin/keys/{label}": {
+      "delete": {
+        "description": "Soft-revoke one api_key by label.\n\nRefuses on three paths:\n\n  * 404 ``api_key_not_found`` \u2014 the label doesn't exist or has\n    already been revoked.\n  * 400 ``self_revoke_forbidden`` \u2014 the caller is trying to\n    revoke their own currently-active key. The defensive\n    recovery flow is \"mint another admin \u2192 switch keys \u2192 then\n    revoke yourself\" \u2014 surfaced as a clear error so a slip\n    click doesn't lock the operator out.\n  * 400 ``last_admin_revoke_forbidden`` \u2014 the target is an\n    admin and revoking it would drop the active admin count\n    to zero.",
+        "operationId": "revoke_api_key_api_v1_admin_keys__label__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "label",
+            "required": true,
+            "schema": {
+              "title": "Label",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Api Key",
+        "tags": [
+          "admin-keys"
+        ]
+      }
+    },
     "/api/v1/audit": {
       "get": {
         "description": "List audit rows newest-first with cursor pagination.\n\nResponse shape::\n\n    {\n        \"items\": [\n            {\n                \"id\": <int>,\n                \"ts\": \"<iso8601>\",\n                \"actor\": \"<label>\",\n                \"action\": \"<verb>\",\n                \"target_type\": \"session\" | ... | null,\n                \"target_id\": \"<sid>\" | null,\n                \"metadata\": {...} | {},\n                \"request_id\": \"<uuid>\" | null\n            },\n            ...\n        ],\n        \"next_cursor\": \"<opaque>\" | null,\n        \"has_more\": <bool>\n    }\n\n``has_more`` mirrors the truthiness of ``next_cursor`` (kept as a\nconvenience field so dashboards don't have to do the ``is None``\ncheck themselves).",
@@ -3296,6 +3470,28 @@
           }
         },
         "summary": "Dashboard Root",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/admin/keys": {
+      "get": {
+        "description": "Admin api_key self-service page (Plan 8 D8.29 / Task 22).\n\nServer-side rendered list + inline create + revoke forms. The\nactual mutations call ``/api/v1/admin/keys`` (POST / DELETE) via\nHTMX so the API-side guards (self-revoke, last-admin,\n409 on duplicate label) drive the user-visible errors. The\npage itself is a read-only render of the current rows so a\nnon-admin cookie session that wanders in surfaces a clear\n\"Forbidden\" instead of seeing the mutation widgets.\n\nIdentity / role resolution mirrors :func:`templates_page` so\nthe same admin label that drives ``cfg.role_mapping`` is the\none this page gates on.",
+        "operationId": "admin_keys_page_dashboard_admin_keys_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Keys Page",
         "tags": [
           "dashboard"
         ]

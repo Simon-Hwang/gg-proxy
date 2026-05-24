@@ -1525,6 +1525,85 @@ async def templates_page(
     )
 
 
+@router.get("/admin/keys", response_class=HTMLResponse)
+async def admin_keys_page(
+    request: Request,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Admin api_key self-service page (Plan 8 D8.29 / Task 22).
+
+    Server-side rendered list + inline create + revoke forms. The
+    actual mutations call ``/api/v1/admin/keys`` (POST / DELETE) via
+    HTMX so the API-side guards (self-revoke, last-admin,
+    409 on duplicate label) drive the user-visible errors. The
+    page itself is a read-only render of the current rows so a
+    non-admin cookie session that wanders in surfaces a clear
+    "Forbidden" instead of seeing the mutation widgets.
+
+    Identity / role resolution mirrors :func:`templates_page` so
+    the same admin label that drives ``cfg.role_mapping`` is the
+    one this page gates on.
+    """
+    cfg = request.app.state.config
+    label = _dashboard_label(request)
+    if not label:
+        return HTMLResponse("Login required", status_code=401)
+    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
+    role = role_map.get(label, "viewer")
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+    if not is_admin:
+        return HTMLResponse(
+            "<div class='error'>Forbidden — admin only.</div>",
+            status_code=403,
+        )
+    key_store = getattr(request.app.state, "api_key_store", None)
+    rows: list[dict[str, Any]] = []
+    if key_store is not None:
+        raw_rows = await key_store.list(include_revoked=True, limit=200)
+        for r in raw_rows:
+            rows.append(
+                {
+                    "label": r["label"],
+                    "role": r["role"],
+                    "created_at": (
+                        r["created_at"].isoformat()
+                        if hasattr(r["created_at"], "isoformat")
+                        else r["created_at"]
+                    ),
+                    "created_by_label": r["created_by_label"],
+                    "expires_at": (
+                        r["expires_at"].isoformat()
+                        if r["expires_at"] is not None
+                        and hasattr(r["expires_at"], "isoformat")
+                        else r["expires_at"]
+                    ),
+                    "revoked_at": (
+                        r["revoked_at"].isoformat()
+                        if r["revoked_at"] is not None
+                        and hasattr(r["revoked_at"], "isoformat")
+                        else r["revoked_at"]
+                    ),
+                    "last_used_at": (
+                        r["last_used_at"].isoformat()
+                        if r["last_used_at"] is not None
+                        and hasattr(r["last_used_at"], "isoformat")
+                        else r["last_used_at"]
+                    ),
+                    "notes": r["notes"],
+                    "is_active": r["revoked_at"] is None,
+                    "is_self": r["label"] == label,
+                }
+            )
+    return templates.TemplateResponse(
+        request,
+        "admin_keys.html",
+        {
+            "items": rows,
+            "current_actor": label,
+        },
+    )
+
+
 @router.post("/sessions/{session_id}/hitl/{req_id}")
 async def session_hitl_resolve(
     request: Request,

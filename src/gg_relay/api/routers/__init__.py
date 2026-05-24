@@ -1,4 +1,5 @@
 """FastAPI routers (public surface)."""
+from gg_relay.api.routers.admin_keys import router as admin_keys_router
 from gg_relay.api.routers.audit import router as audit_router
 from gg_relay.api.routers.comments import router as comments_router
 from gg_relay.api.routers.cost import router as cost_router
@@ -11,6 +12,7 @@ from gg_relay.api.routers.sessions import router as sessions_router
 from gg_relay.api.routers.templates import router as templates_router
 
 __all__ = [
+    "admin_keys_router",
     "audit_router",
     "comments_router",
     "cost_router",

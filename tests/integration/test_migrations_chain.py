@@ -739,3 +739,101 @@ async def test_downgrade_0010_to_0009_roundtrip(sqlite_db_url: str):
     assert "parent_session_id" in sess_cols, (
         "0008 parent_session_id lost on 0010 downgrade"
     )
+
+
+# ── Plan 8 Task 22 / D8.29: api_keys table (0011) ────────────────────
+
+
+async def test_chain_0001_to_0011_upgrade(sqlite_db_url: str):
+    """0001 → … → 0011 顺次 upgrade，api_keys 表 + unique constraint
+    + 两个 indexes (ix_api_keys_key_hash / ix_api_keys_role_revoked)
+    就位.
+
+    Plan 8 D8.29 / Task 22. Verifies the DB-backed api_key table
+    landed with the full schema (id PK / label unique / key_hash /
+    role / created_at / created_by_label / expires_at / revoked_at /
+    last_used_at / notes) and that BOTH the unique constraint
+    ``ux_api_keys_label`` and the two performance indexes
+    (``ix_api_keys_key_hash`` for O(1) middleware lookup,
+    ``ix_api_keys_role_revoked`` for last-admin guard) are in place.
+    Sanity: 0010 ``prompt_templates`` table is still alive (we
+    didn't accidentally rebuild ``sessions``).
+    """
+    _run_upgrade(sqlite_db_url, "head")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "api_keys" in tables, (
+        f"api_keys table missing after 0011: {tables}"
+    )
+
+    cols = await _columns(sqlite_db_url, "api_keys")
+    expected = {
+        "id",
+        "label",
+        "key_hash",
+        "role",
+        "created_at",
+        "created_by_label",
+        "expires_at",
+        "revoked_at",
+        "last_used_at",
+        "notes",
+    }
+    assert expected <= cols, (
+        f"api_keys columns missing: expected {expected}, got {cols}"
+    )
+
+    indexes = await _index_names(sqlite_db_url, "api_keys")
+    assert "ix_api_keys_key_hash" in indexes, (
+        f"ix_api_keys_key_hash missing: {indexes}"
+    )
+    assert "ix_api_keys_role_revoked" in indexes, (
+        f"ix_api_keys_role_revoked missing: {indexes}"
+    )
+
+    # Unique constraint inspection (mirrors the 0009 favorites + 0010
+    # templates tests).
+    engine = make_async_engine(sqlite_db_url)
+    try:
+        async with engine.connect() as conn:
+
+            def _inspect(sync_conn):
+                return {
+                    uc["name"]
+                    for uc in inspect(sync_conn).get_unique_constraints(
+                        "api_keys"
+                    )
+                }
+
+            uniques = await conn.run_sync(_inspect)
+    finally:
+        await engine.dispose()
+    assert "ux_api_keys_label" in uniques, (
+        f"ux_api_keys_label missing: {uniques}"
+    )
+
+    # Sanity — 0010 prompt_templates table still present.
+    assert "prompt_templates" in tables, (
+        "0010 prompt_templates lost after 0011 upgrade"
+    )
+
+
+async def test_downgrade_0011_to_0010_roundtrip(sqlite_db_url: str):
+    """upgrade head → downgrade -1 → api_keys 表 + indexes 消失,
+    0010 prompt_templates 表仍保留 (验证只回滚 0011)."""
+    _run_upgrade(sqlite_db_url, "head")
+    _run_downgrade(sqlite_db_url, "0010")
+
+    tables = await _table_names(sqlite_db_url)
+    assert "api_keys" not in tables, (
+        f"api_keys survived downgrade to 0010: {tables}"
+    )
+
+    # 0010 + earlier migrations must still be alive — only 0011 was
+    # rolled back.
+    assert "prompt_templates" in tables, (
+        "0010 prompt_templates lost on 0011 downgrade"
+    )
+    assert "session_favorites" in tables, (
+        "0009 session_favorites lost on 0011 downgrade"
+    )

@@ -1,17 +1,19 @@
 """gg-relay CLI (typer).
 
 Commands:
-- ``serve``         — start the FastAPI app via uvicorn
-- ``migrate``       — run Alembic ``upgrade head``
-- ``status``        — print active sessions (calls /api/v1/sessions)
-- ``check-secrets`` — validate required env vars present
-- ``prune``         — delete frames older than ``--older-than``
+- ``serve``           — start the FastAPI app via uvicorn
+- ``migrate``         — run Alembic ``upgrade head``
+- ``status``          — print active sessions (calls /api/v1/sessions)
+- ``check-secrets``   — validate required env vars present
+- ``prune``           — delete frames older than ``--older-than``
+- ``bootstrap-admin`` — mint the initial admin api_key (Plan 8 D8.29)
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 import re
+import secrets as stdlib_secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Annotated
@@ -212,6 +214,99 @@ def recover() -> None:
     typer.echo(f"recover: marked {n} session(s) as interrupted")
     for sid in ids[:20]:
         typer.echo(f"  {sid}")
+
+
+@app.command(name="bootstrap-admin")
+def bootstrap_admin(
+    label: Annotated[
+        str,
+        typer.Option(
+            "--label",
+            help="Admin api_key label (unique, [A-Za-z0-9_.-]+).",
+        ),
+    ],
+    write_env: Annotated[
+        bool,
+        typer.Option(
+            "--write-env",
+            help="Append the new key to ./.env after a successful mint.",
+        ),
+    ] = False,
+    print_only: Annotated[
+        bool,
+        typer.Option(
+            "--print-only",
+            help="Print a generated key without touching the DB or env.",
+        ),
+    ] = False,
+) -> None:
+    """Mint the initial admin api_key (Plan 8 D8.29 / Task 22).
+
+    Bootstrap path for a fresh deployment — there is no
+    ``/api/v1/admin/keys`` POST until at least one admin exists, so a
+    chicken-and-egg moment is unavoidable. This command is the ONLY
+    sanctioned way to create that first admin without an existing
+    one.
+
+    ``--print-only`` skips the DB write entirely and just emits a
+    fresh key + label pair to stdout (useful for offline planning).
+
+    ``--write-env`` appends the mint to the local ``.env`` file as a
+    comment + an ``RELAY_API_KEYS_RAW=...`` extension so the env
+    sync at next startup keeps the key alive even if the operator
+    later wipes the database for a clean re-bootstrap.
+
+    The raw key is surfaced ONCE on stdout — capture it before the
+    process exits. The DB only ever stores ``sha256(raw_key)``.
+    """
+    cfg = _load_config()
+    raw_key = "rk_" + stdlib_secrets.token_urlsafe(32)
+
+    if print_only:
+        typer.echo("Generated admin key (NOT persisted):")
+        typer.echo(f"  Label:   {label}")
+        typer.echo(f"  Raw key: {raw_key}")
+        return
+
+    async def _do() -> None:
+        from gg_relay.auth.store import ApiKeyStore
+        from gg_relay.core.exceptions import ApiKeyConflictError
+
+        engine = make_async_engine(cfg.database_url)
+        try:
+            store = ApiKeyStore(engine)
+            try:
+                await store.create(
+                    label=label,
+                    raw_key=raw_key,
+                    role="admin",
+                    created_by_label="bootstrap-admin-cli",
+                    notes="Bootstrap admin created via CLI",
+                )
+            except ApiKeyConflictError as exc:
+                typer.echo(f"bootstrap-admin: {exc}", err=True)
+                raise typer.Exit(1) from exc
+        finally:
+            await engine.dispose()
+
+    asyncio.run(_do())
+    typer.echo("Admin key created.")
+    typer.echo(f"  Label:   {label}")
+    typer.echo(f"  Raw key: {raw_key}")
+    typer.echo("  Save this key NOW — it cannot be retrieved later.")
+
+    if write_env:
+        env_path = Path(".env")
+        try:
+            with env_path.open("a", encoding="utf-8") as f:
+                f.write(
+                    f"\n# bootstrap-admin {label} "
+                    f"{datetime.now(UTC).isoformat()}\n"
+                )
+                f.write(f"# RELAY_API_KEYS_RAW append: {raw_key}:{label}\n")
+            typer.echo(f"Appended to {env_path}")
+        except OSError as exc:
+            typer.echo(f"Could not write env: {exc}", err=True)
 
 
 @app.command(name="version")

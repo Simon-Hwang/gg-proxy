@@ -85,11 +85,22 @@ ROLE_HIERARCHY: dict[str, int] = {
 def _resolve_role(request: Request) -> str:
     """Resolve the caller's effective role for the current request.
 
-    Reads ``request.state.api_key_label`` (set by
-    :class:`APIKeyAuthMiddleware`) and looks it up in
-    ``request.app.state.config.role_mapping``. Returns ``"viewer"``
-    on any missing piece — keeping the fallthrough safe so a
-    mis-wired test app can never accidentally elevate.
+    Resolution order:
+
+      1. ``request.state.api_key_label`` MUST be present (set by
+         :class:`APIKeyAuthMiddleware`); missing → ``viewer``.
+      2. Plan 8 D8.29 + v2.3 BLOCKER 2 — when
+         ``cfg.role_override_mode == 'db'`` (default) and the
+         middleware populated ``request.state.api_key_role`` from the
+         :class:`DBKeyResolver`, that role is the source of truth.
+         The dashboard ``/admin/keys`` page can mutate roles at
+         runtime via the DB column without touching env config.
+      3. Otherwise (``role_override_mode == 'config'`` or no
+         ``api_key_role`` on state — i.e. the Plan 7 frozen-dict
+         middleware path that doesn't know about DB roles) we fall
+         back to ``cfg.role_mapping[label]`` as the source.
+      4. Any missing piece (no Config, no mapping entry) collapses
+         to ``viewer`` — safe least-privileged default.
 
     Also caches the resolved role onto ``request.state.role`` so
     templates / audit logs downstream of the dependency can reuse
@@ -103,6 +114,13 @@ def _resolve_role(request: Request) -> str:
     cfg = getattr(app_state, "config", None) if app_state is not None else None
     if cfg is None:
         return "viewer"
+
+    override_mode = getattr(cfg, "role_override_mode", "db")
+    if override_mode == "db":
+        db_role = getattr(request.state, "api_key_role", None)
+        if db_role:
+            request.state.role = db_role
+            return db_role
 
     role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
     role = role_map.get(label, "viewer")

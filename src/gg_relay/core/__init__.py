@@ -25,8 +25,10 @@ from gg_relay.core.events import (
     frame_to_event,
 )
 from gg_relay.core.exceptions import (
+    ApiKeyConflictError,
     DurableEventDropError,
     HITLAlreadyResolved,
+    LastAdminError,
     RetryConfigError,
     SDKConnectError,
     SDKError,
@@ -35,6 +37,7 @@ from gg_relay.core.exceptions import (
     SDKTimeoutError,
     SDKTransportError,
     SDKUnknownError,
+    SelfRevokeError,
     TemplateConflictError,
     classify_sdk_error,
 )
@@ -43,6 +46,7 @@ from gg_relay.core.protocol import DurableEventStore
 __all__ = [
     "LEGAL_TRANSITIONS",
     "TERMINAL_STATES",
+    "ApiKeyConflictError",
     "DeliveryTier",
     "DurableEventDropError",
     "DurableEventStore",
@@ -53,6 +57,7 @@ __all__ = [
     "HITLResolved",
     "InstallDone",
     "InstallError",
+    "LastAdminError",
     "RelayEvent",
     "RelayEventT",
     "RetryConfigError",
@@ -63,6 +68,7 @@ __all__ = [
     "SDKTimeoutError",
     "SDKTransportError",
     "SDKUnknownError",
+    "SelfRevokeError",
     "SessionCompleted",
     "SessionCreated",
     "SessionOutputChunk",

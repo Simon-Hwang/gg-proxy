@@ -32,6 +32,7 @@ from gg_relay.api.middleware.rate_limit import (
     TokenBucketRateLimiter,
 )
 from gg_relay.api.routers import (
+    admin_keys_router,
     audit_router,
     comments_router,
     cost_router,
@@ -42,6 +43,11 @@ from gg_relay.api.routers import (
     metrics_router,
     sessions_router,
     templates_router,
+)
+from gg_relay.auth import (
+    ApiKeyStore,
+    DBKeyResolver,
+    EnvKeyResolver,
 )
 from gg_relay.config import Config
 from gg_relay.core import EventBus
@@ -292,6 +298,68 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.coordinator = coordinator
     app.state.redactor = redactor
     app.state.manager = manager
+
+    # ── Plan 8 Task 22 / D8.29 — DB-backed API key self-service ──────
+    # Step 1: ApiKeyStore over the api_keys table (Alembic 0011).
+    # Step 2: idempotent sync of env keys → DB so existing deployments
+    #         migrate without operator intervention.
+    # Step 3: refresh per-dashboard-user internal keys (rotated each
+    #         startup so a process restart invalidates any old cookie
+    #         session that captured a now-stale internal key).
+    # Step 4: DBKeyResolver attached to app.state so the APIKey
+    #         middleware uses the new resolution path instead of the
+    #         frozen-dict fallback.
+    # Step 5: (multi-worker tier KeyInvalidateSubscriber) SKIPPED per
+    #         Plan 8 Phase 4 single-worker scope decision; in-process
+    #         resolver.invalidate_cache() is called inline by the
+    #         admin POST/DELETE endpoints.
+    api_key_store = ApiKeyStore(engine)
+    app.state.api_key_store = api_key_store
+    try:
+        env_resolver = EnvKeyResolver(
+            env_keys_with_labels=cfg.api_keys_with_labels,
+            role_mapping=cfg.role_mapping,
+            key_store=api_key_store,
+        )
+        env_sync_summary = await env_resolver.sync_to_db()
+        logger.info(
+            "env api_keys synced to DB: created=%d skipped=%d",
+            env_sync_summary["created"],
+            env_sync_summary["skipped"],
+        )
+    except Exception:
+        logger.exception("env api_keys sync failed; continuing with stale DB")
+    # Per Plan 8 D8.29 step 10: dashboard internal keys are rotated on
+    # every startup so a leaked in-memory key can't outlive the process.
+    # Existing rows under the same label get revoked first.
+    dashboard_internal_keys: dict[str, str] = getattr(
+        app.state, "dashboard_internal_keys", {}
+    )
+    for username, raw_key in dashboard_internal_keys.items():
+        label = f"dashboard-{username}"
+        try:
+            existing = await api_key_store.get_by_label(label)
+            if existing is not None and existing["revoked_at"] is None:
+                await api_key_store.revoke(label=label)
+            role = cfg.role_mapping.get(label, "submitter")
+            await api_key_store.create(
+                label=label,
+                raw_key=raw_key,
+                role=role,
+                created_by_label="lifespan_bootstrap",
+                notes=(
+                    "Auto-generated internal key for dashboard cookie auth"
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "dashboard internal key sync failed for label=%s", label
+            )
+    app.state.key_resolver = DBKeyResolver(
+        key_store=api_key_store,
+        cfg=cfg,
+        role_override_mode=getattr(cfg, "role_override_mode", "db"),
+    )
     # Plan 7 D7.18 / Task 14 — re-arm paused-timer watchdogs from
     # durable state. The in-process timer was lost when the previous
     # process exited; the recovery hook either re-arms with the
@@ -571,6 +639,13 @@ def create_app(config: Config | None = None) -> FastAPI:
     # block ends with the collaboration + accounting endpoints
     # together (a natural read order on the docs page).
     app.include_router(cost_router, prefix="/api/v1")
+    # Plan 8 Task 22 / D8.29 — admin api_key self-service. Router's
+    # internal prefix is ``/admin/keys`` so the mounted path is
+    # ``/api/v1/admin/keys``. Mounted last in the v1 block so the
+    # OpenAPI tag ordering still reads functional-area first
+    # (sessions/events/hitl/audit/...) with operator-only admin
+    # tooling clearly tagged at the tail.
+    app.include_router(admin_keys_router, prefix="/api/v1")
     app.include_router(health_router)
     app.include_router(metrics_router)
     app.include_router(dashboard_router)

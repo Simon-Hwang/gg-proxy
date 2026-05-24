@@ -63,6 +63,45 @@ class TemplateConflictError(Exception):
     """
 
 
+class ApiKeyConflictError(Exception):
+    """Raised by :meth:`gg_relay.auth.store.ApiKeyStore.create` when
+    the supplied ``label`` collides with an existing row.
+
+    Plan 8 D8.29 / Task 22. The store catches the underlying
+    :class:`sqlalchemy.exc.IntegrityError` (triggered by the
+    ``ux_api_keys_label`` unique constraint) and re-raises this
+    typed exception so the admin POST endpoint can map it to a clean
+    409 ``api_key_label_conflict`` response without coupling to
+    SQLAlchemy's exception hierarchy. Lives in :mod:`gg_relay.core`
+    so the auth + api packages can both reference it without an
+    import cycle.
+    """
+
+
+class LastAdminError(Exception):
+    """Raised when revoking the supplied admin key would leave zero
+    active admin keys.
+
+    Plan 8 D8.29 / Task 22 — defensive guard against the
+    ``revoke-everyone-then-lock-yourself-out`` footgun. The admin
+    DELETE endpoint counts active admins **before** the revoke
+    completes; if the count is ``<= 1`` the revoke is refused with
+    HTTP 400 ``last_admin_revoke_forbidden``.
+    """
+
+
+class SelfRevokeError(Exception):
+    """Raised when an admin tries to revoke their own currently-active
+    key via :func:`gg_relay.api.routers.admin_keys.revoke_api_key`.
+
+    Plan 8 D8.29 / Task 22 — even though the last-admin guard
+    technically covers the single-admin case, refusing self-revoke
+    explicitly gives operators a clearer error and prevents the
+    awkward "create a second admin to revoke yourself" recovery
+    path that a sloppy click can trigger.
+    """
+
+
 class HITLAlreadyResolved(Exception):
     """HITL request was already resolved by an earlier decision.
 
@@ -256,8 +295,10 @@ def classify_sdk_error(exc: Exception) -> SDKError:
 
 
 __all__ = [
+    "ApiKeyConflictError",
     "DurableEventDropError",
     "HITLAlreadyResolved",
+    "LastAdminError",
     "RetryConfigError",
     "SDKConnectError",
     "SDKError",
@@ -266,6 +307,7 @@ __all__ = [
     "SDKTimeoutError",
     "SDKTransportError",
     "SDKUnknownError",
+    "SelfRevokeError",
     "TemplateConflictError",
     "classify_sdk_error",
 ]
