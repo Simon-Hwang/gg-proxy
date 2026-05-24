@@ -120,7 +120,7 @@ def _resolve_role(request: Request) -> str:
         db_role = getattr(request.state, "api_key_role", None)
         if db_role:
             request.state.role = db_role
-            return db_role
+            return str(db_role)
 
     role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
     role = role_map.get(label, "viewer")

@@ -43,7 +43,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.trace import Span
 
 from gg_relay.core import (
-    EventBus,
+    EventBusBackend,
     InstallError,
     SessionStateChanged,
     ToolRequested,
@@ -72,7 +72,7 @@ class OtelSubscriber:
 
     def __init__(
         self,
-        bus: EventBus,
+        bus: EventBusBackend,
         provider: TracerProvider,
         *,
         tracer_name: str = "gg_relay.session",

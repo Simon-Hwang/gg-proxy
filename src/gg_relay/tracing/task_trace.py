@@ -28,7 +28,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from gg_relay.core import (
-    EventBus,
+    EventBusBackend,
     HITLRequested,
     HITLResolved,
     InstallError,
@@ -93,7 +93,7 @@ class TaskTraceSubscriber:
     def disabled(self) -> bool:
         return self._path is None
 
-    async def consume(self, bus: EventBus) -> None:
+    async def consume(self, bus: EventBusBackend) -> None:
         """Drain ``bus`` until close. Ignores events without a render."""
         async for event in bus.subscribe("*"):
             if isinstance(event, RelayEvent):

@@ -23,6 +23,7 @@ import warnings
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from typing import cast as _typing_cast
 
 import sqlalchemy as sa
 from sqlalchemy import (
@@ -158,14 +159,20 @@ def _tag_filter_clause(
     supports SQLite (dev/test) + Postgres (prod) per Plan 4 §8.
     """
     if dialect == "sqlite":
-        return sa.text(
-            "EXISTS (SELECT 1 FROM json_each(sessions.tags) AS je "
-            "WHERE je.value = :tag_param)"
-        ).bindparams(tag_param=tag)
+        return _typing_cast(
+            "sa.ColumnElement[bool]",
+            sa.text(
+                "EXISTS (SELECT 1 FROM json_each(sessions.tags) AS je "
+                "WHERE je.value = :tag_param)"
+            ).bindparams(tag_param=tag),
+        )
     if dialect in {"postgresql", "postgres"}:
-        return sa.text(
-            "sessions.tags::jsonb @> jsonb_build_array(:tag_param)"
-        ).bindparams(tag_param=tag)
+        return _typing_cast(
+            "sa.ColumnElement[bool]",
+            sa.text(
+                "sessions.tags::jsonb @> jsonb_build_array(:tag_param)"
+            ).bindparams(tag_param=tag),
+        )
     raise NotImplementedError(
         f"tag filter not implemented for dialect {dialect!r}"
     )
@@ -1098,13 +1105,16 @@ class SqlAlchemyStore:
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
             row = result.mappings().first()
+        row_map: Mapping[str, Any] = _typing_cast(
+            "Mapping[str, Any]", row
+        ) if row is not None else {}
         return {
             "user": user_label,
             "period": period,
             "from_ts": from_ts.isoformat(),
-            "session_count": int((row or {}).get("session_count", 0) or 0),
+            "session_count": int(row_map.get("session_count", 0) or 0),
             "total_cost_usd": float(
-                (row or {}).get("total_cost_usd", 0.0) or 0.0
+                row_map.get("total_cost_usd", 0.0) or 0.0
             ),
         }
 
@@ -1356,16 +1366,17 @@ class SqlAlchemyStore:
             return None
         return int(v)
 
-    async def get_hitl(self, req_id: str) -> RowMapping | None:
+    async def get_hitl(self, req_id: str) -> Mapping[str, Any] | None:
         async with self._engine.connect() as conn:
             result = await conn.execute(
                 select(hitl_requests).where(hitl_requests.c.id == req_id)
             )
-            return result.mappings().first()
+            row = result.mappings().first()
+        return _typing_cast("Mapping[str, Any] | None", row)
 
     async def list_pending_hitl(
         self, *, session_id: str | None = None
-    ) -> list[RowMapping]:
+    ) -> Sequence[Mapping[str, Any]]:
         clauses = [hitl_requests.c.status == "pending"]
         if session_id is not None:
             clauses.append(hitl_requests.c.session_id == session_id)
@@ -1376,7 +1387,8 @@ class SqlAlchemyStore:
         )
         async with self._engine.connect() as conn:
             result = await conn.execute(stmt)
-            return list(result.mappings().all())
+            rows = result.mappings().all()
+        return _typing_cast("list[Mapping[str, Any]]", list(rows))
 
     # ── audit (Plan 8 D8.4) ───────────────────────────────────────────
 
@@ -1445,13 +1457,13 @@ class SqlAlchemyStore:
         # the autoincrement id from ``inserted_primary_key`` after the
         # INSERT executes. SQLAlchemy populates that on the
         # CursorResult regardless of dialect.
-        stmt = insert(audit_log).values(**values)
+        insert_stmt = insert(audit_log).values(**values)
         if conn is not None:
-            result = await conn.execute(stmt)
+            result = await conn.execute(insert_stmt)
             pk = result.inserted_primary_key
             return int(pk[0]) if pk and pk[0] is not None else 0
         async with self._engine.begin() as new_conn:
-            result = await new_conn.execute(stmt)
+            result = await new_conn.execute(insert_stmt)
             pk = result.inserted_primary_key
             return int(pk[0]) if pk and pk[0] is not None else 0
 

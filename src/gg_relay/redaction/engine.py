@@ -32,7 +32,7 @@ the API layer:
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, MutableMapping
 from typing import Any
 
 from pydantic import SecretStr
@@ -200,8 +200,8 @@ def _mask_value(value: Any) -> Any:
 def redaction_processor(
     logger: Any,
     method_name: str,
-    event_dict: dict[str, Any],
-) -> dict[str, Any]:
+    event_dict: MutableMapping[str, Any],
+) -> MutableMapping[str, Any]:
     """structlog processor masking :class:`SecretStr` + sensitive strings.
 
     Signature follows the structlog processor protocol

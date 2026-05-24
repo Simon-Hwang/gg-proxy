@@ -272,5 +272,5 @@ def _iso_or_none(value: Any) -> str | None:
     if value is None:
         return None
     if hasattr(value, "isoformat"):
-        return value.isoformat()
+        return str(value.isoformat())
     return str(value)

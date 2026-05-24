@@ -42,7 +42,7 @@ XSS payloads covered by the unit tests in
 """
 from __future__ import annotations
 
-import bleach
+import bleach  # type: ignore[import-untyped]
 from markdown_it import MarkdownIt
 
 # Block-level structure plus the few inline tags worth supporting.
@@ -101,13 +101,14 @@ def render_safe(markdown_text: str) -> str:
     without a navigable target.
     """
     raw_html = _md.render(markdown_text)
-    return bleach.clean(
+    cleaned: str = bleach.clean(
         raw_html,
         tags=ALLOWED_TAGS,
         attributes=ALLOWED_ATTRS,
         protocols=ALLOWED_PROTOCOLS,
         strip=True,
     )
+    return cleaned
 
 
 __all__ = [

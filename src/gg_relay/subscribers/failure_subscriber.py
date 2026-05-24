@@ -34,7 +34,7 @@ import contextlib
 import logging
 from typing import Any
 
-from gg_relay.core import EventBus, SessionStateChanged
+from gg_relay.core import EventBusBackend, SessionStateChanged
 from gg_relay.subscribers.alert_router import AlertRouter
 
 logger = logging.getLogger("gg_relay.subscribers.failure_subscriber")
@@ -83,7 +83,7 @@ class FailureSubscriber:
     def __init__(
         self,
         *,
-        bus: EventBus,
+        bus: EventBusBackend,
         alert_router: AlertRouter,
         store: Any = None,
     ) -> None:

@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from typing import Any
 
 from gg_relay.core import (
-    EventBus,
+    EventBusBackend,
     HITLRequested,
     RelayEvent,
     SessionCompleted,
@@ -91,7 +91,7 @@ class IMSubscriber:
     to complete so the lifespan teardown is deterministic.
     """
 
-    bus: EventBus
+    bus: EventBusBackend
     builder: CardBuilder
     backend: IMBackend
     default_channel: str | None = None

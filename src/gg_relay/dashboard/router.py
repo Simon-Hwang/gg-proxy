@@ -983,6 +983,10 @@ async def search_results(
         if isinstance(spec, dict):
             prompt_val = str(spec.get("prompt") or "")
         submitted = r.get("submitted_at") if hasattr(r, "get") else None
+        if submitted is not None and hasattr(submitted, "isoformat"):
+            submitted_str = str(submitted.isoformat())
+        else:
+            submitted_str = str(submitted)
         items.append(
             {
                 "id": r["id"],
@@ -990,11 +994,7 @@ async def search_results(
                 "owner": r.get("owner") if hasattr(r, "get") else None,
                 "status": r["status"],
                 "tags": list(r["tags"] or []),
-                "submitted_at": (
-                    submitted.isoformat()
-                    if hasattr(submitted, "isoformat")
-                    else str(submitted)
-                ),
+                "submitted_at": submitted_str,
             }
         )
     return templates.TemplateResponse(

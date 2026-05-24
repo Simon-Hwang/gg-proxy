@@ -1457,6 +1457,52 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/drain": {
+      "delete": {
+        "description": "Cancel the drain \u2014 ``/readyz`` flips back to 200.\n\nUseful for operator-error recovery: an accidental drain\nPOST during a deploy can be reverted without restarting the\npod. Idempotent \u2014 second undrain is a no-op.",
+        "operationId": "undrain_api_v1_admin_drain_delete",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Undrain Api V1 Admin Drain Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Undrain",
+        "tags": [
+          "admin-drain"
+        ]
+      },
+      "post": {
+        "description": "Signal \"no new traffic\" \u2014 ``/readyz`` returns 503 afterwards.",
+        "operationId": "drain_api_v1_admin_drain_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Drain Api V1 Admin Drain Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Drain",
+        "tags": [
+          "admin-drain"
+        ]
+      }
+    },
     "/api/v1/admin/keys": {
       "get": {
         "description": "List api_keys, newest-first. NEVER includes plaintext.\n\n``include_revoked=True`` surfaces soft-deleted rows so operators\ncan audit prior keys; the default omits them so the working\nlist stays compact.",

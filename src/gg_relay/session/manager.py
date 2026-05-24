@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from gg_relay.core import (
-    EventBus,
+    EventBusBackend,
     InstallError,
     SessionCreated,
     SessionState,
@@ -193,7 +193,7 @@ class SessionManager:
         executor_factory: ExecutorFactory,
         assembler: PluginAssembler,
         store: SessionRepository,
-        bus: EventBus,
+        bus: EventBusBackend,
         coordinator: HITLCoordinator,
         redactor: RedactionEngine,
         default_policy: ToolPolicy,

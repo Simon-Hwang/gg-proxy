@@ -24,7 +24,7 @@ import time
 from typing import Any, Final
 
 from gg_relay.core import (
-    EventBus,
+    EventBusBackend,
     HITLRequested,
     HITLResolved,
     InstallError,
@@ -67,7 +67,7 @@ class MetricsSubscriber:
         # bounded by the SessionManager's own state-machine guarantees.
         self._start_times: dict[str, float] = {}
 
-    async def run(self, bus: EventBus) -> None:
+    async def run(self, bus: EventBusBackend) -> None:
         tasks = [
             asyncio.create_task(self._created(bus), name="metrics.created"),
             asyncio.create_task(self._state(bus), name="metrics.state"),
@@ -83,11 +83,11 @@ class MetricsSubscriber:
                 t.cancel()
             raise
 
-    async def _created(self, bus: EventBus) -> None:
+    async def _created(self, bus: EventBusBackend) -> None:
         async for _ in bus.subscribe(SessionCreated):
             SESSIONS_TOTAL.inc()
 
-    async def _state(self, bus: EventBus) -> None:
+    async def _state(self, bus: EventBusBackend) -> None:
         async for ev in bus.subscribe(SessionStateChanged):
             assert isinstance(ev, SessionStateChanged)  # noqa: S101
             self._on_state(ev)
@@ -111,7 +111,7 @@ class MetricsSubscriber:
                 if started is not None:
                     SESSION_DURATION.observe(time.monotonic() - started)
 
-    async def _completed(self, bus: EventBus) -> None:
+    async def _completed(self, bus: EventBusBackend) -> None:
         async for ev in bus.subscribe(SessionCompleted):
             assert isinstance(ev, SessionCompleted)  # noqa: S101
             SESSIONS_BY_STATUS.labels(status=ev.status).inc()
@@ -163,16 +163,16 @@ class MetricsSubscriber:
         if cost:
             COST_USD.inc(float(cost))
 
-    async def _hitl_req(self, bus: EventBus) -> None:
+    async def _hitl_req(self, bus: EventBusBackend) -> None:
         async for _ in bus.subscribe(HITLRequested):
             HITL_REQUESTS.inc()
 
-    async def _hitl_res(self, bus: EventBus) -> None:
+    async def _hitl_res(self, bus: EventBusBackend) -> None:
         async for ev in bus.subscribe(HITLResolved):
             assert isinstance(ev, HITLResolved)  # noqa: S101
             HITL_RESOLVED.labels(decision=ev.decision).inc()
 
-    async def _errors(self, bus: EventBus) -> None:
+    async def _errors(self, bus: EventBusBackend) -> None:
         async for ev in bus.subscribe(InstallError):
             assert isinstance(ev, InstallError)  # noqa: S101
             ERRORS.labels(kind=ev.code).inc()
