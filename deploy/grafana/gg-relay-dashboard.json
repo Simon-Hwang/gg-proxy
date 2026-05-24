@@ -1,0 +1,84 @@
+{
+  "title": "gg-relay",
+  "uid": "gg-relay-main",
+  "schemaVersion": 38,
+  "version": 1,
+  "timezone": "",
+  "tags": ["gg-relay", "observability"],
+  "time": {"from": "now-6h", "to": "now"},
+  "refresh": "30s",
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Active sessions",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "gg_relay_active_sessions", "refId": "A"}
+      ],
+      "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4}
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Sessions started per minute",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "rate(gg_relay_sessions_started_total[1m])", "refId": "A"}
+      ],
+      "gridPos": {"x": 6, "y": 0, "w": 12, "h": 8}
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Session duration (p50 / p95 / p99)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "histogram_quantile(0.50, sum(rate(gg_relay_session_duration_seconds_bucket[5m])) by (le))", "refId": "A", "legendFormat": "p50"},
+        {"expr": "histogram_quantile(0.95, sum(rate(gg_relay_session_duration_seconds_bucket[5m])) by (le))", "refId": "B", "legendFormat": "p95"},
+        {"expr": "histogram_quantile(0.99, sum(rate(gg_relay_session_duration_seconds_bucket[5m])) by (le))", "refId": "C", "legendFormat": "p99"}
+      ],
+      "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8}
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Cost by owner (7d, Top 10)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "topk(10, sum by (owner) (increase(gg_relay_session_cost_usd_total[7d])))", "refId": "A", "instant": true}
+      ],
+      "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Cost trend (30d, per owner)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum by (owner) (increase(gg_relay_session_cost_usd_total[1d]))", "refId": "A", "legendFormat": "{{owner}}"}
+      ],
+      "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8}
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Team cost (30d total, USD)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum(increase(gg_relay_session_cost_usd_total[30d]))", "refId": "A"}
+      ],
+      "gridPos": {"x": 0, "y": 24, "w": 6, "h": 4}
+    },
+    {
+      "id": 7,
+      "type": "table",
+      "title": "Failure rate by owner (24h)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum by (owner) (rate(gg_relay_session_count_total{status=\"failed\"}[24h])) / sum by (owner) (rate(gg_relay_session_count_total[24h]))", "refId": "A", "instant": true}
+      ],
+      "gridPos": {"x": 6, "y": 24, "w": 12, "h": 8}
+    }
+  ]
+}

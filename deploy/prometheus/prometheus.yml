@@ -1,0 +1,19 @@
+# Prometheus scrape config — Plan 8 D8.13 / Task 20.
+#
+# Single scrape job targets the gg-relay FastAPI metrics endpoint
+# (``/metrics`` mounted by ``metrics_router``; Plan 7 D7.15 wires
+# ``prometheus_client`` to that route). ``service: gg-relay`` is
+# attached as a label so multi-deployment setups can sum across
+# replicas with ``sum by (service)``.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: gg-relay
+    scrape_interval: 10s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['gg-relay:8000']
+        labels:
+          service: gg-relay

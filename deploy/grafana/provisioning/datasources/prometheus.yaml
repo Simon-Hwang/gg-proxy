@@ -1,0 +1,14 @@
+# Grafana datasource provisioning — Plan 8 D8.13 / Task 20.
+#
+# Points the bundled dashboard at the sibling Prometheus container.
+# ``uid: prometheus`` is referenced by the dashboard panel queries so
+# the bootstrap survives a future datasource rename in the UI.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: true

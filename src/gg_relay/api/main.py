@@ -360,6 +360,29 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         cfg=cfg,
         role_override_mode=getattr(cfg, "role_override_mode", "db"),
     )
+    # ── Plan 8 Task 20 / D8.28 — bootstrap-admin reminder ────────────
+    # If the env→DB sync + dashboard internal-key refresh did not
+    # produce a single active admin row, the deployment cannot mutate
+    # ``/api/v1/admin/*`` (there is nobody authorised to call those
+    # endpoints). Log a one-shot warning so the operator runs
+    # ``gg-relay bootstrap-admin --label <name>`` before exposing the
+    # dashboard or admin endpoints. ``app.state.warn_no_admin`` is
+    # exposed so a future ``/readyz`` extension / metric can surface
+    # the same fact without grepping the log.
+    try:
+        admin_count = await api_key_store.count_active_admins()
+    except Exception:
+        logger.exception("count_active_admins failed; assuming no admin")
+        admin_count = 0
+    if admin_count == 0:
+        logger.warning(
+            "NO ACTIVE ADMIN API KEY. Run `gg-relay bootstrap-admin "
+            "--label <name>` to create one before exposing the "
+            "dashboard or admin endpoints."
+        )
+        app.state.warn_no_admin = True
+    else:
+        app.state.warn_no_admin = False
     # Plan 7 D7.18 / Task 14 — re-arm paused-timer watchdogs from
     # durable state. The in-process timer was lost when the previous
     # process exited; the recovery hook either re-arms with the

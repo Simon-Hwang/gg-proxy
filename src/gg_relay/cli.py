@@ -7,6 +7,8 @@ Commands:
 - ``check-secrets``   — validate required env vars present
 - ``prune``           — delete frames older than ``--older-than``
 - ``bootstrap-admin`` — mint the initial admin api_key (Plan 8 D8.29)
+- ``maintenance``     — batched retention prune for observability tables
+                        (Plan 8 D8.3 / Task 20)
 """
 from __future__ import annotations
 
@@ -307,6 +309,91 @@ def bootstrap_admin(
             typer.echo(f"Appended to {env_path}")
         except OSError as exc:
             typer.echo(f"Could not write env: {exc}", err=True)
+
+
+@app.command(name="maintenance")
+def maintenance_cmd(
+    retention_days: Annotated[
+        int,
+        typer.Option(
+            "--retention-days",
+            help="Retention horizon for ``events`` rows (days).",
+        ),
+    ] = 30,
+    audit_log_days: Annotated[
+        int,
+        typer.Option(
+            "--audit-log-days",
+            help="Retention horizon for ``audit_log`` rows (days).",
+        ),
+    ] = 90,
+    hitl_resolved_days: Annotated[
+        int,
+        typer.Option(
+            "--hitl-resolved-days",
+            help=(
+                "Retention horizon for resolved ``hitl_requests`` rows "
+                "(days after ``resolved_at``)."
+            ),
+        ),
+    ] = 30,
+    batch_size: Annotated[
+        int,
+        typer.Option(
+            "--batch-size",
+            help="Per-batch DELETE LIMIT. Lower it under heavy write load.",
+        ),
+    ] = 10000,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run/--no-dry-run",
+            help="Preview row counts without issuing DELETEs.",
+        ),
+    ] = False,
+) -> None:
+    """Run retention cleanup on observability tables.
+
+    Plan 8 D8.3 / Task 20 — drops rows from ``events`` (30 d default),
+    ``audit_log`` (90 d default) and resolved ``hitl_requests`` (30 d
+    after ``resolved_at``) in ``LIMIT 10000`` batches so a multi-million
+    row backlog doesn't hold a long DB lock.
+
+    Recommended cron::
+
+        0 3 * * *  gg-relay maintenance --retention-days 30
+    """
+    from gg_relay.maintenance.retention import run_retention
+
+    cfg = _load_config()
+
+    async def _do() -> None:
+        engine = make_async_engine(cfg.database_url)
+        try:
+            result = await run_retention(
+                engine=engine,
+                events_days=retention_days,
+                audit_log_days=audit_log_days,
+                hitl_resolved_days=hitl_resolved_days,
+                batch_size=batch_size,
+                dry_run=dry_run,
+            )
+        finally:
+            await engine.dispose()
+        verb = "Would delete" if dry_run else "Deleted"
+        typer.echo(
+            "Retention run ({mode})".format(
+                mode="DRY RUN" if dry_run else "LIVE"
+            )
+        )
+        for s in result.summaries:
+            typer.echo(
+                f"  {s.table:14s} cutoff={s.cutoff.isoformat()} "
+                f"{verb} {s.rows_deleted} rows in {s.batches} batches"
+            )
+        typer.echo(f"  Total {verb.lower()}: {result.total_deleted}")
+
+    asyncio.run(_do())
 
 
 @app.command(name="version")

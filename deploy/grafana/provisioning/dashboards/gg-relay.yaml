@@ -1,0 +1,17 @@
+# Grafana dashboard provisioning — Plan 8 D8.13 / Task 20.
+#
+# Points a file-backed provider at the read-only mount that ships the
+# committed ``gg-relay-dashboard.json``. ``allowUiUpdates: true`` lets
+# operators tweak the dashboard from the Grafana UI without losing the
+# bootstrap version on the next restart (Grafana renames the on-disk
+# dashboard rather than overwriting it).
+apiVersion: 1
+providers:
+  - name: gg-relay
+    folder: gg-relay
+    type: file
+    disableDeletion: false
+    editable: true
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
