@@ -359,32 +359,79 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         )
     except Exception:
         logger.exception("env api_keys sync failed; continuing with stale DB")
-    # Per Plan 8 D8.29 step 10: dashboard internal keys are rotated on
-    # every startup so a leaked in-memory key can't outlive the process.
-    # Existing rows under the same label get revoked first.
-    dashboard_internal_keys: dict[str, str] = getattr(
-        app.state, "dashboard_internal_keys", {}
-    )
-    for username, raw_key in dashboard_internal_keys.items():
+    # Plan 9 D9.10 — DB-backed dashboard internal keys.
+    # Replaces the per-pod ``secrets.token_urlsafe`` derivation
+    # (v0.8.x) which broke cookie-signed cross-pod requests in a
+    # multi-worker deployment. The DashboardKeyStore returns a
+    # *shared* raw_key per username across every worker — so a
+    # cookie signed on worker A still resolves on worker B.
+    #
+    # Logic:
+    #   * For each configured dashboard user, ``get_or_create``
+    #     atomically returns the existing key or inserts a new one.
+    #   * The matching api_keys row is upserted so the synthetic
+    #     header passes APIKey middleware (only revokes when the
+    #     hash actually changes — avoids needless rotation noise
+    #     on warm-restart of a pod that already had the right key).
+    from gg_relay.auth.store import hash_key
+    from gg_relay.store.dashboard_keys import DashboardKeyStore
+
+    dashboard_key_store = DashboardKeyStore(engine)
+    app.state.dashboard_key_store = dashboard_key_store
+    dashboard_internal_keys: dict[str, str] = {}
+    for username in cfg.dashboard_users:
         label = f"dashboard-{username}"
         try:
+            raw_key = await dashboard_key_store.get_or_create(username)
+            dashboard_internal_keys[username] = raw_key
             existing = await api_key_store.get_by_label(label)
-            if existing is not None and existing["revoked_at"] is None:
+            expected_hash = hash_key(raw_key)
+            if existing is None or existing.get("revoked_at") is not None:
+                role = cfg.role_mapping.get(label, "submitter")
+                await api_key_store.create(
+                    label=label,
+                    raw_key=raw_key,
+                    role=role,
+                    created_by_label="lifespan_bootstrap",
+                    notes=(
+                        "DB-stored internal key for dashboard cookie auth "
+                        "(Plan 9 D9.10)"
+                    ),
+                )
+            elif existing.get("key_hash") != expected_hash:
+                # Stored key differs (manual DB tweak / older random
+                # generation); revoke + recreate with the DB-backed key.
                 await api_key_store.revoke(label=label)
-            role = cfg.role_mapping.get(label, "submitter")
-            await api_key_store.create(
-                label=label,
-                raw_key=raw_key,
-                role=role,
-                created_by_label="lifespan_bootstrap",
-                notes=(
-                    "Auto-generated internal key for dashboard cookie auth"
-                ),
-            )
+                role = cfg.role_mapping.get(label, "submitter")
+                await api_key_store.create(
+                    label=label,
+                    raw_key=raw_key,
+                    role=role,
+                    created_by_label="lifespan_bootstrap",
+                    notes=(
+                        "DB-stored internal key for dashboard cookie auth "
+                        "(Plan 9 D9.10)"
+                    ),
+                )
         except Exception:
             logger.exception(
-                "dashboard internal key sync failed for label=%s", label
+                "dashboard internal key sync failed for username=%s",
+                username,
             )
+    app.state.dashboard_internal_keys = dashboard_internal_keys
+
+    # Plan 9 D9.10 — start KeyInvalidateSubscriber so admin
+    # rotations published on the bus propagate to every worker's
+    # app.state.dashboard_internal_keys. In single-worker mode this
+    # is a local fan-out (no-op for cluster propagation but still
+    # refreshes app.state after a CLI rotation).
+    from gg_relay.cluster.key_invalidate import KeyInvalidateSubscriber
+
+    key_invalidate_sub = KeyInvalidateSubscriber(
+        bus=bus, store=dashboard_key_store, app=app
+    )
+    key_invalidate_sub.start()
+    app.state.key_invalidate_subscriber = key_invalidate_sub
     app.state.key_resolver = DBKeyResolver(
         key_store=api_key_store,
         cfg=cfg,
@@ -529,6 +576,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             task.cancel()
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 await task
+        # Plan 9 D9.10 — stop the KeyInvalidateSubscriber BEFORE the
+        # bus closes so the subscriber doesn't wake up to a dead bus.
+        sub = getattr(app.state, "key_invalidate_subscriber", None)
+        if sub is not None:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await sub.stop()
         await bus.close()
         # Plan 9 D9.3 — close the shared Redis client AFTER the bus
         # so the bus's pump task has a chance to drain its final

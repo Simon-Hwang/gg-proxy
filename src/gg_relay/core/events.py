@@ -35,6 +35,7 @@ __all__ = [
     "HITLResolved",
     "InstallDone",
     "InstallError",
+    "KeyInvalidated",
     "RelayEvent",
     "RelayEventT",
     "SessionCompleted",
@@ -199,6 +200,34 @@ class Heartbeat(RelayEvent):
     runtime_id: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class KeyInvalidated(RelayEvent):
+    """Plan 9 D9.10 — dashboard internal key rotation broadcast.
+
+    Published by :class:`gg_relay.store.dashboard_keys.DashboardKeyStore`
+    rotate / delete operations (typically triggered by an admin endpoint
+    or the ``gg-relay dashboard-rotate`` CLI). Multi-worker subscribers
+    (:class:`gg_relay.cluster.key_invalidate.KeyInvalidateSubscriber`)
+    reload their ``app.state.dashboard_internal_keys`` from the DB on
+    receipt so the rotation takes effect across the cluster without
+    requiring every pod to restart.
+
+    ``usernames`` is a tuple so the broadcast can carry a bulk
+    rotation (e.g. operator removes 3 dashboard users at once);
+    subscribers refresh the entire mapping rather than diffing per
+    username — keeps the consistency guarantee simple.
+
+    ``session_id`` is empty (this isn't a session-scoped event); the
+    field is required by the :class:`RelayEvent` filter contract for
+    the SSE per-session feed which simply ignores events with no
+    matching session_id.
+    """
+
+    session_id: str = ""
+    usernames: tuple[str, ...] = ()
+    delivery_tier: DeliveryTier = "durable"
+
+
 # ── Union for static typing of subscribers ───────────────────────────────
 
 
@@ -214,6 +243,7 @@ RelayEventT = (
     | InstallDone
     | InstallError
     | Heartbeat
+    | KeyInvalidated
 )
 """Union over every concrete subclass.
 

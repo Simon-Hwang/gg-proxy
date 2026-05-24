@@ -20,6 +20,7 @@ from gg_relay.core.events import (
     HITLResolved,
     InstallDone,
     InstallError,
+    KeyInvalidated,
     RelayEvent,
     RelayEventT,
     SessionCompleted,
@@ -43,6 +44,7 @@ ALL_SUBCLASSES = (
     InstallDone,
     InstallError,
     Heartbeat,
+    KeyInvalidated,
 )
 
 
