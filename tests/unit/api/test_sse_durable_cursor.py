@@ -1,9 +1,14 @@
 """Plan 9 D9.9 — SSE durable-cursor parsing.
 
 Single cursor format: ``Last-Event-ID: <events.seq>:<event_id>``.
-The legacy v1 microsecond + v2 prefix-tagged formats that v1.4
-LOCKED carried for rolling-deploy safety were removed at v0.9.0
-pre-prod simplification. Only the row-seq path is recognised.
+The legacy v1 microsecond + v2 prefix-tagged dual-format dispatch
+the v0.9.0-rc draft once carried for rolling-deploy safety was
+removed at the v0.9.0 GA pre-prod simplification — only the
+row-seq path is recognised. This file used to live as
+``test_sse_cursor_schema_version.py`` (a stale name from the
+dual-schema era); it was renamed when the schema_version branch
+disappeared so the filename matches the single contract under
+test.
 """
 from __future__ import annotations
 

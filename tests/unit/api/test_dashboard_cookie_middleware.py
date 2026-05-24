@@ -1,4 +1,4 @@
-"""Plan 8 Task 3 / D8.26 — DashboardCookieMiddleware unit tests.
+"""Plan 8 D8.26 + Plan 9 D9.0a — DashboardCookieMiddleware unit tests.
 
 Exercises the synthetic ``X-API-Key`` injection contract:
 
@@ -18,6 +18,15 @@ Exercises the synthetic ``X-API-Key`` injection contract:
    injection (only ``/api/v1/*`` triggers the rewrite).
 6. ``test_existing_x_api_key_overridden`` — cookie identity wins over
    any pre-attached ``X-API-Key`` (single identity contract D8.25).
+7. ``test_app_state_reassignment_takes_effect`` — Plan 9 D9.0a:
+   the middleware reads ``app.state.dashboard_internal_keys`` at
+   request time, so the D9.10 ``KeyInvalidateSubscriber`` can
+   rotate the mapping after the middleware chain is built.
+
+All cases populate the mapping via ``app.state`` (the only path
+since the v0.9.0 pre-prod simplification removed the legacy ctor
+kwarg); the ``_build_app`` fixture takes ``dashboard_internal_keys``
+as a convenience param and writes it onto ``app.state`` itself.
 """
 from __future__ import annotations
 
@@ -236,3 +245,40 @@ async def test_existing_x_api_key_overridden() -> None:
     assert capture["x_api_key"] == "internal-alice-key-xyz"
     assert capture["x_api_key"] != "attacker-supplied-key"
     assert capture["dashboard_user"] == "alice"
+
+
+# ── Plan 9 D9.10 — app.state rotation (lifespan key swap) ──────────────
+
+
+@pytest.mark.asyncio
+async def test_app_state_reassignment_takes_effect() -> None:
+    """Rotating ``app.state.dashboard_internal_keys`` at lifespan
+    time (the D9.10 ``KeyInvalidateSubscriber`` use case) is
+    reflected by subsequent requests — proves the middleware reads
+    runtime, not ctor-frozen state.
+
+    Other ``app.state`` coverage (initial mapping populated +
+    empty-state pass-through) is already exercised by the tests
+    above: ``test_cookie_present_injects_x_api_key`` proves the
+    happy path and ``test_no_cookie_passes_through`` proves the
+    no-injection fallback, both via the same ``_build_app`` helper
+    that wires the mapping through ``app.state``. The rotation
+    test below is the D9.0a / D9.10 value-add that justified
+    moving the middleware to runtime lookup in the first place.
+    """
+    capture: dict[str, object] = {}
+    app = _build_app(
+        dashboard_internal_keys={"alice": "key-before-rotation"},
+        capture=capture,
+        seed_session={SESSION_KEY: "alice"},
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as ac:
+        r1 = await ac.get("/api/v1/sessions")
+        assert capture["x_api_key"] == "key-before-rotation"
+        # Simulate D9.10 admin rotation: lifespan swaps the mapping.
+        app.state.dashboard_internal_keys = {"alice": "key-after-rotation"}
+        r2 = await ac.get("/api/v1/sessions")
+    assert r1.status_code == 200
+    assert r2.status_code == 200
+    assert capture["x_api_key"] == "key-after-rotation"

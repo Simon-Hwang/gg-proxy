@@ -1,4 +1,4 @@
-"""Plan 9 v0.9.0-rc D9.0b — release.yml / Dockerfile / pyproject parity.
+"""Plan 9 D9.0b — release.yml / Dockerfile / pyproject parity.
 
 Reviewer G Round 3 BLOCKER caught that:
 
@@ -11,8 +11,8 @@ Reviewer G Round 3 BLOCKER caught that:
   ``redis>=5.0``, leaving the door open for a transparent 6.x bump
   on the next ``pip install --upgrade``.
 
-These tests guard the v0.9.0-rc fixes so future CI changes can't
-regress the matrix.
+These tests guard the D9.0b fixes (shipped in v0.9.0) so future
+CI changes can't regress the matrix.
 """
 from __future__ import annotations
 
@@ -90,8 +90,8 @@ def test_pyproject_dev_includes_fakeredis() -> None:
 
 
 def test_pyproject_dev_includes_test_infra() -> None:
-    """Plan 9 v0.9.0-rc adds pytest-xdist + testcontainers for the
-    v0.9.1 multi-worker tests; they belong under [dev]."""
+    """Plan 9 adds pytest-xdist + testcontainers for the multi-worker
+    integration tests; they belong under [dev]."""
     f = REPO_ROOT / "pyproject.toml"
     body = f.read_text()
     for required in ("pytest-xdist", "testcontainers"):

@@ -25,13 +25,14 @@ def test_oos_gate_has_plan8_patterns() -> None:
     # *extends* the list, never removes it.
     for legacy in ["dingtalk", "slack_backend", "SessionRecord"]:
         assert legacy in text, f"Plan 7 D7.24 OOS token {legacy!r} unexpectedly removed"
-    # Plan 8 Task 21 additions.
+    # Plan 8 Task 21 additions still on the OOS list (Plan 9 D9.8
+    # promoted ``kubernetes_asyncio`` *off* the forbidden list since
+    # the K8sJobExecutor uses it as an optional ``[k8s]`` extra).
     for new in [
         "session_replay",
         "span_tree_svg",
         "hitl_mute",
         "runtime_keys.json",
-        "kubernetes_asyncio",
         "OIDC",
         "tenant_id",
         "release-please",

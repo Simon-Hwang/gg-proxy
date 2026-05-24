@@ -1,4 +1,4 @@
-"""Plan 9 v0.9.0-rc D9.0 — EventBusBackend / RateLimitStoreBackend Protocol.
+"""Plan 9 D9.0 — EventBusBackend / RateLimitStoreBackend Protocol.
 
 Verifies that the in-process implementations shipped today
 structurally satisfy the new Protocols (so the Plan 9.1 Redis swap
