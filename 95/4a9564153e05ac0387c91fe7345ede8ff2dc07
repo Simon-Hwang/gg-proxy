@@ -1,0 +1,38 @@
+src/gg_relay/subscribers/failure_subscriber.py
+  s_7cd7e4e0015088::t_c1c9ca0bf6fb02 158-162
+src/gg_relay/api/routers/sessions.py
+  s_7cd7e4e0015088::t_337c4e25981765 542
+  s_7cd7e4e0015088::t_bc4f5cc855fbcc 781
+  s_7cd7e4e0015088::t_54d2cb66588cb5 512
+src/gg_relay/api/routers/hitl.py
+  s_7cd7e4e0015088::t_8944f6c92c4889 23
+  s_7cd7e4e0015088::t_7bfc683d9495d7 256
+src/gg_relay/api/middleware/audit.py
+  s_7cd7e4e0015088::t_58eda580d93408 85-87
+tests/integration/test_admin_keys_e2e.py
+  s_16e85383ae8215::t_a938c5d8fdd4c5 291-293
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "954a9564153e05ac0387c91fe7345ede8ff2dc07",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_7cd7e4e0015088": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "cc83bf2e-1b5a-4b8a-83e9-95118f010b1c",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
