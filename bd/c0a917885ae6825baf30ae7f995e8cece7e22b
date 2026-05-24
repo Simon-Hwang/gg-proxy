@@ -1,0 +1,65 @@
+src/gg_relay/core/protocol.py
+  s_16e85383ae8215::t_a225d6de58a3f7 1,12-14,16-28,43,46-52,56,66,72,74,76-77,79-86,117-122,133-144,150-152
+tests/unit/store/test_plan9_events_seq.py
+  s_16e85383ae8215::t_1e483ee04445f7 1,5-11,41,61,63-65,96-97,106,116,124,130-131,134,138-142
+tests/unit/api/test_identity_contract.py
+  s_16e85383ae8215::t_87e65b0cc16e47 104-105
+src/gg_relay/store/durable_event.py
+  s_16e85383ae8215::t_8566893b0cb236 3,6-15,19-24,56-59,76-78,89-92,99-106,112-113,115-122,124-141,143-153,155,160,164-165,173,191
+  s_16e85383ae8215::t_08fccfbc88f10b 36
+CHANGELOG.md
+  s_16e85383ae8215::t_65de91f5405fda 10,12-60
+src/gg_relay/config.py
+  s_16e85383ae8215::t_fad929a29210ba 440,447-451,453
+tests/unit/cluster/test_boot_check.py
+  s_16e85383ae8215::t_4005cabc12695c 1,7,11-18,48,77-79,89-90,92,99-101,103,110-112,114,123-125,127,130-132,143-144,147
+  s_16e85383ae8215::t_747fd7a9f11ea5 138-142
+tests/unit/cli/test_maintenance_cmd.py
+  s_16e85383ae8215::t_2879545c6ea771 57,68
+src/gg_relay/api/middleware/dashboard_cookie.py
+  s_16e85383ae8215::t_530316d4bc9066 86,89-100,104-108,120-122
+src/gg_relay/store/schema.py
+  s_16e85383ae8215::t_748e5d2fcb5ca7 211-222
+tests/unit/maintenance/test_retention.py
+  s_16e85383ae8215::t_daf65b2e9e4e83 40-46,55
+.env.example
+  s_16e85383ae8215::t_43226a0dadf636 196,201-204
+src/gg_relay/core/event_bus.py
+  s_16e85383ae8215::t_b37973ab9bb80d 298-307,317,319-321,330,334-335,339-341
+src/gg_relay/api/sse.py
+  s_16e85383ae8215::t_46f957cc201d6c 3-24,47-54,58,84-86,100-101,103-108,113-118,130,147,149-153,155-157,214-217
+tests/unit/api/test_dashboard_cookie_middleware.py
+  s_16e85383ae8215::t_d0b57ed3f8cbc6 100,108-111
+src/gg_relay/api/main.py
+  s_16e85383ae8215::t_5823f248b90b78 630-634
+  s_16e85383ae8215::t_22d0c950de6dc2 198,200-204
+tests/unit/api/test_sse_cursor_schema_version.py
+  s_16e85383ae8215::t_8f697585a26f44 1,3-6,28-29,31-33,35-46,48,55,60,63,66
+tests/unit/core/test_plan9_protocols.py
+  s_16e85383ae8215::t_085e8fd05b9874 96-100,102,104,107,109
+tests/integration/test_plan8_baseline.py
+  s_16e85383ae8215::t_fb5ac362b5d510 100-103,111-112
+src/gg_relay/cluster/boot_check.py
+  s_16e85383ae8215::t_a290880350743e 1,16-20,43,57-64,97,99-100,102-103
+tests/unit/api/test_dashboard_cookie_app_state.py
+  s_16e85383ae8215::t_076af678aa6175 1,3,6-22,107-109,129-130,132-133,149
+  s_16e85383ae8215::t_89a7361d347b7e 75
+src/gg_relay/store/migrations/versions/0012_plan9_events_seq_and_dashboard_keys.py
+  s_16e85383ae8215::t_8c8c2ba59be75b 1-35,45-46,52-86,110-117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "bdc0a917885ae6825baf30ae7f995e8cece7e22b",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
