@@ -183,8 +183,18 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         exempt_path_prefixes: Iterable[str] = ("/dashboard/",),
     ) -> None:
         super().__init__(app)
-        self._limiter = limiter
+        # Plan 9 D9.3 — the ctor limiter is the *default* (used when
+        # ``app.state.rate_limiter`` is absent, e.g. direct middleware
+        # construction in unit tests). The lifespan replaces
+        # ``app.state.rate_limiter`` with :class:`RedisRateLimitStore`
+        # when ``cfg.rate_limit_backend == "redis"`` so the swap
+        # happens without touching the middleware chain.
+        self._default_limiter = limiter
         self._exempt_prefixes = tuple(exempt_path_prefixes)
+
+    def _resolve_limiter(self, request: Request):  # type: ignore[no-untyped-def]
+        state_limiter = getattr(request.app.state, "rate_limiter", None)
+        return state_limiter if state_limiter is not None else self._default_limiter
 
     async def dispatch(
         self,
@@ -199,7 +209,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key_id = getattr(request.state, "api_key_id", None)
         if not key_id:
             return await call_next(request)
-        allowed, retry_after = await self._limiter.acquire(key_id)
+        limiter = self._resolve_limiter(request)
+        allowed, retry_after = await limiter.acquire(key_id)
         if not allowed:
             retry_s = int(retry_after) + 1
             return JSONResponse(

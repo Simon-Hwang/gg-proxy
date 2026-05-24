@@ -50,7 +50,6 @@ from gg_relay.auth import (
     EnvKeyResolver,
 )
 from gg_relay.config import Config
-from gg_relay.core import EventBus
 from gg_relay.dashboard import STATIC_DIR as DASHBOARD_STATIC_DIR
 from gg_relay.dashboard import router as dashboard_router
 from gg_relay.im import IMSubscriber, feishu_router
@@ -231,19 +230,25 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # can record audit rows without a per-call DI hop.
     audit_service = AuditService(store)
     app.state.audit_service = audit_service
-    # ── Plan 7 D7.17 (Task 13): wire durable-tier persistence ────────
+    # ── Plan 7 D7.17 + Plan 9 D9.3: wire durable-tier + bus backend ──
     # The disk store backs the SSE Last-Event-ID replay path so
     # subscribers can reconnect after a disconnect without losing
-    # durable events (SessionCreated / StateChanged / Tool* / HITL* /
-    # SessionCompleted / InstallError). Plan 8 will optionally swap
-    # this for a RedisStream-backed store for multi-worker fan-out.
+    # durable events. Plan 9 D9.3 routes through ``build_event_bus``
+    # which picks RedisStreamEventBus (multi-worker) or the in-process
+    # bus based on ``cfg.event_bus_backend``. In strict mode a Redis
+    # outage aborts the lifespan; otherwise we fall back to in-process
+    # with a warning so a transient blip doesn't take down the pod.
+    from gg_relay.cluster import build_event_bus, build_rate_limit_store
+
     durable_store = SqlAlchemyDurableEventStore(engine)
-    bus = EventBus(
+    bus, shared_redis_client = await build_event_bus(
+        cfg,
+        durable_store=durable_store,
         on_drop=lambda _topic: BUS_DROPS.inc(),
         on_durable_drop=lambda _topic: BUS_DURABLE_DROPS.inc(),
-        durable_store=durable_store,
     )
     app.state.durable_event_store = durable_store
+    app.state.shared_redis_client = shared_redis_client
     # Plan 7 D7.20 / Task 14 — give the coordinator a store reference
     # so its ``resolve`` consults the DB row's status before flipping
     # the in-process future. Defends against cross-worker races where
@@ -269,6 +274,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.warning(
             "recovery: marked %d sessions as interrupted", report.interrupted_count
         )
+
+    # Plan 9 D9.3 — swap the in-process rate limiter for the Redis
+    # one once we have the shared client. Middleware reads from
+    # ``request.app.state.rate_limiter`` so this re-assignment is
+    # transparent to in-flight requests.
+    if cfg.rate_limit_enabled and cfg.rate_limit_backend == "redis":
+        try:
+            redis_limiter, _ = await build_rate_limit_store(
+                cfg, redis_client=shared_redis_client
+            )
+            app.state.rate_limiter = redis_limiter
+        except Exception:  # noqa: BLE001 — defensive
+            logger.exception("rate_limit.redis_init_failed")
 
     # Optional OTel subscriber — only wired when an endpoint is configured.
     otel_subscriber = None
@@ -512,6 +530,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             with contextlib.suppress(Exception, asyncio.CancelledError):
                 await task
         await bus.close()
+        # Plan 9 D9.3 — close the shared Redis client AFTER the bus
+        # so the bus's pump task has a chance to drain its final
+        # XREAD before the connection is yanked.
+        shared_client = getattr(app.state, "shared_redis_client", None)
+        if shared_client is not None:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await shared_client.aclose()
         await engine.dispose()
 
 
@@ -597,6 +622,12 @@ def create_app(config: Config | None = None) -> FastAPI:
     # unit-test contract closes the regression.
     app.add_middleware(StructuredLoggingMiddleware)
     if cfg.rate_limit_enabled:
+        # Plan 9 D9.3 — the in-process limiter wired here is the
+        # *default*; the lifespan replaces ``app.state.rate_limiter``
+        # with :class:`RedisRateLimitStore` when
+        # ``cfg.rate_limit_backend == "redis"``. Middleware reads from
+        # app.state at request time so the swap is transparent (same
+        # reason DashboardCookieMiddleware uses app.state).
         rate_limiter = TokenBucketRateLimiter(
             rate_per_min=cfg.rate_limit_per_min,
             burst=cfg.rate_limit_burst,

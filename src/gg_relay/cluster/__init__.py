@@ -18,6 +18,11 @@ from gg_relay.cluster.boot_check import (
     DeploymentModeError,
     validate_deployment_mode,
 )
+from gg_relay.cluster.factory import (
+    RedisUnavailableError,
+    build_event_bus,
+    build_rate_limit_store,
+)
 from gg_relay.cluster.redis_bus import RedisStreamEventBus
 from gg_relay.cluster.redis_rate_limit import RedisRateLimitStore
 from gg_relay.cluster.wire import (
@@ -35,7 +40,10 @@ __all__ = [
     "DeploymentModeError",
     "RedisRateLimitStore",
     "RedisStreamEventBus",
+    "RedisUnavailableError",
     "UnsupportedWireVersionError",
+    "build_event_bus",
+    "build_rate_limit_store",
     "decode_event",
     "encode_event",
     "validate_deployment_mode",
