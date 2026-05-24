@@ -1,0 +1,29 @@
+tests/unit/cluster/test_wire_schema.py
+  s_16e85383ae8215::t_dc361ec821b654 42
+  s_16e85383ae8215::t_18b76685b75edf 1-41,43-106,108-282
+  s_16e85383ae8215::t_dd57a42f111b30 107
+src/gg_relay/cluster/__init__.py
+  s_16e85383ae8215::t_3443622be319a6 4-12,21-27,31-32,34-36
+src/gg_relay/cluster/wire.py
+  s_16e85383ae8215::t_4647fac10d8178 3-52,54-160,166-167,169-184
+  s_16e85383ae8215::t_8735169d949d3b 161-165,168
+  s_16e85383ae8215::t_0472aa4721cedd 1
+  s_16e85383ae8215::t_5ffce0fa034be6 2
+  s_16e85383ae8215::t_e2539fba633899 53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "2381fbe83e833b7a3d4e0a37dc6ccc3f126ab717",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
