@@ -61,6 +61,12 @@ postgres = ["asyncpg>=0.29"]
 # silently swap in an untested major. fakeredis is a dev-only test
 # helper and lives under [dev] to keep this extra production-clean.
 redis = ["redis>=5.0,<6.0"]
+# Plan 9 D9.8 — kubernetes-asyncio for K8sJobExecutor (executor_kind=k8s_job).
+# Upper bound pinned to match the k8s.io/client-go major series in the same
+# release window. The dependency is only exercised when the operator opts in
+# via Config.executor_kind, so users running inprocess/docker never pay the
+# import / wheel-size cost.
+k8s = ["kubernetes-asyncio>=29,<32"]
 otel-http = ["opentelemetry-exporter-otlp-proto-http>=1.24"]
 feishu = []  # FeishuBackend uses only httpx (already a core dep); kept
             # as an empty extra so deployment recipes can pin a future

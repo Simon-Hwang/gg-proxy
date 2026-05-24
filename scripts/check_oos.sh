@@ -46,7 +46,9 @@ FORBIDDEN_FIXED=(
   "span_tree_svg"      # Plan 9+ scope — inline span tree SVG.
   "hitl_mute"          # Plan 11+ scope — security review pending.
   "runtime_keys.json"  # v1 D8.12 file-lock-backed key store.
-  "kubernetes_asyncio" # Plan 9 K8s scope; not Plan 8.
+  # ``kubernetes_asyncio`` was OOS for Plan 8 (deferred to Plan 9
+  # D9.8); the K8sJobExecutor + [k8s] extra landed in 0.9.0 so the
+  # token is no longer forbidden.
   "OIDC"               # Plan 11+ scope; not Plan 8.
   "tenant_id"          # multi-tenant RBAC explicitly OOS.
   "release-please"     # using manual release.yml from Plan 7.

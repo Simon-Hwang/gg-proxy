@@ -104,7 +104,7 @@ class _NoopAssembler:
 
 
 def _build_executor_factory(cfg: Config) -> ExecutorFactory:
-    """Return an :data:`ExecutorFactory` that picks docker vs in-process.
+    """Return an :data:`ExecutorFactory` that picks the executor backend.
 
     The in-process path uses :func:`make_sdk_runner` only when the
     claude-code-sdk is importable; tests can override the factory entirely
@@ -116,7 +116,17 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
     backend's env composition). SessionManager passes runtime_ctx in
     when constructing the executor; legacy callers that don't supply
     it get the pre-Task-14 behaviour.
+
+    Plan 9 D9.8 adds a third path, ``kind="k8s_job"``, behind the
+    ``cfg.executor_kind`` feature flag. The K8s API client is built
+    lazily on the first ``k8s_job`` invocation so the import (and the
+    optional ``kubernetes-asyncio`` dependency) is only paid by
+    deployments that actually opt in.
     """
+    # Cached lazily so the first call pays the kubernetes-asyncio
+    # import cost; subsequent calls reuse the same client.
+    k8s_executor_cache: dict[str, Any] = {}
+
     def _factory(
         kind: str,
         policy: ToolPolicy,
@@ -132,6 +142,25 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
                 socket_root=cfg.docker_socket_root,
                 proxy_url=cfg.outbound_proxy_url,
             )
+        if kind == "k8s_job":
+            executor = k8s_executor_cache.get("executor")
+            if executor is None:
+                from gg_relay.session.executor.k8s_client import (
+                    KubernetesAsyncIOClient,
+                )
+                from gg_relay.session.executor.k8s_job import K8sJobExecutor
+
+                client = KubernetesAsyncIOClient()
+                executor = K8sJobExecutor(
+                    client=client,
+                    namespace=cfg.k8s_namespace,
+                    runner_image=cfg.k8s_runner_image,
+                    runner_port=cfg.k8s_runner_port,
+                    max_concurrent_jobs=cfg.k8s_max_concurrent_jobs,
+                    ttl_seconds_after_finished=cfg.k8s_job_ttl_seconds_after_finished,
+                )
+                k8s_executor_cache["executor"] = executor
+            return executor
         from gg_relay.session.client import make_sdk_runner
 
         runner = make_sdk_runner(

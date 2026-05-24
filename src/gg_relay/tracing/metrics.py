@@ -60,6 +60,8 @@ __all__ = [
     "REDIS_CONNECTION_ERRORS_TOTAL",
     "DASHBOARD_KEY_ROTATIONS_TOTAL",
     "DRAIN_REQUESTS_TOTAL",
+    "K8S_JOB_QUEUE_DEPTH",
+    "K8S_JOB_CREATION_FAILURES_TOTAL",
 ]
 
 
@@ -185,6 +187,20 @@ DASHBOARD_KEY_ROTATIONS_TOTAL = Counter(
 DRAIN_REQUESTS_TOTAL = Counter(
     "gg_relay_drain_requests_total",
     "Times the /admin/drain endpoint was invoked.",
+    registry=REGISTRY,
+)
+K8S_JOB_QUEUE_DEPTH = Gauge(
+    "gg_relay_k8s_job_queue_depth",
+    "Per-session K8s Jobs currently in-flight (created and not yet GC'd). "
+    "Plan 9 D9.8 — caps at Config.k8s_max_concurrent_jobs to protect etcd.",
+    registry=REGISTRY,
+)
+K8S_JOB_CREATION_FAILURES_TOTAL = Counter(
+    "gg_relay_k8s_job_creation_failures_total",
+    "Per-session K8s Job submit attempts that failed. Plan 9 D9.8; "
+    "labelled by reason so the runbook can disambiguate quota / "
+    "auth / queue-full vs API-server errors.",
+    ["reason"],
     registry=REGISTRY,
 )
 

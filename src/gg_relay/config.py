@@ -331,6 +331,49 @@ class Config(BaseSettings):
     docker_image: str = "ghcr.io/gg-org/gg-relay-runner:latest"
     docker_socket_root: Path = Path("/var/run/gg-relay")
 
+    # ── executor selection (Plan 9 D9.8) ─────────────────────────────
+    executor_kind: Literal["inprocess", "docker", "k8s_job"] = "inprocess"
+    """Which :class:`ExecutorBackend` the API lifespan should construct.
+
+    ``inprocess`` (default) — claude-code-sdk in the same process as
+    the API. Cheapest; what every dev environment uses.
+
+    ``docker`` — Plan 3 :class:`DockerExecutor`. Per-session
+    container, NDJSON over an AF_UNIX socket bound by the host.
+
+    ``k8s_job`` — Plan 9 D9.8 :class:`K8sJobExecutor`. **P1 feature
+    flag, opt-in.** Creates a per-session K8s ``Job`` whose runner
+    container listens on TCP for the host to connect with a
+    one-shot ``RELAY_RUNNER_AUTH_TOKEN`` sourced from a per-Job
+    K8s ``Secret``. Requires the ``[k8s]`` extra (``pip install
+    'gg-relay[k8s]'``) which pulls ``kubernetes-asyncio``."""
+
+    # ── K8s Job executor (Plan 9 D9.8, only when executor_kind=k8s_job) ──
+    k8s_namespace: str = "gg"
+    """K8s namespace where per-session ``Job`` + ``Secret`` resources
+    are created. The runner ServiceAccount + NetworkPolicy in
+    ``deploy/k8s/`` are scoped to this namespace."""
+
+    k8s_runner_image: str = "ghcr.io/gg-org/gg-relay-runner:latest"
+    """Container image the per-session ``Job`` runs. Should match
+    the wire-runner image built from this repo's Dockerfile.runner."""
+
+    k8s_runner_port: int = 9001
+    """TCP port the runner container listens on (the K8s ``Job``
+    spec sets ``GG_RELAY_TCP_LISTEN=0.0.0.0:<this port>``)."""
+
+    k8s_max_concurrent_jobs: int = 50
+    """Admission-control cap to prevent etcd back-pressure
+    (Plan 9 R9.12). Submits beyond this raise
+    :class:`K8sJobQueueFull` so the API can 503 cleanly instead
+    of silently piling up Jobs."""
+
+    k8s_job_ttl_seconds_after_finished: int = 600
+    """``ttlSecondsAfterFinished`` set on every per-session ``Job``.
+    With ``k8s_max_concurrent_jobs=50`` and a 10-minute TTL the
+    upper bound on Job objects in etcd is ~5000 (50 * 10 min *
+    10 turnover/min)."""
+
     # ── proxy ───────────────────────────────────────────────────────────
     outbound_proxy_url: str | None = None
     """If unset the lifespan starts the built-in MinimalProxy."""

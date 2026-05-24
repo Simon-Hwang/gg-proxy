@@ -28,11 +28,13 @@ import os
 import signal
 import sys
 from pathlib import Path
+from typing import Any
 
 from gg_relay.session.client import make_wire_runner
 from gg_relay.session.hitl.policy import ToolPolicy
 from gg_relay.session.runner.proxy_client import WireCoordinatorProxy
 from gg_relay.session.spec import SessionSpec
+from gg_relay.session.transport.tcp import TcpServer
 from gg_relay.session.transport.unixsocket import UnixSocketTransport
 
 logger = logging.getLogger("gg_relay.wire_runner")
@@ -49,24 +51,67 @@ _HOST_DELEGATING_POLICY = ToolPolicy(
 )
 
 
-_REQUIRED_ENV = ("GG_RELAY_SPEC_JSON", "GG_RELAY_SOCKET", "ANTHROPIC_API_KEY")
+_REQUIRED_ENV_COMMON = ("GG_RELAY_SPEC_JSON", "ANTHROPIC_API_KEY")
+_REQUIRED_ENV_UNIX = ("GG_RELAY_SOCKET",)
+_REQUIRED_ENV_TCP = ("GG_RELAY_TCP_LISTEN", "RELAY_RUNNER_AUTH_TOKEN")
 
 
-def _check_env() -> None:
-    """Fail fast with a precise error if the launcher forgot to pass an env."""
-    missing = [k for k in _REQUIRED_ENV if not os.environ.get(k)]
+def _check_env(*, tcp_mode: bool) -> None:
+    """Fail fast with a precise error if the launcher forgot to pass an env.
+
+    The runner has two mutually-exclusive transport modes:
+
+    * **Unix socket** (default, Plan 3): host pre-binds the AF_UNIX
+      socket and passes its path via ``GG_RELAY_SOCKET``.
+    * **TCP listen** (Plan 9 D9.8): runner binds a TCP socket on
+      ``GG_RELAY_TCP_LISTEN`` (e.g. ``0.0.0.0:9001``) and waits for
+      the host to connect with the token in
+      ``RELAY_RUNNER_AUTH_TOKEN``.
+    """
+    required = _REQUIRED_ENV_COMMON + (
+        _REQUIRED_ENV_TCP if tcp_mode else _REQUIRED_ENV_UNIX
+    )
+    missing = [k for k in required if not os.environ.get(k)]
     if missing:
         raise SystemExit(
             f"wire_runner: missing required env vars: {', '.join(missing)}"
         )
 
 
+async def _connect_transport(*, tcp_mode: bool) -> Any:
+    """Return the bidirectional transport for the chosen mode.
+
+    Returns ``Any`` to side-step the difference between
+    :class:`UnixSocketTransport` and :class:`TcpTransport` at the
+    type-check level — both satisfy the :class:`SessionTransport`
+    Protocol at runtime which is all the runner needs.
+    """
+    if tcp_mode:
+        bind = os.environ["GG_RELAY_TCP_LISTEN"]
+        token = os.environ["RELAY_RUNNER_AUTH_TOKEN"]
+        host, _, port_str = bind.rpartition(":")
+        if not host or not port_str.isdigit():
+            raise SystemExit(
+                f"wire_runner: invalid GG_RELAY_TCP_LISTEN={bind!r}; "
+                f"expected 'host:port'"
+            )
+        server = await TcpServer.listen(host, int(port_str), expected_token=token)
+        try:
+            return await server.accept(timeout=120.0)
+        except TimeoutError as e:
+            raise SystemExit(
+                "wire_runner: TCP listen timed out waiting for host connection"
+            ) from e
+    socket_path = Path(os.environ["GG_RELAY_SOCKET"])
+    return await UnixSocketTransport.connect(socket_path, retry_timeout=15.0)
+
+
 async def _amain() -> int:
-    _check_env()
+    tcp_mode = bool(os.environ.get("GG_RELAY_TCP_LISTEN"))
+    _check_env(tcp_mode=tcp_mode)
 
     spec = SessionSpec.from_json(os.environ["GG_RELAY_SPEC_JSON"])
-    socket_path = Path(os.environ["GG_RELAY_SOCKET"])
-    transport = await UnixSocketTransport.connect(socket_path, retry_timeout=15.0)
+    transport = await _connect_transport(tcp_mode=tcp_mode)
 
     coordinator = WireCoordinatorProxy(transport)
     consume_task = asyncio.create_task(

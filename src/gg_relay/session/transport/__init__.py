@@ -10,16 +10,24 @@ from gg_relay.session.transport.protocol import (
     SessionTransport,
     TransportClosed,
 )
+from gg_relay.session.transport.tcp import (
+    AuthFailed,
+    TcpServer,
+    TcpTransport,
+)
 from gg_relay.session.transport.unixsocket import (
     UnixSocketServer,
     UnixSocketTransport,
 )
 
 __all__ = [
+    "AuthFailed",
     "ControlFrame",
     "EventFrame",
     "InMemoryTransport",
     "SessionTransport",
+    "TcpServer",
+    "TcpTransport",
     "TransportClosed",
     "UnixSocketServer",
     "UnixSocketTransport",

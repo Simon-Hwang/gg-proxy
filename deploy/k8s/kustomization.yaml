@@ -15,6 +15,7 @@ resources:
   - hpa.yaml
   - pdb.yaml
   - networkpolicy.yaml
+  - runner-networkpolicy.yaml
   - servicemonitor.yaml
 commonLabels:
   app.kubernetes.io/part-of: gg-relay
