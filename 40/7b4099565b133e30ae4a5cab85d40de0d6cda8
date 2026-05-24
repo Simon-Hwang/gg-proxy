@@ -1,0 +1,69 @@
+deploy/helm/gg-relay/templates/hpa.yaml
+  s_16e85383ae8215::t_a61aa9b7f94f88 1-41
+deploy/k8s/secret.example.yaml
+  s_16e85383ae8215::t_d35d5d96d8a531 1-30
+deploy/helm/gg-relay/templates/NOTES.txt
+  s_16e85383ae8215::t_c959dce0b81ea7 1-16
+tests/integration/test_k8s_manifests.py
+  s_16e85383ae8215::t_3cd73629e46ee9 1-135
+deploy/helm/gg-relay/templates/secret.yaml
+  s_16e85383ae8215::t_bea343793b4326 1-14
+deploy/k8s/hpa.yaml
+  s_16e85383ae8215::t_35f29145b4b9fb 1-61
+deploy/k8s/servicemonitor.yaml
+  s_16e85383ae8215::t_f299777cd736e9 1-25
+deploy/k8s/configmap.yaml
+  s_16e85383ae8215::t_ad82b32ca964e9 1-39
+deploy/helm/gg-relay/templates/_helpers.tpl
+  s_16e85383ae8215::t_ad328c0fb866b9 1-65
+deploy/helm/gg-relay/templates/service.yaml
+  s_16e85383ae8215::t_8ee62ee5ad8fe2 1-22
+deploy/helm/gg-relay/templates/servicemonitor.yaml
+  s_16e85383ae8215::t_3d64eeb315c692 1-22
+deploy/k8s/namespace.yaml
+  s_16e85383ae8215::t_9bef7c9d003aa7 1-7
+deploy/helm/gg-relay/Chart.yaml
+  s_16e85383ae8215::t_0a430e63e70459 1-23
+deploy/helm/gg-relay/templates/networkpolicy.yaml
+  s_16e85383ae8215::t_35f0f7cfa12d2b 1-63
+deploy/k8s/service.yaml
+  s_16e85383ae8215::t_3fa4b4fa6e04e9 1-29
+deploy/helm/gg-relay/templates/serviceaccount.yaml
+  s_16e85383ae8215::t_ec523fc50a3363 1-9
+deploy/k8s/kustomization.yaml
+  s_16e85383ae8215::t_8041977e0158d3 1-20
+deploy/k8s/networkpolicy.yaml
+  s_16e85383ae8215::t_1be34544525ae7 1-79
+deploy/helm/gg-relay/templates/pdb.yaml
+  s_16e85383ae8215::t_c96b4292b11faa 1-14
+deploy/k8s/pdb.yaml
+  s_16e85383ae8215::t_0330da0f41eeab 1-20
+deploy/helm/gg-relay/values.yaml
+  s_16e85383ae8215::t_09a6baa1fd972b 1-125
+deploy/helm/gg-relay/templates/configmap.yaml
+  s_16e85383ae8215::t_49322f19e1bffb 1-11
+deploy/helm/gg-relay/values.example.yaml
+  s_16e85383ae8215::t_ce164b121789c6 1-35
+deploy/k8s/deployment.yaml
+  s_16e85383ae8215::t_36df58c352bce5 1-189
+deploy/helm/gg-relay/templates/deployment.yaml
+  s_16e85383ae8215::t_9252b070811de0 1-139
+deploy/helm/gg-relay/.helmignore
+  s_16e85383ae8215::t_fd799ac46e0e13 1-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "407b4099565b133e30ae4a5cab85d40de0d6cda8",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
