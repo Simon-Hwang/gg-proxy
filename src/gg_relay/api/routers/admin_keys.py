@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import secrets as stdlib_secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -97,7 +97,7 @@ async def create_api_key(
     raw_key = "rk_" + stdlib_secrets.token_urlsafe(32)
     expires_at: datetime | None = None
     if payload.expires_in_days is not None:
-        expires_at = datetime.now(timezone.utc) + timedelta(
+        expires_at = datetime.now(UTC) + timedelta(
             days=payload.expires_in_days
         )
 

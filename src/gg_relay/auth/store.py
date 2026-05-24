@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, select
@@ -81,7 +81,7 @@ class ApiKeyStore:
         a freshly-inserted row.
         """
         kh = hash_key(raw_key)
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         stmt = api_keys.insert().values(
             label=label,
             key_hash=kh,
@@ -176,7 +176,7 @@ class ApiKeyStore:
             api_keys.update()
             .where(api_keys.c.label == label)
             .where(api_keys.c.revoked_at.is_(None))
-            .values(revoked_at=datetime.now(timezone.utc))
+            .values(revoked_at=datetime.now(UTC))
         )
         if conn is not None:
             result = await conn.execute(stmt)
@@ -198,7 +198,7 @@ class ApiKeyStore:
             await conn.execute(
                 api_keys.update()
                 .where(api_keys.c.key_hash == key_hash)
-                .values(last_used_at=datetime.now(timezone.utc))
+                .values(last_used_at=datetime.now(UTC))
             )
 
     async def count_active_admins(self) -> int:

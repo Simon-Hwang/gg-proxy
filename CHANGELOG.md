@@ -7,8 +7,168 @@ and this project adheres to [Semantic Versioning 2.0.0](https://semver.org/spec/
 
 ## [Unreleased]
 
-Plan 8 features land here; see
-[`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`](docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md).
+Plan 9+ features land here.
+
+## [0.8.0] - 2026-05-24
+
+Plan 8 — *Team Collaboration & Cost Attribution*. Layers single-team
+multi-maintainer collaboration on top of the Plan 7 foundation: per-
+user API keys with role-based access, durable audit log of every
+mutation, session comments and favorites, retry + batch lifecycle ops,
+search, prompt templates, cost attribution per owner, and a 7-panel
+Grafana preset. Plan 8 closed 21 tracked decisions
+(D8.0 / 3 / 4 / 5 / 6 / 7 / 10 / 13 / 14 / 20 / 21 / 22 / 24 / 26 /
+29 / 30 main + 4 boundary) across 23 tasks (Phase 1–3 + 4b/4c + 5);
+Phase 4 multi-worker Redis tier (D8.1 / D8.2 / D8.27) was deferred to
+keep the default single-team install dependency-free. Full
+decision-table at spec §17.8.
+
+### Added
+
+- **Audit log** (D8.4): `audit_log` table (Alembic `0006`) +
+  `AuditService.record(..., conn=)` for in-transaction outbox writes;
+  `AuditFallbackMiddleware` fires an `unknown_mutation` row post-
+  response when an explicit `record` was missed.
+- **Session comments** (D8.5): `session_comments` table (Alembic
+  `0007`); `markdown_it` parses, `bleach` allow-list strips
+  `<script>` / `<img onerror>` / `javascript:` / `data:` URLs before
+  the dashboard renders. HTMX UI with inline edit (author only) and
+  soft delete (author or admin).
+- **Retry + batch operations** (D8.6): `sessions.parent_session_id`
+  lineage column (Alembic `0008`); `SessionManager.retry(sid)`
+  rebuilds the spec from the parent; `POST /api/v1/sessions/batch`
+  (`cancel|retry`, max 100) and `POST /api/v1/hitl/batch` (max 50)
+  return partial-success bodies; dashboard batch toolbar.
+- **Failure subscriber + alert router** (D8.7): subscribes
+  terminal `SessionStateChanged` events, rule-based dispatch with
+  5 min per-key cooldown LRU; Feishu `@mention` via owner →
+  `open_id` mapping (`RELAY_FEISHU_USER_MAPPING_RAW`).
+- **Session search** (D8.20): `GET /api/v1/sessions/search` with
+  cross-dialect `LIKE` on `spec_json` + owner + tags JSON LIKE +
+  status + date range + cursor with `filter_hash` consistency
+  guard; `/dashboard/search` UI.
+- **Favorites** (D8.21): `session_favorites` table (Alembic `0009`)
+  with `(session_id, user_label)` unique constraint; idempotent
+  star/unstar (audit row written only on actual state change);
+  per-user `GET /api/v1/sessions/favorites` and
+  `/dashboard/favorites` view; cascade delete with the session row.
+- **Prompt templates** (D8.24): `prompt_templates` table (Alembic
+  `0010`); CRUD with shared / private visibility; creator-or-admin
+  edit / delete; preload into `/dashboard/new` via URL.
+- **Dashboard owner badge + list view + filter** (D8.0): per-card
+  MD5-derived hue HSL badge; combined owner / status / tag filter;
+  `/dashboard/list` table view with cursor pagination.
+- **Web submit form** (D8.14): `/dashboard/new` HTMX form with
+  `?prompt=&tags=&description=&template=` URL prefill, duplicate-
+  prompt warning (10 min window), template select; submits via
+  internal `dashboard-<user>` API key injection.
+- **DB-backed API key self-service** (D8.29): `api_keys` table
+  (Alembic `0011`) + `auth/` package (`KeyResolver` Protocol,
+  `ApiKeyStore` CRUD, `EnvKeyResolver` bootstrap, `DBKeyResolver`
+  with `TTLCache` 10 s + single-flight); admin
+  `/api/v1/admin/keys` `POST`/`GET`/`DELETE` with self-revoke and
+  last-admin guards; plaintext key returned ONLY on create
+  (`sha256` stored); `gg-relay bootstrap-admin` CLI seeds the
+  first admin.
+- **Cost attribution** (D8.30):
+  `/api/v1/cost/{per-owner,per-session,summary,export.csv}` with
+  `TTLCache` 30 s on `summary`; CSV export admin-only and audited;
+  per-role default view (`submitter` HTTP 302 → `kanban?owner=
+  <self>`) on `/dashboard/`.
+- **Maintenance + Grafana** (D8.3 + D8.13): `gg-relay maintenance`
+  CLI for retention cleanup (`events` 30 d / `audit_log` 90 d /
+  resolved `hitl_requests` 30 d defaults; batched `DELETE` 10 000
+  rows + `--dry-run`); 7-panel Grafana dashboard preset (including
+  cost-by-owner Top 10 7 d + trend 30 d + team total); Prometheus
+  + Grafana via `docker-compose --profile observability up`.
+- **`require_role` RBAC** (D8.22): `viewer < submitter < admin`
+  tiers; label-derived role from `RELAY_ROLE_MAPPING` (and
+  `api_keys.role` column for DB-backed keys); `require_role(min)`
+  and `require_role_or_own_session(min)` FastAPI dependencies
+  guard every mutation endpoint (submit / cancel / pause / resume /
+  HITL / comments / templates / admin_keys).
+- **Postgres pool tuning + slow query log** (D8.10):
+  `RELAY_DB_POOL_SIZE` / `MAX_OVERFLOW` / `PRE_PING` / `RECYCLE`
+  tunables; `RELAY_DB_SLOW_QUERY_LOG_MS` event listener emits a
+  `slow_query` structlog at WARN with `elapsed_ms` +
+  `statement_preview`.
+
+### Changed
+
+- **`DashboardCookieMiddleware`** (D8.26): `SessionMiddleware` is
+  now the OUTERMOST middleware so dashboard cookie auth reliably
+  injects internal `dashboard-<user>` API keys for `/api/v1/*`
+  mutations.
+- **`APIKeyAuthMiddleware`** (D8.29): now resolves keys via
+  `app.state.key_resolver` (`DBKeyResolver` by default) with
+  fallback to the Plan 7 `keys_with_labels` dict for backward
+  compatibility with existing test fixtures.
+- **Dashboard `/` root** (D8.30): HTTP 302 redirects non-admin
+  callers to `/dashboard/kanban?owner=<self>` for the per-role
+  default view; admins land on the unfiltered Kanban.
+- **`RELAY_API_KEYS_RAW`** (D8.22 + D8.29): still parses
+  `key:label` / `label=key` from env at bootstrap, but the
+  authoritative resolver is now the DB; env keys are seeded into
+  `api_keys` with role inferred from `RELAY_ROLE_MAPPING`.
+
+### Security
+
+- **D8.22 (RBAC)**: every mutation endpoint (submit / cancel /
+  pause / resume / HITL / comments / templates / admin_keys)
+  requires an explicit role tier; viewer keys are read-only.
+- **D8.29 (admin_keys)**: plaintext key returned ONLY on create;
+  never in list endpoint; `sha256` stored only; cache invalidate
+  on create / revoke.
+- **D8.29 (guards)**: self-revoke returns 400 (can't kick yourself
+  out); last-admin revoke returns 400 (always preserve one admin).
+- **D8.5 (comments)**: `bleach` allow-list strips script / img /
+  on* event-handler attributes / `javascript:` / `data:` URLs from
+  the rendered HTML before persistence.
+
+### Migrations
+
+- `0006` — `audit_log` table + 3 composite indexes
+  (`ix_audit_log_ts` / `actor_ts` / `target`).
+- `0007` — `session_comments` table + `ix_session_comments_session_
+  created`.
+- `0008` — `sessions.parent_session_id` + index.
+- `0009` — `session_favorites` table + unique constraint +
+  composite index.
+- `0010` — `prompt_templates` table + unique constraint + composite
+  index.
+- `0011` — `api_keys` table + unique label + 2 performance indexes
+  (`ix_api_keys_key_hash` for middleware lookup,
+  `ix_api_keys_role_revoked` for last-admin guard).
+
+### Deferred (Plan 9+)
+
+- Redis Streams multi-worker `EventBus` and shared rate-limiter Lua
+  (D8.1 / D8.2 / D8.27) — kept as opt-in tier; see
+  `docs/cluster.md` and `docs/team-deployment.md`.
+- Postgres-only `tsvector` + GIN full-text search.
+- Chart.js cost timeseries inline panel on `/dashboard/cost`.
+- HITL mute / auto-approve flow (pending Plan 11+ security review).
+
+### Migration notes
+
+Operators upgrading from 0.7.x:
+
+1. Run `alembic upgrade head` to apply `0006` → `0011` in order.
+   All migrations are SQLite + Postgres safe; downgrade roundtrips
+   are tested per-revision in `tests/integration/test_migrations_chain.py`.
+2. Bootstrap the first DB-backed admin key: `gg-relay bootstrap-
+   admin --label <name>`. Save the printed `raw_key` immediately —
+   it cannot be retrieved later. Subsequent keys are minted via
+   `/dashboard/admin/keys` or `POST /api/v1/admin/keys`.
+3. Set `RELAY_ROLE_MAPPING="alice:admin,bob:submitter"` (or set the
+   `role` column directly via the admin endpoint) to derive role
+   tiers from key labels.
+4. Schedule retention cleanup: `0 3 * * * gg-relay maintenance
+   --retention-days 30 --audit-log-days 90 --hitl-resolved-days 30`,
+   or use `docker-compose --profile maintenance run --rm
+   maintenance`.
+5. (Optional) Boot Prometheus + Grafana via `docker-compose
+   --profile observability up` for the new 7-panel dashboard.
 
 ## [0.7.0] - 2026-05-23
 
@@ -410,7 +570,9 @@ yet.
 - Frame contract (`session/frames.py`) with the four core frame types
   consumed unchanged by Plans 2–5.
 
-[Unreleased]: https://github.com/gg-org/gg-relay/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/gg-org/gg-relay/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/gg-org/gg-relay/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/gg-org/gg-relay/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/gg-org/gg-relay/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/gg-org/gg-relay/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/gg-org/gg-relay/compare/v0.3.0...v0.4.0

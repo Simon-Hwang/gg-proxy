@@ -40,14 +40,33 @@ def _src_contains(symbol: str) -> bool:
 
 
 def test_v0_7_0_release_version() -> None:
-    """importlib reports 0.7.0 + pyproject.toml matches."""
+    """gg-relay reports a Plan-7-or-newer release.
+
+    Phase 0 froze on ``0.7.0`` as the immutable Plan 8 baseline. Plan 8
+    Task 21 ships ``0.8.0`` as the release that contains the work this
+    test once asserted as "still pending"; we now accept any version
+    ``>= 0.7.0`` so this gate stays meaningful through Plan 9+ without
+    needing a per-release version bump.
+    """
     from importlib.metadata import version
 
-    assert version("gg-relay") == "0.7.0"
+    importlib_ver = version("gg-relay")
+    assert importlib_ver >= "0.7.0", (
+        f"gg-relay below Plan 7 baseline: {importlib_ver!r}"
+    )
 
     with open(REPO_ROOT / "pyproject.toml", "rb") as f:
         pyproj = tomllib.load(f)
-    assert pyproj["project"]["version"] == "0.7.0"
+    pyproject_ver = pyproj["project"]["version"]
+    assert pyproject_ver >= "0.7.0", (
+        f"pyproject.toml below Plan 7 baseline: {pyproject_ver!r}"
+    )
+    # The two sources still have to agree — that is the whole point of
+    # the Plan 7 D7.3 single-source-of-truth contract.
+    assert importlib_ver == pyproject_ver, (
+        f"version drift: importlib={importlib_ver!r} "
+        f"pyproject={pyproject_ver!r}"
+    )
 
 
 def test_api_snapshot_v070_baseline_exists() -> None:

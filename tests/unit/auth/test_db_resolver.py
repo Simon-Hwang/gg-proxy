@@ -12,7 +12,7 @@ Covers the runtime resolver:
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -55,7 +55,7 @@ async def test_resolve_revoked_returns_none(store: ApiKeyStore) -> None:
 
 
 async def test_resolve_expired_returns_none(store: ApiKeyStore) -> None:
-    past = datetime.now(timezone.utc) - timedelta(days=1)
+    past = datetime.now(UTC) - timedelta(days=1)
     await store.create(
         label="old", raw_key="rk_old", role="admin", expires_at=past
     )

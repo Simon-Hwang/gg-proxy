@@ -29,9 +29,10 @@ small table is also short.
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from typing import Any, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy import Column, Table, delete, select
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -101,7 +102,7 @@ async def run_retention(
     """
     from gg_relay.store.schema import audit_log, events, hitl_requests
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     summaries: list[RetentionSummary] = []
 
     events_cutoff = now - timedelta(days=events_days)

@@ -23,9 +23,8 @@ import asyncio
 import inspect
 import json
 import sys
-import typing
 from dataclasses import is_dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -39,7 +38,6 @@ from claude_code_sdk import (
     HookMatcher,
     PermissionResultAllow,
     PermissionResultDeny,
-    PermissionUpdate,
     ToolPermissionContext,
     Transport,
 )
@@ -60,7 +58,7 @@ class SpikeReport:
         print(f"  [{emoji}] {cid}: {detail}")
 
     def render_markdown(self) -> str:
-        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         lines = [
             "# SDK Spike Report",
             "",

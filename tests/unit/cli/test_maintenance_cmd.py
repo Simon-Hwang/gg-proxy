@@ -13,7 +13,7 @@ preview / live distinction is observable from stdout.
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -43,7 +43,7 @@ def seeded_db(tmp_path: Path, monkeypatch) -> str:
         eng = make_async_engine(url)
         try:
             await create_all_tables(eng)
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             old = now - timedelta(days=120)
             async with eng.begin() as conn:
                 await conn.execute(

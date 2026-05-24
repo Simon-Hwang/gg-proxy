@@ -12,7 +12,7 @@ Covers the four documented invariants:
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -116,7 +116,7 @@ async def _count(eng, table) -> int:
 
 
 async def test_dry_run_reports_counts_without_deleting(engine) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     # audit_log default retention is 90 days — pick a horizon past
     # both events (30d) and audit_log (90d) so the preview reports
     # ≥ 1 row per table.
@@ -139,7 +139,7 @@ async def test_dry_run_reports_counts_without_deleting(engine) -> None:
 
 
 async def test_live_run_deletes_old_preserves_recent(engine) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ancient = now - timedelta(days=200)
     recent = now - timedelta(hours=1)
     await _insert_event(engine, event_id="e-ancient", ts=ancient)
@@ -158,7 +158,7 @@ async def test_live_run_deletes_old_preserves_recent(engine) -> None:
 
 
 async def test_batched_delete_handles_more_than_batch_size(engine) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     old = now - timedelta(days=200)
     for i in range(25):
         await _insert_event(engine, event_id=f"e-{i:03d}", ts=old)
@@ -174,7 +174,7 @@ async def test_batched_delete_handles_more_than_batch_size(engine) -> None:
 
 
 async def test_hitl_unresolved_rows_preserved(engine) -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     ancient = now - timedelta(days=200)
     await _insert_hitl(
         engine,

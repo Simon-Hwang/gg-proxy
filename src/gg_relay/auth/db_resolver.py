@@ -40,13 +40,13 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from cachetools import TTLCache
 
-from gg_relay.auth.store import ApiKeyStore, hash_key
 from gg_relay.auth.protocol import ResolvedKey
+from gg_relay.auth.store import ApiKeyStore, hash_key
 
 logger = logging.getLogger("gg_relay.auth.db_resolver")
 
@@ -157,9 +157,9 @@ class DBKeyResolver:
             # and SQLAlchemy hands the value back as a naive datetime.
             # Normalise both sides to UTC so the comparison doesn't
             # raise ``offset-naive vs offset-aware`` TypeError.
-            now_utc = datetime.now(timezone.utc)
+            now_utc = datetime.now(UTC)
             if expires_at.tzinfo is None:
-                expires_at = expires_at.replace(tzinfo=timezone.utc)
+                expires_at = expires_at.replace(tzinfo=UTC)
             if expires_at < now_utc:
                 return None
         role = row["role"]

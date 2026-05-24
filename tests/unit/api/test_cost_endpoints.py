@@ -30,7 +30,8 @@ from fastapi import FastAPI, Request
 from httpx import ASGITransport, AsyncClient
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from gg_relay.api.routers.cost import _clear_summary_cache, router as cost_router
+from gg_relay.api.routers.cost import _clear_summary_cache
+from gg_relay.api.routers.cost import router as cost_router
 
 pytestmark = pytest.mark.asyncio
 

@@ -1495,24 +1495,115 @@ team-scale features (cost attribution dashboards, prompt templates,
 optional Redis durable tier). See
 `docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`.
 
-### 17.8 Plan 8 Team Collaboration & Optional Multi-Worker (2026-05-23, in progress)
+### 17.8 Plan 8 Team Collaboration & Cost Attribution (2026-05-24, v0.8.0)
 
-Plan 8 v2.4 — 21 tracked decisions (D8.0–D8.30 with gaps) / 23 tasks / ~190 tests.
-Locked spec: [`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`](../plans/2026-05-23-plan-8-team-scale-and-collab.md).
+*Closing summary for Plan 8 v2.4 — Task 21 final gate.*
 
-**Highlights (preview; full mapping at completion):**
+Following Plan 7 (`v0.7.0`, foundation polish), Plan 8 layered team
+collaboration on top of the single-team multi-maintainer foundation
+delivered in D7.26. Twenty-one tracked decisions landed across 23
+tasks (Phase 1–3 + Phase 4b/4c + Phase 5); Phase 4 multi-worker Redis
+tier (D8.1 / D8.2 / D8.27) was deliberately deferred to keep the
+default single-team install dependency-free. Plan 8 commits landed on
+`main` between `cc1ead6` (Task 1 — config surface) and the Task 21
+release commit.
 
-| Spec area                                    | Plan 8 decisions                | Target |
-|----------------------------------------------|---------------------------------|--------|
-| §5 `KeyResolver` Protocol (NEW)              | D8.29                           | DB-backed API key self-service; env still bootstrap SOT |
-| §5 `EventBusBackend` Protocol (NEW)          | D8.1, D8.27                     | InMemory default; Redis Streams optional tier |
-| §5 `RateLimitStoreBackend` Protocol (NEW)    | D8.2                            | In-memory default; Redis lua optional tier |
-| §6 Alembic 0006–0011                         | D8.4–7, D8.21, D8.24, D8.29     | audit_log / comments / parent_session / favorites / templates / api_keys |
-| §7 dashboard cookie auth                     | D8.26                           | derive internal `dashboard-{user}` API key + audit actor consistency |
-| §10 cost attribution                         | D8.30                           | per-owner aggregation endpoints + per-role dashboard default view |
-| §11 Security                                 | D8.22, D8.28                    | viewer/submitter/admin role; bootstrap-admin CLI |
-| §13 OOS                                      | Plan 8 §12                      | OOS gate extended (session_replay / span_tree_svg / runtime_keys file-lock / etc.) |
+#### 16 main decisions (Plan 8 v2.4)
 
-Forward: Plan 9 K8s/HPA; Plan 10 advanced UX (Grafana embed / span tree); Plan 11 mTLS+OIDC.
-Marked "in progress" until v0.8.0 release; on completion §17.8 will receive a final D8.x → commit table similar to §17.7.
+1. **D8.0 Dashboard owner badge + list view + filter** (Task 15) —
+   Kanban per-card owner badge (MD5 hue → HSL), combined owner /
+   status / tag filter, `/dashboard/list` table view with cursor
+   pagination.
+2. **D8.3 Retention maintenance** (Task 20) — `gg-relay maintenance`
+   CLI; defaults `events` 30 d / `audit_log` 90 d / resolved
+   `hitl_requests` 30 d; batched `DELETE` of 10 000 rows + dry-run
+   mode; opt-in `docker-compose --profile maintenance` recipe.
+3. **D8.4 Audit log** (Task 5 + 6) — Alembic `0006` + `AuditService.
+   record(actor, action, target_type, target_id, metadata, conn=)`
+   for in-tx outbox; `AuditFallbackMiddleware` fires
+   `unknown_mutation` post-response when an explicit `record` was
+   missed.
+4. **D8.5 Session comments** (Task 7 + 8) — Alembic `0007` +
+   `markdown_it` + `bleach` allow-list sanitizer; author-only edit;
+   author-or-admin soft delete; HTMX inline-edit UI.
+5. **D8.6 Retry + batch ops** (Task 9 + 10) — Alembic `0008`
+   `parent_session_id` lineage; `SessionManager.retry(sid)` rebuilds
+   spec; `POST /api/v1/sessions/batch` (`cancel|retry`, max 100) +
+   `POST /api/v1/hitl/batch` (max 50) with partial-success body;
+   dashboard batch toolbar.
+6. **D8.7 Failure subscriber + alert router** (Task 11) — subscribes
+   `SessionStateChanged` terminal events; rule-based dispatch with
+   5 min cooldown LRU; Feishu `@mention` via owner → `open_id` map.
+7. **D8.10 Postgres pool tuning + slow query log** (Task 2) —
+   `RELAY_DB_POOL_SIZE` / `MAX_OVERFLOW` / `PRE_PING` / `RECYCLE`
+   tunables; `RELAY_DB_SLOW_QUERY_LOG_MS` event listener at WARN.
+8. **D8.13 Grafana dashboard** (Task 20) — 7-panel preset including
+   `cost-by-owner Top10 7 d` + `trend 30 d` + `team total`;
+   `docker-compose --profile observability` boots Prometheus +
+   Grafana with the dashboard preloaded.
+9. **D8.14 Web submit form** (Task 16) — `/dashboard/new` HTMX form
+   with `?prompt=&tags=&description=&template=` URL prefill,
+   duplicate-prompt warning (10 min window), template select;
+   submits via DashboardCookie internal key injection.
+10. **D8.20 Session search** (Task 12) — `GET /api/v1/sessions/search`
+    with `q` (LIKE on `spec_json`), `owner`, `tags` JSON LIKE,
+    `status`, date range + cursor with `filter_hash`;
+    `/dashboard/search` UI.
+11. **D8.21 Favorites** (Task 13) — Alembic `0009` + idempotent
+    star/unstar (audit row only on actual state change); per-user
+    `/api/v1/sessions/favorites` list endpoint.
+12. **D8.22 `require_role` RBAC** (Task 4) — `viewer < submitter <
+    admin` tiers; label-derived role from `RELAY_ROLE_MAPPING`;
+    `require_role(min)` and `require_role_or_own_session(min)`
+    FastAPI dependencies.
+13. **D8.24 Prompt templates** (Task 14) — Alembic `0010` +
+    shared / private visibility; creator-or-admin edit / delete;
+    template preload via URL.
+14. **D8.26 Dashboard cookie middleware** (Task 3) — internal
+    `dashboard-<user>` API key injection for `/api/v1/*` mutations;
+    bcrypt password auth; `SessionMiddleware` as OUTERMOST middleware
+    so cookie state survives the API-key middleware chain.
+15. **D8.29 DB-backed API key self-service** (Task 22) — Alembic
+    `0011` + `auth/` package (`KeyResolver` Protocol, `ApiKeyStore`
+    CRUD, `EnvKeyResolver` bootstrap, `DBKeyResolver` with
+    `TTLCache` 10 s + single-flight); admin `/api/v1/admin/keys`
+    `POST`/`GET`/`DELETE` with self-revoke and last-admin guards;
+    plaintext returned **once** on create; `gg-relay bootstrap-admin`
+    seeds the first key.
+16. **D8.30 Cost attribution** (Task 23) —
+    `/api/v1/cost/{per-owner,per-session,summary,export.csv}` with
+    `TTLCache` 30 s on summary; CSV export admin-only + audited;
+    per-role default view (`submitter` → `kanban?owner=self`
+    HTTP 302) on `/dashboard/`.
+
+#### 4 boundary decisions (explicitly OOS or deferred)
+
+- **Phase 4 (D8.1 / D8.2 / D8.27)** — Redis Streams multi-worker
+  `EventBus`, Redis-lua rate limiter, and SSE multi-worker fan-out
+  are deferred to Plan 11+. The single-team default is single
+  worker; `docs/cluster.md` and `docs/team-deployment.md` document
+  how to enable the optional tier when team size warrants it.
+- **HITL mute / auto-approve** — deferred to Plan 11+ pending a
+  security review of the bypass envelope.
+- **Postgres-only full-text search** (tsvector + GIN) — deferred;
+  the current `LIKE` search is adequate for single-team scale
+  (< 10 k sessions). Plan 9+ will revisit once multi-team RBAC
+  enters the spec.
+- **Chart.js timeseries on `/dashboard/cost`** — the table view is
+  sufficient for Plan 8; the inline Chart.js panel is kept as
+  Plan 9+ scope alongside per-owner trend overlays.
+
+#### Closing notes
+
+Plan 8 closed the team-collaboration contract gaps in the v0.7.0
+foundation: per-user API keys (D8.29) replace the env-only key list,
+audit (D8.4) gives every mutation a row, RBAC (D8.22) gates the
+mutation surface, cost (D8.30) attributes spend per owner. The
+optional multi-worker tier remains a single feature flag away
+(`RELAY_EVENT_BUS_BACKEND=redis`); the single-worker default keeps
+the deployment story dependency-free.
+
+Forward: Plan 9 introduces multi-team RBAC and OIDC; Plan 10 picks up
+the Chart.js cost trends and span-tree iframe polish; Plan 11
+operationalises the Redis tier with shared alert cooldown.
 

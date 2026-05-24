@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
-[![Version 0.7.0](https://img.shields.io/badge/version-0.7.0-green.svg)](CHANGELOG.md)
+[![Version 0.8.0](https://img.shields.io/badge/version-0.8.0-green.svg)](CHANGELOG.md)
 
 A Python middleware service that wraps the `claude-code-sdk` and exposes
 it as a managed runtime: structured session lifecycle, persistent
@@ -34,7 +34,100 @@ Claude Code session at runtime.
 
 ---
 
-## What's new in 0.7.0 (Plan 7 — *Foundation Recovery & Production Readiness*)
+## What's new in 0.8.0 (Plan 8 — *Team Collaboration & Cost Attribution*)
+
+Plan 8 layers single-team multi-maintainer collaboration on top of the
+Plan 7 foundation. 21 tracked decisions (D8.0 / 3 / 4 / 5 / 6 / 7 / 10 /
+13 / 14 / 20 / 21 / 22 / 24 / 26 / 29 / 30 main + 4 boundary) landed
+across 23 tasks; Phase 4 multi-worker Redis tier (D8.1 / D8.2 / D8.27)
+is deferred so the default install remains dependency-free.
+
+- **Per-user API keys** (D8.29): DB-backed `api_keys` table (Alembic
+  `0011`) + `auth/` package (`KeyResolver` Protocol, `DBKeyResolver`
+  TTLCache 10 s + single-flight); admin `/api/v1/admin/keys` with
+  self-revoke and last-admin guards; plaintext returned **once** on
+  create. Seed the first key with `gg-relay bootstrap-admin --label
+  alice`.
+- **`require_role` RBAC** (D8.22): `viewer < submitter < admin` tiers;
+  label-derived role from `RELAY_ROLE_MAPPING` (or the `api_keys.role`
+  column); `require_role(min)` + `require_role_or_own_session(min)`
+  FastAPI dependencies gate every mutation endpoint.
+- **Audit log** (D8.4): `audit_log` table (Alembic `0006`) +
+  `AuditService.record(..., conn=)` in-tx outbox writes;
+  `AuditFallbackMiddleware` catches missed mutations post-response.
+- **Session comments** (D8.5): `markdown_it` + `bleach` allow-list
+  sanitize; HTMX inline edit (author only) + soft delete (author or
+  admin); Alembic `0007`.
+- **Retry + batch operations** (D8.6): `sessions.parent_session_id`
+  lineage (Alembic `0008`); `manager.retry(sid)` rebuilds spec;
+  `POST /api/v1/sessions/batch` (`cancel|retry`, max 100) +
+  `/api/v1/hitl/batch` (max 50) with partial-success; dashboard
+  batch toolbar.
+- **Failure subscriber + alert router** (D8.7): subscribes terminal
+  `SessionStateChanged` events; rule-based dispatch with 5 min
+  cooldown LRU; Feishu `@mention` via owner → `open_id` map.
+- **Session search + favorites + templates** (D8.20 / 21 / 24):
+  `GET /api/v1/sessions/search` with LIKE + tags + cursor;
+  `session_favorites` table (Alembic `0009`) with idempotent
+  star/unstar; shared / private `prompt_templates` (Alembic
+  `0010`).
+- **Cost attribution** (D8.30):
+  `/api/v1/cost/{per-owner,per-session,summary,export.csv}` with
+  TTLCache 30 s on summary; CSV admin-only + audited; per-role
+  default view (submitter HTTP 302 → `kanban?owner=<self>`).
+- **Dashboard collaboration UI** (D8.0 / 14 / 26): per-card MD5 hue
+  owner badge + combined owner / status / tag filter +
+  `/dashboard/list` table view; `/dashboard/new` HTMX submit form
+  with URL prefill, duplicate-prompt warning, template select;
+  `DashboardCookieMiddleware` injects internal `dashboard-<user>`
+  API key for `/api/v1/*` mutations.
+- **Maintenance + Grafana** (D8.3 + D8.13): `gg-relay maintenance`
+  retention CLI (`events` 30 d / `audit_log` 90 d / resolved
+  `hitl_requests` 30 d defaults); 7-panel Grafana preset (cost by
+  owner included); `docker-compose --profile observability` and
+  `--profile maintenance` recipes.
+- **Postgres pool tuning + slow query log** (D8.10):
+  `RELAY_DB_POOL_*` tunables; configurable slow-query WARN
+  threshold.
+
+Full changelog: [`CHANGELOG.md`](CHANGELOG.md#080---2026-05-24).
+
+---
+
+## Team usage (Plan 8)
+
+`gg-relay v0.8.0` adds multi-maintainer collaboration for a single team:
+
+- **Per-user API keys**: each maintainer carries their own key; create
+  with `gg-relay bootstrap-admin --label alice` (first admin) then via
+  dashboard `/dashboard/admin/keys` (admin only).
+- **Role tiers**: `viewer` (read-only), `submitter` (submit + manage
+  own sessions), `admin` (everything). Configure via
+  `RELAY_ROLE_MAPPING="alice:admin,bob:submitter"` or write the
+  `role` column directly in `api_keys`.
+- **Audit trail**: every mutation written to `audit_log`. Browse per-
+  session via the dashboard or `GET /api/v1/audit?session_id=...`.
+- **Comments + retry + batch**: collaborate on running sessions, retry
+  failed runs preserving the spec, cancel/retry many sessions at once
+  from the dashboard.
+- **Cost attribution**: per-owner aggregation via
+  `/api/v1/cost/per-owner`; dashboard `/dashboard/cost` shows your
+  usage (submitter) or top owners (admin); CSV export for monthly
+  review.
+- **Retention**: `gg-relay maintenance --retention-days 30` drops old
+  events / audit_log / resolved HITL rows. Recommend running daily via
+  cron / systemd timer.
+- **Observability**: Prometheus + Grafana via
+  `docker-compose --profile observability up`; 7-panel dashboard with
+  cost-by-owner included.
+
+See [`docs/team-deployment.md`](docs/team-deployment.md) for the
+single-worker default deployment, multi-worker tier toggle, admin
+bootstrap flow, alert-rules template, and retention scheduling.
+
+---
+
+## Plan 7 (0.7.0) — *Foundation Recovery & Production Readiness*
 
 Plan 7 closes 25 contract gaps from the Plan 5 / 6 audits and ships the
 production-readiness layer on top of Plan 6:
@@ -77,31 +170,6 @@ production-readiness layer on top of Plan 6:
   `sessions.owner` indexed + `sessions.description`).
 
 Full changelog: [`CHANGELOG.md`](CHANGELOG.md#070---2026-05-23).
-Plan-8 roadmap:
-[`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`](docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md).
-
----
-
-## What's next (Plan 8, in progress)
-
-Plan 8 ships team-collaboration features on top of v0.7.0:
-
-- **Collaboration**: owner badges, search, favorites, comments
-  (Markdown + XSS sanitized), batch ops, prompt templates.
-- **Accountability**: durable audit log + dashboard timeline + IM
-  notify on fail / cancel / (filtered) complete.
-- **Cost attribution**: per-owner aggregation endpoints + per-role
-  default dashboard view + Grafana panels.
-- **Self-service auth**: DB-backed API key admin (create / list /
-  revoke); env still bootstrap source-of-truth.
-- **Operations**: Postgres pool tuning + retention CLI + Grafana
-  dashboard preset.
-- **Optional multi-worker tier**: Redis Streams EventBus + Redis lua
-  rate limit + APScheduler-free maintenance container (single-worker
-  default; multi-worker opt-in via env).
-
-Target: v0.8.0. Spec:
-[`docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md`](docs/superpowers/plans/2026-05-23-plan-8-team-scale-and-collab.md).
 
 ---
 
