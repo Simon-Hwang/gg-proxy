@@ -1,0 +1,39 @@
+src/gg_relay/cluster/redis_bus.py
+  s_16e85383ae8215::t_4b1e146744b38e 59
+  s_16e85383ae8215::t_44481863d5fb14 62
+  s_16e85383ae8215::t_7c5cba62b67305 204-206,209
+  s_16e85383ae8215::t_5ff40fae8c8aa6 1-58,60-61,63-132,134-203,207-208,210-331,333-354
+  s_16e85383ae8215::t_2207fc06b9bf19 133
+  s_16e85383ae8215::t_5199c9689ca6b0 332
+tests/unit/cluster/test_redis_bus.py
+  s_16e85383ae8215::t_2207fc06b9bf19 30
+  s_16e85383ae8215::t_45a9ca44a0824e 194
+  s_16e85383ae8215::t_4fe151d87877cc 79-83,100
+  s_16e85383ae8215::t_8db0aa4a43ad64 1-29,31-78,84-99,101-193,195-218
+src/gg_relay/cluster/__init__.py
+  s_16e85383ae8215::t_7744d02678a4a1 21-22,36-37
+uv.lock
+  ai_agent 874-878,1190,1203,1237,1656-1712
+pyproject.toml
+  s_16e85383ae8215::t_52aa84daa58cba 88
+src/gg_relay/cluster/redis_rate_limit.py
+  s_16e85383ae8215::t_4a62deb21327fe 1-149
+tests/unit/cluster/test_redis_rate_limit.py
+  s_16e85383ae8215::t_c9ba07fa49d611 1-128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "ff01bd254d23985583d85bfe980247372502c5be",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
