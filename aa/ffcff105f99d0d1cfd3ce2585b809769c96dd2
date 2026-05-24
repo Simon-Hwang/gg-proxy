@@ -1,0 +1,28 @@
+uv.lock
+  ai_agent 1159
+pyproject.toml
+  s_16e85383ae8215::t_02d21b29fac4cd 7
+PLAN.md
+  s_16e85383ae8215::t_b9dad126489613 67
+  s_16e85383ae8215::t_8a3feb16c0da42 375,379,381,383-387,393-411
+CHANGELOG.md
+  s_16e85383ae8215::t_e5b790c5323497 40,49-52,54-180
+tests/unit/test_plan8_spec_consistency.py
+  s_16e85383ae8215::t_a9e75a90da1e27 102-108,113,116-117,120-121
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.0",
+  "base_commit_sha": "aaffcff105f99d0d1cfd3ce2585b809769c96dd2",
+  "prompts": {},
+  "sessions": {
+    "s_16e85383ae8215": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "28b06898-332e-4a5c-8875-6a376cf217ae",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
