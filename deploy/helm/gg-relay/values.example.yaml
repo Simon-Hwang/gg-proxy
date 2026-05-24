@@ -1,0 +1,35 @@
+# Plan 9 D9.4 / Reviewer I BLOCKER 1 — example production
+# overrides for `helm install -f values.example.yaml`.
+#
+# This is intentionally NOT a default in values.yaml so
+# accidental `helm install gg-relay deploy/helm/gg-relay` never
+# ships placeholder secrets.
+
+image:
+  repository: ghcr.io/your-org/gg-relay
+  tag: "0.9.0"
+
+replicaCount: 3
+
+config:
+  RELAY_LOG_LEVEL: INFO
+  RELAY_DB_POOL_SIZE: "15"
+
+secrets:
+  create: false
+  # External Secrets / SealedSecrets manages this in prod.
+  existingSecret: gg-relay-secrets-managed
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 12
+  targetAverageValue: "10"
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+
+serviceMonitor:
+  enabled: true
+  release: prometheus

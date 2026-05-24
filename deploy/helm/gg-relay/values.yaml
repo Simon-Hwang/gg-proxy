@@ -1,0 +1,125 @@
+# Plan 9 D9.4 / D9.B1 — default values.
+# Override via `helm install -f values.example.yaml` or a
+# per-environment values file in a private repo.
+
+image:
+  repository: ghcr.io/your-org/gg-relay
+  tag: ""  # defaults to .Chart.AppVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 3
+
+serviceAccount:
+  create: true
+  name: ""
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "8000"
+  prometheus.io/path: /metrics
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  requests:
+    cpu: 200m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+initContainerResources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+service:
+  type: ClusterIP
+  port: 80
+  sessionAffinity: ClientIP
+  sessionAffinityTimeoutSeconds: 10800
+
+# Non-secret runtime config (mirrors deploy/k8s/configmap.yaml).
+config:
+  RELAY_DEPLOYMENT_MODE: multi_worker
+  RELAY_EVENT_BUS_BACKEND: redis
+  RELAY_RATE_LIMIT_BACKEND: redis
+  RELAY_LOG_LEVEL: INFO
+  RELAY_LOG_JSON: "true"
+  RELAY_DB_POOL_SIZE: "15"
+  RELAY_DB_POOL_OVERFLOW: "5"
+  RELAY_GRACE_PERIOD_S: "30"
+  RELAY_METRICS_PATH: /metrics
+
+# Secrets. The chart will create a Secret iff `secrets.create=true`;
+# production deployments should set `secrets.create=false` and
+# point `secrets.existingSecret` at a SealedSecret / ExternalSecret.
+secrets:
+  create: true
+  existingSecret: ""
+  data:
+    RELAY_DATABASE_URL: "postgresql+asyncpg://gg_relay:CHANGEME@postgres:5432/gg_relay"
+    RELAY_REDIS_URL: "redis://redis:6379/0"
+    RELAY_DASHBOARD_SESSION_SECRET: "CHANGEME-32-bytes-base64-or-random-hex"
+    RELAY_API_KEYS: '{"admin":"CHANGEME-admin-api-key","ops":"CHANGEME-ops-api-key"}'
+
+# Toggle each non-Deployment manifest independently.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 12
+  metricName: gg_relay_sessions_active
+  targetAverageValue: "10"
+  behavior:
+    scaleDownStabilizationSeconds: 300
+    scaleUpStabilizationSeconds: 60
+
+networkPolicy:
+  enabled: true
+  ingressNamespace: ingress-nginx
+  monitoringNamespace: monitoring
+  postgresPodLabel:
+    app: postgres
+  redisPodLabel:
+    app: redis
+
+serviceMonitor:
+  enabled: true
+  interval: 15s
+  scrapeTimeout: 10s
+  release: prometheus
+
+terminationGracePeriodSeconds: 60
+
+# Plan 9 D9.12 — preStop drain hook seconds. Must be < the
+# terminationGracePeriodSeconds and > the LB EndpointSlice
+# propagation budget (typically 5-10s in managed K8s).
+preStopDrainSleepSeconds: 25
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

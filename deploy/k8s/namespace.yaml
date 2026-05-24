@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: gg
+  labels:
+    app.kubernetes.io/part-of: gg-relay
+    app.kubernetes.io/managed-by: kubectl

@@ -1,0 +1,189 @@
+# Plan 9 D9.4 — gg-relay Deployment.
+#
+# Design notes (cross-reference Plan 9 spec):
+#
+# - ``replicas: 3`` matches the Plan 8 D8.10 pool sizing math
+#   (3 × 15 + 1 InitContainer ≈ 50 connections against
+#   Postgres max_connections=100 with 50% headroom).
+# - InitContainer ``migrate`` runs Alembic upgrade head with a
+#   separate DB user that has DDL grants; main containers use
+#   the runtime user with DML-only grants.
+# - ``readOnlyRootFilesystem: true`` + emptyDir volumes for the
+#   handful of paths the runtime actually writes to (claude-code
+#   metrics dir, tmp). Plan 9 D9.4 contract.
+# - preStop hook calls POST /admin/drain (D9.12) so the LB
+#   detaches the pod from rotation BEFORE the SIGTERM lands; the
+#   sleep matches RELAY_GRACE_PERIOD_S.
+# - RollingUpdate ``maxUnavailable: 0`` so we never drop below
+#   the PDB minimum during a rollout.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gg-relay
+  namespace: gg
+  labels:
+    app: gg-relay
+    app.kubernetes.io/name: gg-relay
+    app.kubernetes.io/component: api
+spec:
+  replicas: 3
+  revisionHistoryLimit: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: gg-relay
+  template:
+    metadata:
+      labels:
+        app: gg-relay
+        app.kubernetes.io/name: gg-relay
+        app.kubernetes.io/component: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: gg-relay
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: migrate
+          image: ghcr.io/your-org/gg-relay:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - gg-relay
+          args:
+            - migrate
+          env:
+            - name: RELAY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: gg-relay-secrets
+                  key: RELAY_DATABASE_URL
+            - name: RELAY_LOG_JSON
+              value: "true"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      containers:
+        - name: relay
+          image: ghcr.io/your-org/gg-relay:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - gg-relay
+          args:
+            - serve
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: gg-relay-config
+            - secretRef:
+                name: gg-relay-secrets
+          # Plan 8 D8.10 + D8.29 — split tracing config out of the
+          # ConfigMap so operators can disable OTel without
+          # touching the rest of the file.
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: gg-relay
+            - name: OTEL_RESOURCE_ATTRIBUTES
+              value: "service.namespace=gg"
+            # Plan 9 D9.10 — KeyInvalidateSubscriber needs to know
+            # which pod published the invalidation (debugging).
+            - name: GG_RELAY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1
+              memory: 1Gi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: claude-metrics
+              mountPath: /home/relay/.claude/metrics
+          # Plan 7 D7.22 — /healthz is pure liveness (no DB);
+          # /readyz checks SessionManager.accepting_new + SELECT 1
+          # + app.state.drained (D9.12).
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+          # Plan 9 D9.12 — preStop drain. POST /admin/drain flips
+          # app.state.drained=True so /readyz returns 503 and K8s
+          # detaches the pod from the Service. The sleep window
+          # gives the LB time to propagate the EndpointSlice
+          # change before SIGTERM lands.
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - |
+                    set -e
+                    curl -fsS -X POST \
+                      -H "X-API-Key: $(echo $RELAY_API_KEYS | sed -E 's/.*"admin":"([^"]+)".*/\1/')" \
+                      http://127.0.0.1:8000/api/v1/admin/drain || true
+                    sleep 25
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+        - name: claude-metrics
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gg-relay
+  namespace: gg
+  labels:
+    app: gg-relay

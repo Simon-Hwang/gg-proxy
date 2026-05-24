@@ -1,0 +1,29 @@
+# Plan 9 D9.4 — Service for gg-relay.
+#
+# ``sessionAffinity: ClientIP`` is intentional: SSE clients
+# benefit from sticky connections so reconnects (Last-Event-ID
+# replay) land on the same pod and avoid the cross-worker
+# replay path. The Redis stream backend (D9.1) still guarantees
+# correctness when affinity flips, but stickiness reduces the
+# tail-latency contribution.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gg-relay
+  namespace: gg
+  labels:
+    app: gg-relay
+    app.kubernetes.io/name: gg-relay
+spec:
+  type: ClusterIP
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800
+  selector:
+    app: gg-relay
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP

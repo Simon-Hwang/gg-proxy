@@ -1,0 +1,20 @@
+# Plan 9 D9.4 — Convenience kustomization for `kubectl apply -k`.
+#
+# `secret.example.yaml` is omitted from `resources` on purpose;
+# operators must commit a separate, real secret manifest (via
+# SealedSecrets, External Secrets, or a private overlay) before
+# `kubectl apply -k deploy/k8s/` will succeed.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: gg
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  - pdb.yaml
+  - networkpolicy.yaml
+  - servicemonitor.yaml
+commonLabels:
+  app.kubernetes.io/part-of: gg-relay

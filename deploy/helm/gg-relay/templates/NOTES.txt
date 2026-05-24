@@ -1,0 +1,16 @@
+gg-relay {{ .Chart.AppVersion }} (Plan 9 D9.4) installed as
+release "{{ .Release.Name }}" in namespace "{{ .Release.Namespace }}".
+
+1. Verify the rollout completed:
+   kubectl rollout status deployment/{{ include "gg-relay.fullname" . }} -n {{ .Release.Namespace }}
+
+2. Confirm multi-worker mode is active (look for `multi_worker`):
+   kubectl logs -n {{ .Release.Namespace }} -l app={{ include "gg-relay.name" . }} --tail=50
+
+3. Tail the readiness probe + Redis backend metrics:
+   kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "gg-relay.fullname" . }} 8080:{{ .Values.service.port }}
+   curl http://127.0.0.1:8080/readyz
+   curl http://127.0.0.1:8080/metrics | grep gg_relay_redis_
+
+4. Operator runbook (drain, dashboard key rotation, sizing):
+   docs/cluster.md

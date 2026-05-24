@@ -1,0 +1,39 @@
+# Plan 9 D9.4 — non-secret runtime config for gg-relay.
+#
+# All secrets (RELAY_DATABASE_URL, RELAY_REDIS_URL,
+# RELAY_DASHBOARD_SESSION_SECRET, RELAY_API_KEYS) live in the
+# Secret manifest (secret.example.yaml); this ConfigMap holds
+# only operational knobs that are safe in plaintext + auditable
+# via `kubectl describe configmap`.
+#
+# The literal "redis" values for the two backend keys are
+# intentional — auto-detection from "inmemory" -> "redis" was
+# rejected in Plan 9 (R9.11 silent-out-of-order risk). The
+# deployment_mode boot-check (D9.11) refuses to start when these
+# don't match RELAY_DEPLOYMENT_MODE.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gg-relay-config
+  namespace: gg
+  labels:
+    app: gg-relay
+data:
+  RELAY_DEPLOYMENT_MODE: "multi_worker"
+  RELAY_EVENT_BUS_BACKEND: "redis"
+  RELAY_RATE_LIMIT_BACKEND: "redis"
+  RELAY_LOG_LEVEL: "INFO"
+  RELAY_LOG_JSON: "true"
+  # Plan 8 D8.10 pool sizing — 3 replicas × 15 + 1 InitContainer
+  # = ~50 connections against a Postgres with max_connections=100
+  # (leaves 50% headroom). Tune `RELAY_DB_POOL_SIZE` if you
+  # scale replicas above 3.
+  RELAY_DB_POOL_SIZE: "15"
+  RELAY_DB_POOL_OVERFLOW: "5"
+  # Plan 7 D7.22 — readiness probe needs the SessionManager grace
+  # window to finish draining before the pod is killed. Keep this
+  # ≤ terminationGracePeriodSeconds - 5s.
+  RELAY_GRACE_PERIOD_S: "30"
+  # Plan 9 D9.5 — Prometheus scrape path; matches the
+  # ServiceMonitor + the /metrics router included in main.py.
+  RELAY_METRICS_PATH: "/metrics"

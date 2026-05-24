@@ -1,0 +1,25 @@
+# Plan 9 D9.4/D9.5 — Prometheus Operator ServiceMonitor.
+#
+# Operators not using Prometheus Operator can fall back to the
+# pod-level `prometheus.io/scrape` annotations on the
+# Deployment template (still emitted).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gg-relay
+  namespace: gg
+  labels:
+    app: gg-relay
+    release: prometheus
+spec:
+  namespaceSelector:
+    matchNames:
+      - gg
+  selector:
+    matchLabels:
+      app: gg-relay
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s

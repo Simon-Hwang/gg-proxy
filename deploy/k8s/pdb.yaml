@@ -1,0 +1,20 @@
+# Plan 9 D9.4 — PodDisruptionBudget.
+#
+# ``minAvailable: 2`` ensures cluster-initiated voluntary
+# disruptions (node drains, upgrades) can never take more than
+# 1 replica out at a time. Combined with
+# ``RollingUpdate.maxUnavailable: 0`` on the Deployment, this
+# guarantees the API stays serving during both scheduled
+# maintenance and rolling upgrades.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gg-relay
+  namespace: gg
+  labels:
+    app: gg-relay
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: gg-relay

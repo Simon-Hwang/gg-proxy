@@ -1,0 +1,23 @@
+apiVersion: v2
+name: gg-relay
+description: |
+  gg-relay is a Python middleware service that relays Claude Code
+  tasks via the official claude-code-sdk. This chart packages the
+  multi-worker tier (Plan 9 D9.4): Deployment with
+  InitContainer-driven Alembic migration, HPA on
+  gg_relay_sessions_active, PDB, NetworkPolicy and ServiceMonitor.
+type: application
+version: 0.9.0
+appVersion: "0.9.0"
+home: https://github.com/your-org/gg-proxy
+sources:
+  - https://github.com/your-org/gg-proxy
+maintainers:
+  - name: gg-relay maintainers
+keywords:
+  - claude
+  - claude-code
+  - sdk
+  - relay
+  - llm
+  - middleware

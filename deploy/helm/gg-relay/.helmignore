@@ -1,0 +1,19 @@
+# Patterns to ignore when building packages.
+# See https://helm.sh/docs/chart_template_guide/#helm-ignore
+.DS_Store
+.git/
+.gitignore
+.bzr/
+.hg/
+.hgignore
+.svn/
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.project
+.idea/
+*.tmproj
+.vscode/
+OWNERS
