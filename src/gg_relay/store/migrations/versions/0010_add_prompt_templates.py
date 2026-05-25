@@ -71,7 +71,15 @@ def upgrade() -> None:
             "shared",
             sa.Boolean(),
             nullable=False,
-            server_default=sa.text("0"),
+            # ``sa.false()`` is dialect-aware: PostgreSQL emits
+            # ``DEFAULT FALSE``, SQLite emits ``DEFAULT 0``. The
+            # previous ``sa.text("0")`` round-tripped through SQLite
+            # fine but crashed on Postgres with ``column "shared" is
+            # of type boolean but default expression is of type
+            # integer`` — a strict-typing difference between the two
+            # dialects that hides until a real Postgres runs the
+            # migration chain.
+            server_default=sa.false(),
         ),
         sa.Column("tags", sa.String(length=500), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
