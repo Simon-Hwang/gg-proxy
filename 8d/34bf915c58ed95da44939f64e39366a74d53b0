@@ -1,0 +1,23 @@
+README.md
+  s_52997f2e3c44a0::t_e5f97bc4723ab1 15
+  s_52997f2e3c44a0::t_68dd2bc024f622 6
+README.zh.md
+  s_52997f2e3c44a0::t_1fae0a616b9557 6
+  s_52997f2e3c44a0::t_4b1a6c7264b65c 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.1",
+  "base_commit_sha": "8d34bf915c58ed95da44939f64e39366a74d53b0",
+  "prompts": {},
+  "sessions": {
+    "s_52997f2e3c44a0": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "cb937ec7-8aab-4063-8c7e-56c16f5e478f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
