@@ -1,0 +1,38 @@
+.rag/L0-overview.md
+  s_52997f2e3c44a0::t_35aae0224bb91b 35
+README.md
+  s_52997f2e3c44a0::t_85d3e2f7bdcff3 38-71
+  s_52997f2e3c44a0::t_c31cbfc3edf378 30
+  s_52997f2e3c44a0::t_cfdfd894b48f5a 14-17
+  s_52997f2e3c44a0::t_966eb3c24c855a 77-78
+  s_52997f2e3c44a0::t_9e45f56ea798a4 128
+  s_52997f2e3c44a0::t_fbadfe5aab7fca 227,238,246-248
+  s_52997f2e3c44a0::t_4c31967e84c09f 87
+  s_52997f2e3c44a0::t_fbabd397305aad 27
+  s_52997f2e3c44a0::t_422cd43b406ab4 29
+  s_52997f2e3c44a0::t_3eb086b007a76d 141
+  s_52997f2e3c44a0::t_25c6b3fbe18edd 268-274,280-287,290
+  s_52997f2e3c44a0::t_feb7e18d2f042f 5
+README.zh.md
+  s_52997f2e3c44a0::t_b11d120048d113 1-215
+.rag/api-contracts/gg-relay-api.md
+  s_52997f2e3c44a0::t_53a6560a1e82d1 49-82
+.rag/L2-modules/cluster-redis.md
+  s_52997f2e3c44a0::t_e0a301860465f1 53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.1",
+  "base_commit_sha": "bd23e644629e6297e35c1382eddda8a79de97725",
+  "prompts": {},
+  "sessions": {
+    "s_52997f2e3c44a0": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "cb937ec7-8aab-4063-8c7e-56c16f5e478f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
