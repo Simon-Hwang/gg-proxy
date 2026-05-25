@@ -1,0 +1,19 @@
+src/gg_relay/store/migrations/versions/0010_add_prompt_templates.py
+  s_c03bca0f2afff2::t_482776ed0701ef 74-82
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.1",
+  "base_commit_sha": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+  "prompts": {},
+  "sessions": {
+    "s_c03bca0f2afff2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "be6d2529-1e56-4adb-a9d7-17bc6a3df0f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
