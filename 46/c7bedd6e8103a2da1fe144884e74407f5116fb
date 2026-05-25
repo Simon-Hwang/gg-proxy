@@ -1,0 +1,24 @@
+tests/unit/proxy/test_minimal_proxy.py
+  s_c03bca0f2afff2::t_be590636aca317 153-165
+tests/integration/test_k8s_manifests.py
+  s_c03bca0f2afff2::t_afb8e06f89aab3 124-138,142
+src/gg_relay/store/durable_event.py
+  s_c03bca0f2afff2::t_b79c9faaaf70d6 99-100,103-108
+  s_c03bca0f2afff2::t_5aeaf770fa26c6 152-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.1",
+  "base_commit_sha": "46c7bedd6e8103a2da1fe144884e74407f5116fb",
+  "prompts": {},
+  "sessions": {
+    "s_c03bca0f2afff2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "be6d2529-1e56-4adb-a9d7-17bc6a3df0f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
