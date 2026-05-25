@@ -1,0 +1,19 @@
+.github/workflows/ci.yml
+  s_c03bca0f2afff2::t_44f80a8b0fe609 65-88,111-116,118-131
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.1",
+  "base_commit_sha": "953244751f69d25da3a6448776e16b423a330167",
+  "prompts": {},
+  "sessions": {
+    "s_c03bca0f2afff2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "be6d2529-1e56-4adb-a9d7-17bc6a3df0f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
