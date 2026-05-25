@@ -48,6 +48,30 @@ def _has(binary: str) -> bool:
     return shutil.which(binary) is not None
 
 
+def _kubectl_apiserver_reachable() -> bool:
+    """Return True iff ``kubectl`` is on PATH **and** can reach an
+    API server. ``kubectl create/apply --dry-run=client`` on modern
+    kubectl (1.27+) still performs RESTMapper discovery, so even the
+    "client only" dry-run hits the API server to translate
+    ``Kind`` → ``GroupVersionResource``. Hermetic CI runners that
+    ship the kubectl binary without a reachable cluster therefore
+    can't run this gate — it's a cluster-bound lint, not an offline
+    parser. The 1-second request-timeout keeps the probe cheap.
+    """
+    if not _has("kubectl"):
+        return False
+    try:
+        r = subprocess.run(  # noqa: S603 — fixed binary, no shell
+            ["kubectl", "--request-timeout=1s", "api-versions"],
+            capture_output=True,
+            timeout=3,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return False
+    return r.returncode == 0
+
+
 @pytest.mark.skipif(not _has("helm"), reason="helm CLI not available")
 def test_helm_lint_passes() -> None:
     """helm lint must exit 0; an [ERROR] in the body is a hard fail."""
@@ -111,7 +135,19 @@ def test_kustomize_renders_all_expected_kinds() -> None:
     assert not missing, f"kustomize missing kinds: {missing}"
 
 
-@pytest.mark.skipif(not _has("kubectl"), reason="kubectl CLI not available")
+@pytest.mark.skipif(
+    not _kubectl_apiserver_reachable(),
+    reason=(
+        "kubectl present but no API server is reachable. "
+        "kubectl client-side dry-run still runs RESTMapper "
+        "discovery against the active context, so this gate is "
+        "cluster-bound. Hermetic CI nodes that only ship the "
+        "kubectl binary should rely on the helm/kustomize render "
+        "checks above for offline lint coverage; the full "
+        "cluster-bound validation lives in the e2e suite that "
+        "spins up kind/minikube."
+    ),
+)
 def test_kubectl_dry_run_accepts_kustomize_output() -> None:
     """The rendered manifests pass kubectl client-side validation."""
     render = subprocess.run(  # noqa: S603 — fixed binary, no shell
@@ -121,30 +157,8 @@ def test_kubectl_dry_run_accepts_kustomize_output() -> None:
         check=False,
     )
     assert render.returncode == 0, render.stderr
-    # ``kubectl create --dry-run=client --validate=false`` is the
-    # hermetic-CI-friendly form. Two reasons we don't use ``apply``:
-    #   * ``apply`` still runs RESTMapper discovery against the
-    #     active context's API server (``GET /api``,
-    #     ``/apis/<group>``) so it can decide whether the manifest
-    #     applies via SSA or 3-way-merge. On runners without a
-    #     reachable cluster that produces ``dial tcp [::1]:8080:
-    #     connect: connection refused`` even with
-    #     ``--validate=false``.
-    #   * ``create --dry-run=client`` only parses + schema-checks
-    #     the input and exits — no discovery, no API call. Combined
-    #     with ``--validate=false`` to skip OpenAPI fetch as well,
-    #     it's a pure offline parse gate, which is exactly the
-    #     intent of this lint test. The cluster-bound e2e suite
-    #     covers full server-side validation separately.
     apply = subprocess.run(  # noqa: S603 — fixed binary, no shell
-        [
-            "kubectl",
-            "create",
-            "--dry-run=client",
-            "--validate=false",
-            "-f",
-            "-",
-        ],
+        ["kubectl", "apply", "--dry-run=client", "-f", "-"],
         input=render.stdout,
         capture_output=True,
         text=True,
