@@ -150,6 +150,19 @@ class TestConnectAllowedHost:
             # Read the tunnelled body back.
             reader = writer.get_extra_info("socket")  # ensures writer alive
             del reader
+            # Wait for the upstream to actually observe the tunnelled
+            # bytes before we tear anything down. The proxy spawns a
+            # background pump task to forward client→upstream and
+            # ``asyncio.Server.close()`` does NOT await in-flight
+            # connection handlers (only the listening socket), so
+            # without this poll the assertion races with the pump on
+            # py3.11 — py3.12's slightly different event-loop close
+            # ordering happens to win the race more often, which is
+            # how this latent test bug stayed hidden.
+            loop = asyncio.get_event_loop()
+            deadline = loop.time() + 2.0
+            while not received and loop.time() < deadline:
+                await asyncio.sleep(0.01)
             writer.close()
             await writer.wait_closed()
         finally:

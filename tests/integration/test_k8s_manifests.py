@@ -121,17 +121,25 @@ def test_kubectl_dry_run_accepts_kustomize_output() -> None:
         check=False,
     )
     assert render.returncode == 0, render.stderr
-    # ``--validate=false`` is required on hermetic CI nodes where
-    # ``kubectl`` is installed but no API server is reachable —
-    # otherwise the client validator tries to fetch the OpenAPI v2
-    # schema from ``localhost:8080`` and fails with
-    # ``connection refused``. We're explicitly only running the
-    # client-side renderer here; full schema validation happens in
-    # the cluster-bound e2e suite (not part of this lint gate).
+    # ``kubectl create --dry-run=client --validate=false`` is the
+    # hermetic-CI-friendly form. Two reasons we don't use ``apply``:
+    #   * ``apply`` still runs RESTMapper discovery against the
+    #     active context's API server (``GET /api``,
+    #     ``/apis/<group>``) so it can decide whether the manifest
+    #     applies via SSA or 3-way-merge. On runners without a
+    #     reachable cluster that produces ``dial tcp [::1]:8080:
+    #     connect: connection refused`` even with
+    #     ``--validate=false``.
+    #   * ``create --dry-run=client`` only parses + schema-checks
+    #     the input and exits — no discovery, no API call. Combined
+    #     with ``--validate=false`` to skip OpenAPI fetch as well,
+    #     it's a pure offline parse gate, which is exactly the
+    #     intent of this lint test. The cluster-bound e2e suite
+    #     covers full server-side validation separately.
     apply = subprocess.run(  # noqa: S603 — fixed binary, no shell
         [
             "kubectl",
-            "apply",
+            "create",
             "--dry-run=client",
             "--validate=false",
             "-f",

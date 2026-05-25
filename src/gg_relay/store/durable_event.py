@@ -96,20 +96,16 @@ class SqlAlchemyDurableEventStore:
         self._engine = engine
         # SQLite's default transaction mode is BEGIN DEFERRED, so two
         # concurrent ``engine.begin()`` blocks can both run
-        # ``SELECT COALESCE(MAX(seq), 0)``, derive the same ``next_seq``,
-        # and then INSERT the same value — tripping the
+        # ``SELECT COALESCE(MAX(seq), 0)``, derive the same
+        # ``next_seq``, and then INSERT the same value — tripping the
         # ``ix_events_seq`` UNIQUE index. Postgres uses
         # ``nextval('events_seq_seq')`` and is immune, so the lock is
-        # only constructed for SQLite-family dialects. Single-worker
-        # is the only supported deployment for SQLite, so a process
-        # local :class:`asyncio.Lock` is sufficient to serialise the
-        # SELECT/INSERT pair without globally serialising every txn
-        # on the engine.
-        self._sqlite_persist_lock: asyncio.Lock | None = (
-            asyncio.Lock()
-            if engine.dialect.name != "postgresql"
-            else None
-        )
+        # only consulted on the non-Postgres path. The lock is built
+        # lazily on first :meth:`persist` so unit tests that
+        # instantiate the store with ``engine=None`` for Protocol
+        # conformance checks don't trigger an ``AttributeError`` on
+        # ``engine.dialect.name`` at construction time.
+        self._sqlite_persist_lock: asyncio.Lock | None = None
 
     async def persist(self, event: RelayEvent) -> int:
         """Append ``event`` to the events table; return its seq.
@@ -153,8 +149,9 @@ class SqlAlchemyDurableEventStore:
                 )
                 return int(result.scalar_one())
         # SQLite + every other dialect uses MAX(seq)+1, serialised
-        # via the process-local lock built in __init__.
-        assert self._sqlite_persist_lock is not None  # noqa: S101
+        # via a process-local lock built lazily on first use.
+        if self._sqlite_persist_lock is None:
+            self._sqlite_persist_lock = asyncio.Lock()
         async with (
             self._sqlite_persist_lock,
             self._engine.begin() as conn,
