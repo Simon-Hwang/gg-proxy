@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
 [![Version 0.9.0](https://img.shields.io/badge/version-0.9.0-green.svg)](CHANGELOG.md)
+[![中文文档](https://img.shields.io/badge/文档-中文版-blue)](README.zh.md)
 
 A Python middleware service that wraps the `claude-code-sdk` and exposes
 it as a managed runtime: structured session lifecycle, persistent
@@ -11,7 +12,7 @@ approvals, OpenTelemetry tracing, and a container executor for hard
 isolation.
 
 `gg-relay` is the **server side**. It is designed as a sibling to
-[`gg-plugins`](https://github.com/your-org/gg-plugins) (separate
+[`gg-plugins`](https://github.com/Simon-Hwang/gg-plugins) (separate
 repository) — the plugin material is installed into a per-session
 sandbox by an `install.sh` invocation and surfaced to the Claude Code
 session at runtime.

@@ -3,10 +3,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
 [![Version 0.9.0](https://img.shields.io/badge/version-0.9.0-green.svg)](CHANGELOG.md)
+[![English](https://img.shields.io/badge/docs-English-blue)](README.md)
 
 `gg-relay` 是一个 Python 中间件服务，将 `claude-code-sdk` 封装为可管理的运行时：结构化会话生命周期、持久化审计日志、HTTP API、HTMX 管理后台、飞书人工介入（HITL）审批、OpenTelemetry 链路追踪，以及用于强隔离的容器执行器。
 
-`gg-relay` 是**服务端**，设计为 [`gg-plugins`](https://github.com/your-org/gg-plugins)（独立仓库）的配套服务——插件内容由 `install.sh` 安装到每个会话沙箱，并在运行时暴露给 Claude Code 会话。
+`gg-relay` 是**服务端**，设计为 [`gg-plugins`](https://github.com/Simon-Hwang/gg-plugins)（独立仓库）的配套服务——插件内容由 `install.sh` 安装到每个会话沙箱，并在运行时暴露给 Claude Code 会话。
 
 ---
 
