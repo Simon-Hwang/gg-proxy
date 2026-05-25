@@ -121,8 +121,22 @@ def test_kubectl_dry_run_accepts_kustomize_output() -> None:
         check=False,
     )
     assert render.returncode == 0, render.stderr
+    # ``--validate=false`` is required on hermetic CI nodes where
+    # ``kubectl`` is installed but no API server is reachable —
+    # otherwise the client validator tries to fetch the OpenAPI v2
+    # schema from ``localhost:8080`` and fails with
+    # ``connection refused``. We're explicitly only running the
+    # client-side renderer here; full schema validation happens in
+    # the cluster-bound e2e suite (not part of this lint gate).
     apply = subprocess.run(  # noqa: S603 — fixed binary, no shell
-        ["kubectl", "apply", "--dry-run=client", "-f", "-"],
+        [
+            "kubectl",
+            "apply",
+            "--dry-run=client",
+            "--validate=false",
+            "-f",
+            "-",
+        ],
         input=render.stdout,
         capture_output=True,
         text=True,

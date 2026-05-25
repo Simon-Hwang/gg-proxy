@@ -186,9 +186,17 @@ class SessionRuntimeContext:
     ``dict`` is fine because we never mutate it — we only read it. The
     ``MappingProxyType`` default just guarantees that the shared default cannot
     accidentally be mutated by a caller and bleed into the next session.
+
+    Implementation detail: Python 3.11's :func:`dataclasses.dataclass` rejects
+    ``MappingProxyType`` as a ``default=`` because ``mappingproxy.__hash__``
+    is ``None`` (it wraps a non-hashable ``dict``); 3.12 narrowed the check
+    to literal ``dict``/``list``/``set`` only. We use ``default_factory``
+    returning the module-level :data:`_EMPTY_MAPPING` so the same single
+    immutable proxy is reused across every default-constructed
+    ``SessionRuntimeContext`` while staying compatible with 3.11.
     """
 
-    credentials: Mapping[str, str] = field(default=_EMPTY_MAPPING)
+    credentials: Mapping[str, str] = field(default_factory=lambda: _EMPTY_MAPPING)
     """Sensitive secrets injected into the runtime env (ANTHROPIC_API_KEY etc.).
     Never logged, never persisted."""
 

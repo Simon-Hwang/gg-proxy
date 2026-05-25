@@ -94,16 +94,33 @@ class SqlAlchemyDurableEventStore:
 
     def __init__(self, engine: AsyncEngine) -> None:
         self._engine = engine
+        # SQLite's default transaction mode is BEGIN DEFERRED, so two
+        # concurrent ``engine.begin()`` blocks can both run
+        # ``SELECT COALESCE(MAX(seq), 0)``, derive the same ``next_seq``,
+        # and then INSERT the same value — tripping the
+        # ``ix_events_seq`` UNIQUE index. Postgres uses
+        # ``nextval('events_seq_seq')`` and is immune, so the lock is
+        # only constructed for SQLite-family dialects. Single-worker
+        # is the only supported deployment for SQLite, so a process
+        # local :class:`asyncio.Lock` is sufficient to serialise the
+        # SELECT/INSERT pair without globally serialising every txn
+        # on the engine.
+        self._sqlite_persist_lock: asyncio.Lock | None = (
+            asyncio.Lock()
+            if engine.dialect.name != "postgresql"
+            else None
+        )
 
     async def persist(self, event: RelayEvent) -> int:
         """Append ``event`` to the events table; return its seq.
 
         Postgres uses ``nextval('events_seq_seq')`` + RETURNING for
         one round-trip; SQLite uses ``SELECT COALESCE(MAX(seq),0)+1
-        → INSERT`` inside the engine.begin() transaction (the
-        engine's IMMEDIATE txn serialises concurrent writers so the
-        SELECT/INSERT pair is atomic relative to other persisters).
-        Other dialects fall through to the SQLite path.
+        → INSERT`` guarded by a per-process :class:`asyncio.Lock` so
+        concurrent persisters cannot derive the same ``next_seq``
+        (SQLite's DEFERRED txn would otherwise allow it and trip the
+        ``ix_events_seq`` UNIQUE index). Other dialects fall through
+        to the SQLite path.
         """
         payload = _event_payload(event)
         type_name = type(event).__name__
@@ -120,8 +137,8 @@ class SqlAlchemyDurableEventStore:
             "payload": payload_json,
             "delivery_tier": "disk",
         }
-        async with self._engine.begin() as conn:
-            if dialect_name == "postgresql":
+        if dialect_name == "postgresql":
+            async with self._engine.begin() as conn:
                 result = await conn.execute(
                     text(
                         "INSERT INTO events "
@@ -135,7 +152,13 @@ class SqlAlchemyDurableEventStore:
                     params,
                 )
                 return int(result.scalar_one())
-            # SQLite + every other dialect uses MAX(seq)+1.
+        # SQLite + every other dialect uses MAX(seq)+1, serialised
+        # via the process-local lock built in __init__.
+        assert self._sqlite_persist_lock is not None  # noqa: S101
+        async with (
+            self._sqlite_persist_lock,
+            self._engine.begin() as conn,
+        ):
             max_seq = (
                 await conn.execute(
                     text("SELECT COALESCE(MAX(seq), 0) FROM events")
