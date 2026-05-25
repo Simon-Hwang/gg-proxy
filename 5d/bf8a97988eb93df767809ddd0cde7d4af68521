@@ -1,0 +1,20 @@
+tests/integration/test_k8s_manifests.py
+  s_c03bca0f2afff2::t_9afcd17b5419b6 51-74
+  s_c03bca0f2afff2::t_aad94d684d12d2 138-150,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.1",
+  "base_commit_sha": "5dbf8a97988eb93df767809ddd0cde7d4af68521",
+  "prompts": {},
+  "sessions": {
+    "s_c03bca0f2afff2": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "be6d2529-1e56-4adb-a9d7-17bc6a3df0f5",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
