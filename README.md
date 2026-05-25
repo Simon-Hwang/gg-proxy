@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
-[![Version 0.8.0](https://img.shields.io/badge/version-0.8.0-green.svg)](CHANGELOG.md)
+[![Version 0.9.0](https://img.shields.io/badge/version-0.9.0-green.svg)](CHANGELOG.md)
 
 A Python middleware service that wraps the `claude-code-sdk` and exposes
 it as a managed runtime: structured session lifecycle, persistent
@@ -11,9 +11,10 @@ approvals, OpenTelemetry tracing, and a container executor for hard
 isolation.
 
 `gg-relay` is the **server side**. It is designed as a sibling to
-[`gg-plugins`](../gg-plugins) — the plugin material is installed into
-a per-session sandbox by an `install.sh` invocation and surfaced to the
-Claude Code session at runtime.
+[`gg-plugins`](https://github.com/your-org/gg-plugins) (separate
+repository) — the plugin material is installed into a per-session
+sandbox by an `install.sh` invocation and surfaced to the Claude Code
+session at runtime.
 
 ---
 
@@ -23,14 +24,48 @@ Claude Code session at runtime.
 |---|---|---|
 | HTTP API | `/api/v1/sessions` | submit / list / get / cancel / **pause / resume / DELETE** / HITL resolve |
 | Dashboard | `/dashboard/*` | HTMX UI for sessions, **Kanban board + SSE deltas + Chart.js token chart + Jaeger span-tree iframe**, HITL approval |
-| Feishu webhook | `/api/v1/webhooks/feishu` | interactive-card button → HITL resolution (legacy `/im/feishu/callback` is Deprecated since 0.7.0; carries a `Deprecation` header and will be removed in 0.8.0) |
+| Feishu webhook | `/api/v1/webhooks/feishu` | interactive-card button → HITL resolution (legacy `/im/feishu/callback` was deprecated in 0.7.0 and carries a `Deprecation` header) |
 | Health | `/healthz`, `/readyz` | k8s liveness / readiness |
-| CLI | `gg-relay <cmd>` | `serve`, `migrate`, `check-secrets`, `status`, `prune`, `recover` |
-| Executors | `session/executor/{inprocess,docker}.py` | host-process or Docker container; **both honour the same wire control loop for pause/resume** |
+| CLI | `gg-relay <cmd>` | `serve`, `migrate`, `check-secrets`, `status`, `prune`, `recover`, `bootstrap-admin`, `maintenance`, `version` |
+| Executors | `session/executor/{inprocess,docker,k8s_job}.py` | host-process, Docker container, or K8s Job; all share the same wire control loop for pause/resume |
 | Storage | `store/` (SQLAlchemy Core + Alembic) | sessions (incl. **per-session token / cost / turn aggregates** as of Alembic 0002), frames, hitl_requests |
 | IM | `im/{card,subscriber,backends/feishu}.py` | **`CardBuilder` Protocol + `IMSubscriber` EventBus consumer**; `SessionManager` no longer imports any IM backend |
 | Tracing | `tracing/` | OTel TracerProvider + EventBus subscriber |
 | Redaction | `redaction/` | regex + key-based masking before every DB write |
+
+---
+
+## What's new in 0.9.0 (Plan 9 — *Cluster Scaling Infrastructure*)
+
+Plan 9 ships every prerequisite for horizontal multi-worker scaling.
+Closes all 13 Plan 9 deliverables (D9.0–D9.13).
+
+- **Redis multi-worker tier** (D9.1–D9.3): `RedisStreamEventBus` +
+  `RedisRateLimitStore` via a single atomic Lua token-bucket script.
+  Activate with `RELAY_EVENT_BUS_BACKEND=redis RELAY_REDIS_URL=...`
+  (defaults to in-process for single-worker deploys).
+- **DB-backed dashboard keys** (D9.10): `DashboardKeyStore` +
+  `dashboard_internal_keys` table (Alembic `0012`). Eliminates
+  per-pod cookie-key collisions in multi-worker setups.
+- **K8s Job executor** (D9.8): `executor_kind: "k8s_job"` runs each
+  session as a Kubernetes Job with a TCP control channel;
+  `KubernetesAsyncIOClient` wraps `kubernetes-asyncio`.
+- **Durable event sequencing** (D9.9): `events.seq BIGINT NOT NULL`
+  monotonic column; SSE `Last-Event-ID` cursor format is now
+  `<events.seq>:<event_id>`.
+- **`POST / DELETE /api/v1/admin/drain`** (D9.12): operator-driven
+  graceful drain for rolling deploys.
+- **Cluster Prometheus metrics** (D9.5): `gg_relay_redis_*` +
+  `gg_relay_k8s_job_*` gauge/counter families.
+- **`deploy/k8s/`** (D9.4) + **`deploy/helm/gg-relay/`** (D9.B1):
+  namespace manifests and Helm chart for production K8s installs.
+- **EventBusBackend + RateLimitStoreBackend Protocols** (D9.0):
+  `runtime_checkable` Protocols in `gg_relay.core.protocol`; both
+  in-process and Redis backends satisfy them structurally.
+- **DingTalk + Slack backends removed** (D9.7): IM surface is now
+  Feishu-only (drop-in custom backends via `CardBuilder` Protocol).
+
+Full changelog: [`CHANGELOG.md`](CHANGELOG.md#090---2026-05-24).
 
 ---
 
@@ -39,8 +74,8 @@ Claude Code session at runtime.
 Plan 8 layers single-team multi-maintainer collaboration on top of the
 Plan 7 foundation. 21 tracked decisions (D8.0 / 3 / 4 / 5 / 6 / 7 / 10 /
 13 / 14 / 20 / 21 / 22 / 24 / 26 / 29 / 30 main + 4 boundary) landed
-across 23 tasks; Phase 4 multi-worker Redis tier (D8.1 / D8.2 / D8.27)
-is deferred so the default install remains dependency-free.
+across 23 tasks. (The multi-worker Redis tier was deferred to Plan 9 /
+0.9.0 — single-worker installs remain dependency-free.)
 
 - **Per-user API keys** (D8.29): DB-backed `api_keys` table (Alembic
   `0011`) + `auth/` package (`KeyResolver` Protocol, `DBKeyResolver`
@@ -49,7 +84,7 @@ is deferred so the default install remains dependency-free.
   create. Seed the first key with `gg-relay bootstrap-admin --label
   alice`.
 - **`require_role` RBAC** (D8.22): `viewer < submitter < admin` tiers;
-  label-derived role from `RELAY_ROLE_MAPPING` (or the `api_keys.role`
+  label-derived role from `RELAY_ROLE_MAPPING_RAW` (or the `api_keys.role`
   column); `require_role(min)` + `require_role_or_own_session(min)`
   FastAPI dependencies gate every mutation endpoint.
 - **Audit log** (D8.4): `audit_log` table (Alembic `0006`) +
@@ -90,7 +125,7 @@ is deferred so the default install remains dependency-free.
   `RELAY_DB_POOL_*` tunables; configurable slow-query WARN
   threshold.
 
-Full changelog: [`CHANGELOG.md`](CHANGELOG.md#080---2026-05-24).
+Full changelog: [`CHANGELOG.md`](CHANGELOG.md#080---2026-05-23).
 
 ---
 
@@ -103,7 +138,7 @@ Full changelog: [`CHANGELOG.md`](CHANGELOG.md#080---2026-05-24).
   dashboard `/dashboard/admin/keys` (admin only).
 - **Role tiers**: `viewer` (read-only), `submitter` (submit + manage
   own sessions), `admin` (everything). Configure via
-  `RELAY_ROLE_MAPPING="alice:admin,bob:submitter"` or write the
+  `RELAY_ROLE_MAPPING_RAW="alice=admin,bob=submitter"` or write the
   `role` column directly in `api_keys`.
 - **Audit trail**: every mutation written to `audit_log`. Browse per-
   session via the dashboard or `GET /api/v1/audit?session_id=...`.
@@ -189,7 +224,7 @@ gg-relay migrate          # alembic upgrade head against RELAY_DATABASE_URL
 gg-relay serve            # uvicorn on 0.0.0.0:8000
 ```
 
-Submit a session via the API:
+Submit a session via the API (in-process executor, no Docker needed):
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/sessions \
@@ -200,13 +235,17 @@ curl -X POST http://localhost:8000/api/v1/sessions \
       "prompt": "list /tmp",
       "cwd": "/tmp",
       "plugins": {"profile": "minimal"},
-      "executor": "docker",
+      "executor": "inprocess",
       "timeout_s": 1800,
       "tags": ["demo"]
     },
     "credentials": {"ANTHROPIC_API_KEY": "sk-ant-..."}
   }'
 ```
+
+For Docker or K8s isolation, set `"executor": "docker"` or
+`"executor": "k8s_job"` respectively (requires Docker daemon or
+`kubernetes-asyncio` and cluster credentials).
 
 Open `http://localhost:8000/dashboard/login` (admin / your password) to
 watch the session run; HITL approvals show up inline when a tool falls
@@ -226,27 +265,29 @@ exercises submit → list → get without needing Docker or the real SDK.
 └────────────┬───────────────┘
              │
              ▼
-   ┌─────── FastAPI app ────────┐
-   │  middlewares: APIKey + Log │
-   │  routers: sessions / hitl  │
-   │           dashboard / im   │
-   └──────┬──────────┬──────────┘
-          │          │
-          │          ▼
+   ┌─────── FastAPI app ────────────────────────────────┐
+   │  middlewares: APIKey + RateLimit + Audit + Log     │
+   │  routers: sessions / hitl / audit / comments /     │
+   │           templates / cost / admin / dashboard / im │
+   └──────┬──────────────────┬──────────────────────────┘
+          │                  │
+          │                  ▼
           │   ┌──── SessionManager ────┐
           │   │  semaphore + lifecycle │
           │   │  install → start →     │
           │   │  drain → redact →      │
           │   │  persist               │
-          │   └──┬─────────────────┬───┘
-          │      │                 │
-          │      ▼                 ▼
-          │  ExecutorBackend   EventBus
-          │  (inprocess /      (otel,
-          │   docker)           dashboard,
-          │                     IM)
+          │   └──┬──────────────┬──────┘
+          │      │              │
+          │      ▼              ▼
+          │  ExecutorBackend   EventBusBackend
+          │  (inprocess /      (inmemory / Redis
+          │   docker /          Stream; fan-out to
+          │   k8s_job)          otel, dashboard,
+          │                     IM, metrics)
           ▼
        Store (SQLAlchemy Core + Alembic)
+       SQLite (dev) / PostgreSQL (prod)
 ```
 
 Detailed design: `docs/superpowers/specs/2026-05-22-sdk-bootstrap-and-runtime-design.md`

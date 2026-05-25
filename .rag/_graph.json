@@ -1,0 +1,176 @@
+{
+  "nodes": [
+    {
+      "id": "repo-gg-relay",
+      "type": "repo",
+      "label": "gg-relay",
+      "path": ".",
+      "tags": ["python", "fastapi", "claude-code-sdk"],
+      "doc_ref": "L0-overview.md"
+    },
+    {
+      "id": "gg-relay-system",
+      "type": "system",
+      "label": "gg-relay 系统",
+      "path": "src/gg_relay/",
+      "tags": ["python", "fastapi", "async"],
+      "doc_ref": "L1-systems/gg-relay.md"
+    },
+    {
+      "id": "core-eventbus",
+      "type": "module",
+      "label": "core (EventBus + Domain)",
+      "path": "src/gg_relay/core/",
+      "tags": ["event-bus", "domain", "state-machine"],
+      "doc_ref": "L2-modules/core-eventbus.md"
+    },
+    {
+      "id": "session-manager",
+      "type": "module",
+      "label": "session (Manager + Executors)",
+      "path": "src/gg_relay/session/",
+      "tags": ["session", "executor", "hitl"],
+      "doc_ref": "L2-modules/session-manager.md"
+    },
+    {
+      "id": "store-persistence",
+      "type": "module",
+      "label": "store (SQLAlchemy + Alembic)",
+      "path": "src/gg_relay/store/",
+      "tags": ["sqlalchemy", "alembic", "repository"],
+      "doc_ref": "L2-modules/store-persistence.md"
+    },
+    {
+      "id": "api-layer",
+      "type": "module",
+      "label": "api (FastAPI routers)",
+      "path": "src/gg_relay/api/",
+      "tags": ["fastapi", "middleware", "auth"],
+      "doc_ref": "L2-modules/api-layer.md"
+    },
+    {
+      "id": "cluster-redis",
+      "type": "module",
+      "label": "cluster (Redis multi-worker)",
+      "path": "src/gg_relay/cluster/",
+      "tags": ["redis", "distributed", "rate-limit"],
+      "doc_ref": "L2-modules/cluster-redis.md"
+    },
+    {
+      "id": "im-integration",
+      "type": "module",
+      "label": "im (Feishu integration)",
+      "path": "src/gg_relay/im/",
+      "tags": ["feishu", "webhook", "notification"],
+      "doc_ref": "L2-modules/im-integration.md"
+    },
+    {
+      "id": "tracing-observability",
+      "type": "module",
+      "label": "tracing (OTel + Prometheus)",
+      "path": "src/gg_relay/tracing/",
+      "tags": ["opentelemetry", "prometheus", "metrics"],
+      "doc_ref": "L2-modules/tracing-observability.md"
+    },
+    {
+      "id": "gg-relay-api-contract",
+      "type": "api",
+      "label": "REST API contract",
+      "path": "src/gg_relay/api/routers/",
+      "tags": ["rest", "sse", "auth"],
+      "doc_ref": "api-contracts/gg-relay-api.md"
+    },
+    {
+      "id": "chain-session-lifecycle",
+      "type": "function",
+      "label": "Session Lifecycle chain",
+      "path": "src/gg_relay/session/manager.py",
+      "tags": ["lifecycle", "state-machine", "concurrency"],
+      "doc_ref": "L3-chains/session-lifecycle.md"
+    },
+    {
+      "id": "chain-hitl-decision",
+      "type": "function",
+      "label": "HITL Decision Flow",
+      "path": "src/gg_relay/session/hitl/coordinator.py",
+      "tags": ["hitl", "approval", "coordinator"],
+      "doc_ref": "L3-chains/hitl-decision-flow.md"
+    },
+    {
+      "id": "chain-eventbus-fanout",
+      "type": "function",
+      "label": "EventBus Fan-out chain",
+      "path": "src/gg_relay/core/event_bus.py",
+      "tags": ["event-bus", "fanout", "sse"],
+      "doc_ref": "L3-chains/eventbus-fanout.md"
+    },
+    {
+      "id": "adr-summary",
+      "type": "adr",
+      "label": "ADR Summary",
+      "path": ".rag/ADR/ADR-Summary.md",
+      "tags": ["adr", "architecture"],
+      "doc_ref": "ADR/ADR-Summary.md"
+    },
+    {
+      "id": "adr-001-eventbus",
+      "type": "adr",
+      "label": "ADR-001 EventBus Only",
+      "path": ".rag/ADR/001-eventbus-only-fanout.md",
+      "tags": ["adr", "event-bus"],
+      "doc_ref": "ADR/001-eventbus-only-fanout.md"
+    },
+    {
+      "id": "adr-002-protocol",
+      "type": "adr",
+      "label": "ADR-002 Protocol Interfaces",
+      "path": ".rag/ADR/002-protocol-interfaces.md",
+      "tags": ["adr", "protocol"],
+      "doc_ref": "ADR/002-protocol-interfaces.md"
+    },
+    {
+      "id": "adr-003-optimistic-locking",
+      "type": "adr",
+      "label": "ADR-003 Optimistic Locking",
+      "path": ".rag/ADR/003-optimistic-locking.md",
+      "tags": ["adr", "concurrency"],
+      "doc_ref": "ADR/003-optimistic-locking.md"
+    },
+    {
+      "id": "adr-004-delivery-tiers",
+      "type": "adr",
+      "label": "ADR-004 Delivery Tiers",
+      "path": ".rag/ADR/004-delivery-tiers.md",
+      "tags": ["adr", "event-bus", "reliability"],
+      "doc_ref": "ADR/004-delivery-tiers.md"
+    }
+  ],
+  "edges": [
+    {"source": "repo-gg-relay", "target": "gg-relay-system", "type": "contains", "label": "唯一子系统"},
+    {"source": "gg-relay-system", "target": "core-eventbus", "type": "contains", "label": "核心领域层"},
+    {"source": "gg-relay-system", "target": "session-manager", "type": "contains", "label": "应用层"},
+    {"source": "gg-relay-system", "target": "store-persistence", "type": "contains", "label": "基础设施层"},
+    {"source": "gg-relay-system", "target": "api-layer", "type": "contains", "label": "API 层"},
+    {"source": "gg-relay-system", "target": "cluster-redis", "type": "contains", "label": "集群层"},
+    {"source": "gg-relay-system", "target": "im-integration", "type": "contains", "label": "IM 集成层"},
+    {"source": "gg-relay-system", "target": "tracing-observability", "type": "contains", "label": "可观测层"},
+    {"source": "api-layer", "target": "session-manager", "type": "depends_on", "label": "路由调用 SessionManager"},
+    {"source": "api-layer", "target": "store-persistence", "type": "depends_on", "label": "路由读取 store"},
+    {"source": "session-manager", "target": "core-eventbus", "type": "depends_on", "label": "发布事件"},
+    {"source": "session-manager", "target": "store-persistence", "type": "depends_on", "label": "持久化 frames/session"},
+    {"source": "im-integration", "target": "core-eventbus", "type": "depends_on", "label": "消费事件"},
+    {"source": "tracing-observability", "target": "core-eventbus", "type": "depends_on", "label": "消费事件"},
+    {"source": "cluster-redis", "target": "core-eventbus", "type": "implements", "label": "Redis 实现 EventBusBackend"},
+    {"source": "chain-session-lifecycle", "target": "session-manager", "type": "calls", "label": "submit → _run → terminal"},
+    {"source": "chain-session-lifecycle", "target": "store-persistence", "type": "calls", "label": "create/update session"},
+    {"source": "chain-hitl-decision", "target": "session-manager", "type": "calls", "label": "coordinator.request/resolve"},
+    {"source": "chain-hitl-decision", "target": "api-layer", "type": "calls", "label": "hitl_router POST"},
+    {"source": "chain-eventbus-fanout", "target": "core-eventbus", "type": "calls", "label": "publish → _dispatch"},
+    {"source": "chain-eventbus-fanout", "target": "store-persistence", "type": "calls", "label": "DurableEventStore.persist"},
+    {"source": "gg-relay-api-contract", "target": "api-layer", "type": "handles", "label": "API 端点定义"},
+    {"source": "core-eventbus", "target": "adr-001-eventbus", "type": "decided_by", "label": "唯一 fan-out 决策"},
+    {"source": "gg-relay-system", "target": "adr-002-protocol", "type": "decided_by", "label": "Protocol 接口决策"},
+    {"source": "store-persistence", "target": "adr-003-optimistic-locking", "type": "decided_by", "label": "乐观锁决策"},
+    {"source": "core-eventbus", "target": "adr-004-delivery-tiers", "type": "decided_by", "label": "Delivery Tier 决策"}
+  ]
+}

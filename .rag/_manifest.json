@@ -1,0 +1,898 @@
+{
+  "schema_version": "1",
+  "repo": "gg-relay",
+  "generated_at": "2026-05-25T12:00:00Z",
+  "last_synced_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+  "total_documents": 18,
+  "hierarchy": {
+    "L0": [
+      "L0-overview"
+    ],
+    "L1": [
+      "gg-relay-system"
+    ],
+    "L2": [
+      "core-eventbus",
+      "session-manager",
+      "store-persistence",
+      "api-layer",
+      "cluster-redis",
+      "im-integration",
+      "tracing-observability"
+    ],
+    "L3": [
+      "chain-session-lifecycle",
+      "chain-hitl-decision",
+      "chain-eventbus-fanout"
+    ],
+    "API": [
+      "gg-relay-api-contract"
+    ],
+    "ADR": [
+      "adr-summary",
+      "adr-001-eventbus",
+      "adr-002-protocol",
+      "adr-003-optimistic-locking",
+      "adr-004-delivery-tiers"
+    ]
+  },
+  "documents": [
+    {
+      "id": "L0-overview",
+      "path": "L0-overview.md",
+      "level": "L0",
+      "title": "gg-relay 仓库全景",
+      "summary": "Python FastAPI 中间件，为团队使用 Claude Code SDK 提供会话管理、事件总线、HITL 审批、IM 集成和可视化仪表板",
+      "tags": [
+        "python",
+        "fastapi",
+        "claude-code-sdk",
+        "middleware",
+        "relay"
+      ],
+      "domain": [
+        "session-management",
+        "event-bus",
+        "hitl",
+        "im-integration",
+        "observability"
+      ],
+      "intent": [
+        "了解 gg-relay 整体架构和定位",
+        "查找入口文件和核心模块分布",
+        "理解子系统之间的依赖关系"
+      ],
+      "symbols": [
+        "gg-relay",
+        "SessionManager",
+        "EventBus",
+        "Config",
+        "create_app"
+      ],
+      "graph_node_id": "repo-gg-relay",
+      "token_estimate": 2200,
+      "source_paths": [
+        "src/gg_relay/",
+        "pyproject.toml",
+        "docs/architecture.md",
+        "CLAUDE.md"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "gg-relay-system",
+      "path": "L1-systems/gg-relay.md",
+      "level": "L1",
+      "title": "gg-relay 系统架构与编码风格指南",
+      "summary": "Python 后端服务的分层架构、事件驱动设计哲学、Protocol 接口规范与编码红线",
+      "tags": [
+        "python",
+        "fastapi",
+        "async",
+        "protocol",
+        "frozen-dataclass"
+      ],
+      "domain": [
+        "architecture",
+        "coding-style",
+        "dependency-injection",
+        "event-driven"
+      ],
+      "intent": [
+        "查 gg-relay 整体架构分层与模块边界",
+        "了解编码规范和扩展方式",
+        "新增功能时定位入口点和注入方式"
+      ],
+      "symbols": [
+        "Config",
+        "create_app",
+        "lifespan",
+        "EventBus",
+        "SessionManager",
+        "RelayEvent",
+        "typing.Protocol"
+      ],
+      "graph_node_id": "gg-relay-system",
+      "token_estimate": 2800,
+      "source_paths": [
+        "src/gg_relay/api/main.py",
+        "src/gg_relay/core/",
+        "src/gg_relay/config.py",
+        "src/gg_relay/core/protocol.py",
+        "src/gg_relay/session/executor/protocol.py",
+        "src/gg_relay/session/transport/protocol.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "core-eventbus",
+      "path": "L2-modules/core-eventbus.md",
+      "level": "L2",
+      "title": "Core 模块 — EventBus + Domain + Events",
+      "summary": "进程内 async pub/sub 总线（topic-keyed fan-out + delivery tier 背压）、RelayEvent 类层级和 SessionState 状态机",
+      "tags": [
+        "python",
+        "event-bus",
+        "domain",
+        "pub-sub",
+        "frozen-dataclass"
+      ],
+      "domain": [
+        "event-driven",
+        "pub-sub",
+        "state-machine",
+        "backpressure"
+      ],
+      "intent": [
+        "查 EventBus 的 publish/subscribe 用法",
+        "了解 RelayEvent 层级和 delivery tier 策略",
+        "定位 SessionState 状态机和合法转换表"
+      ],
+      "symbols": [
+        "EventBus",
+        "RelayEvent",
+        "SessionState",
+        "LEGAL_TRANSITIONS",
+        "DeliveryTier",
+        "frame_to_event",
+        "SessionCreated",
+        "SessionStateChanged",
+        "HITLRequested"
+      ],
+      "graph_node_id": "core-eventbus",
+      "token_estimate": 2500,
+      "source_paths": [
+        "src/gg_relay/core/event_bus.py",
+        "src/gg_relay/core/events.py",
+        "src/gg_relay/core/domain.py",
+        "src/gg_relay/core/protocol.py",
+        "src/gg_relay/core/exceptions.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "session-manager",
+      "path": "L2-modules/session-manager.md",
+      "level": "L2",
+      "title": "Session 模块 — SessionManager + Executors + HITL",
+      "summary": "进程级会话编排器，管理 submit/pause/resume/cancel 生命周期、executor 后端选择和 HITL 审批协调",
+      "tags": [
+        "python",
+        "async",
+        "session-lifecycle",
+        "executor",
+        "hitl",
+        "pause-resume"
+      ],
+      "domain": [
+        "session-management",
+        "concurrency",
+        "executor",
+        "human-in-the-loop",
+        "pause-resume"
+      ],
+      "intent": [
+        "查 SessionManager 的 submit/pause/resume/cancel 工作流",
+        "了解 executor 后端如何切换",
+        "定位 HITL 审批流程的协调逻辑",
+        "修改 session 并发控制或超时策略"
+      ],
+      "symbols": [
+        "SessionManager",
+        "ExecutorBackend",
+        "HITLCoordinator",
+        "ToolPolicy",
+        "SessionSpec",
+        "InProcessExecutor",
+        "DockerExecutor",
+        "K8sJobExecutor",
+        "ControlChannel",
+        "WireBridge"
+      ],
+      "graph_node_id": "session-manager",
+      "token_estimate": 2800,
+      "source_paths": [
+        "src/gg_relay/session/manager.py",
+        "src/gg_relay/session/executor/protocol.py",
+        "src/gg_relay/session/executor/inprocess.py",
+        "src/gg_relay/session/executor/docker.py",
+        "src/gg_relay/session/executor/k8s_job.py",
+        "src/gg_relay/session/hitl/coordinator.py",
+        "src/gg_relay/session/hitl/policy.py",
+        "src/gg_relay/session/transport/protocol.py",
+        "src/gg_relay/session/spec.py",
+        "src/gg_relay/session/recovery.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "store-persistence",
+      "path": "L2-modules/store-persistence.md",
+      "level": "L2",
+      "title": "Store 模块 — SQLAlchemy 持久层 + Alembic 迁移",
+      "summary": "SQLAlchemy Core async 持久层，包含 sessions/frames/events/audit_log 等表的 schema 定义、Repository 和乐观锁并发控制",
+      "tags": [
+        "python",
+        "sqlalchemy",
+        "async",
+        "alembic",
+        "repository"
+      ],
+      "domain": [
+        "persistence",
+        "database",
+        "migration",
+        "repository-pattern"
+      ],
+      "intent": [
+        "查 sessions/frames/hitl/events 表结构",
+        "了解 Repository 模式和乐观锁实现",
+        "添加新的 Alembic migration",
+        "定位 DurableEventStore 的 persist/fetch 接口"
+      ],
+      "symbols": [
+        "SessionRepository",
+        "SqlAlchemyDurableEventStore",
+        "make_async_engine",
+        "sessions",
+        "frames",
+        "hitl_requests",
+        "events",
+        "audit_log",
+        "ConcurrencyError"
+      ],
+      "graph_node_id": "store-persistence",
+      "token_estimate": 2000,
+      "source_paths": [
+        "src/gg_relay/store/schema.py",
+        "src/gg_relay/store/repository.py",
+        "src/gg_relay/store/engine.py",
+        "src/gg_relay/store/durable_event.py",
+        "src/gg_relay/store/protocol.py",
+        "src/gg_relay/store/exceptions.py",
+        "src/gg_relay/store/dashboard_keys.py",
+        "src/gg_relay/store/migrations/"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "api-layer",
+      "path": "L2-modules/api-layer.md",
+      "level": "L2",
+      "title": "API 模块 — FastAPI Routers + Middleware Chain",
+      "summary": "FastAPI app factory + 6 层 middleware chain + 12 个 API routers",
+      "tags": [
+        "python",
+        "fastapi",
+        "middleware",
+        "auth",
+        "rate-limit",
+        "sse"
+      ],
+      "domain": [
+        "api",
+        "authentication",
+        "authorization",
+        "rate-limiting",
+        "audit"
+      ],
+      "intent": [
+        "查 API 端点路由和 OpenAPI 结构",
+        "了解 middleware 执行顺序和鉴权流程",
+        "添加新的 API router 或 middleware",
+        "定位 SSE 事件流推送实现"
+      ],
+      "symbols": [
+        "create_app",
+        "lifespan",
+        "APIKeyAuthMiddleware",
+        "RateLimitMiddleware",
+        "DashboardCookieMiddleware",
+        "AuditFallbackMiddleware",
+        "sessions_router",
+        "events_router",
+        "hitl_router",
+        "require_role"
+      ],
+      "graph_node_id": "api-layer",
+      "token_estimate": 2200,
+      "source_paths": [
+        "src/gg_relay/api/main.py",
+        "src/gg_relay/api/routers/sessions.py",
+        "src/gg_relay/api/routers/events.py",
+        "src/gg_relay/api/routers/hitl.py",
+        "src/gg_relay/api/middleware/api_key_auth.py",
+        "src/gg_relay/api/middleware/rate_limit.py",
+        "src/gg_relay/api/middleware/dashboard_cookie.py",
+        "src/gg_relay/api/middleware/audit.py",
+        "src/gg_relay/api/schemas.py",
+        "src/gg_relay/api/sse.py",
+        "src/gg_relay/api/dependencies/require_role.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "cluster-redis",
+      "path": "L2-modules/cluster-redis.md",
+      "level": "L2",
+      "title": "Cluster 模块 — Redis EventBus + 分布式限流 + 部署校验",
+      "summary": "Multi-worker 水平扩展层：Redis Streams EventBus、Lua-backed 分布式限流、部署模式安全校验和 key 轮换广播",
+      "tags": [
+        "python",
+        "redis",
+        "multi-worker",
+        "rate-limit",
+        "distributed"
+      ],
+      "domain": [
+        "cluster",
+        "redis",
+        "horizontal-scaling",
+        "rate-limiting",
+        "deployment"
+      ],
+      "intent": [
+        "查 Redis EventBus 和分布式限流的接入方式",
+        "了解 multi-worker 部署模式下的安全检查",
+        "配置从 inmemory 切换到 redis 后端"
+      ],
+      "symbols": [
+        "RedisStreamEventBus",
+        "RedisRateLimitStore",
+        "build_event_bus",
+        "build_rate_limit_store",
+        "validate_deployment_mode",
+        "KeyInvalidateSubscriber"
+      ],
+      "graph_node_id": "cluster-redis",
+      "token_estimate": 1500,
+      "source_paths": [
+        "src/gg_relay/cluster/factory.py",
+        "src/gg_relay/cluster/redis_bus.py",
+        "src/gg_relay/cluster/redis_rate_limit.py",
+        "src/gg_relay/cluster/boot_check.py",
+        "src/gg_relay/cluster/key_invalidate.py",
+        "src/gg_relay/cluster/wire.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "im-integration",
+      "path": "L2-modules/im-integration.md",
+      "level": "L2",
+      "title": "IM 模块 — 飞书集成 + Webhook + Card Builder",
+      "summary": "IM 集成层：飞书 webhook 验签 + 卡片构建 + IMSubscriber 消费 EventBus 事件推送通知",
+      "tags": [
+        "python",
+        "feishu",
+        "webhook",
+        "im",
+        "card-builder"
+      ],
+      "domain": [
+        "im-integration",
+        "feishu",
+        "webhook",
+        "notification",
+        "alert"
+      ],
+      "intent": [
+        "查飞书通知卡片的构建和发送流程",
+        "了解 webhook 验签和回调处理",
+        "添加新的 IM 后端"
+      ],
+      "symbols": [
+        "FeishuBackend",
+        "IMSubscriber",
+        "FeishuCardBuilder",
+        "feishu_router",
+        "IMBackend"
+      ],
+      "graph_node_id": "im-integration",
+      "token_estimate": 1200,
+      "source_paths": [
+        "src/gg_relay/im/backends/feishu.py",
+        "src/gg_relay/im/subscriber.py",
+        "src/gg_relay/im/router.py",
+        "src/gg_relay/im/card.py",
+        "src/gg_relay/im/protocol.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "tracing-observability",
+      "path": "L2-modules/tracing-observability.md",
+      "level": "L2",
+      "title": "Tracing 模块 — OTel + Prometheus + TaskTrace",
+      "summary": "可观测性三件套：OTel span 自动生成、Prometheus counter/histogram 采集和 gg-plugins task-trace JSONL 写入",
+      "tags": [
+        "python",
+        "opentelemetry",
+        "prometheus",
+        "metrics",
+        "observability"
+      ],
+      "domain": [
+        "observability",
+        "tracing",
+        "metrics",
+        "monitoring"
+      ],
+      "intent": [
+        "查 OTel span 层次结构和 Jaeger 集成",
+        "了解 Prometheus metrics 定义和采集",
+        "定位 task-trace JSONL 写入逻辑"
+      ],
+      "symbols": [
+        "OtelSubscriber",
+        "MetricsSubscriber",
+        "TaskTraceSubscriber",
+        "setup_tracer",
+        "BUS_DROPS",
+        "BUS_DURABLE_DROPS"
+      ],
+      "graph_node_id": "tracing-observability",
+      "token_estimate": 1200,
+      "source_paths": [
+        "src/gg_relay/tracing/setup.py",
+        "src/gg_relay/tracing/subscriber.py",
+        "src/gg_relay/tracing/metrics.py",
+        "src/gg_relay/tracing/metrics_subscriber.py",
+        "src/gg_relay/tracing/task_trace.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "chain-session-lifecycle",
+      "path": "L3-chains/session-lifecycle.md",
+      "level": "L3",
+      "title": "L3 链路 — Session Lifecycle",
+      "summary": "从 submit 到 terminal 的完整调用链：信号量获取、executor 启动、frame 持久化、pause/resume slot 管理和乐观锁状态转换",
+      "tags": [
+        "python",
+        "session",
+        "lifecycle",
+        "concurrency",
+        "state-machine"
+      ],
+      "domain": [
+        "session-management",
+        "lifecycle",
+        "concurrency",
+        "pause-resume"
+      ],
+      "intent": [
+        "追踪一个 session 从 submit 到 completion 的完整调用链",
+        "理解 pause/resume 的信号量释放和恢复逻辑",
+        "排查 session 卡死、超时或状态不一致问题"
+      ],
+      "symbols": [
+        "SessionManager.submit",
+        "SessionManager._run",
+        "SessionManager.pause",
+        "SessionManager.resume",
+        "SessionManager.cancel",
+        "_update_status_locked",
+        "LEGAL_TRANSITIONS"
+      ],
+      "graph_node_id": "chain-session-lifecycle",
+      "token_estimate": 2800,
+      "source_paths": [
+        "src/gg_relay/session/manager.py",
+        "src/gg_relay/core/domain.py",
+        "src/gg_relay/session/recovery.py",
+        "src/gg_relay/store/repository.py",
+        "src/gg_relay/session/executor/protocol.py",
+        "src/gg_relay/session/transport/protocol.py"
+      ],
+      "confidence": "high",
+      "review_status": "reviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "chain-hitl-decision",
+      "path": "L3-chains/hitl-decision-flow.md",
+      "level": "L3",
+      "title": "L3 链路 — HITL Decision Flow",
+      "summary": "HITL 审批全链路：ToolPolicy 评估 → coordinator.request 阻塞 → dashboard/API/webhook resolve → runner 继续执行",
+      "tags": [
+        "python",
+        "hitl",
+        "approval",
+        "future",
+        "coordinator"
+      ],
+      "domain": [
+        "human-in-the-loop",
+        "approval",
+        "async-coordination",
+        "webhook"
+      ],
+      "intent": [
+        "追踪 HITL 审批从 tool 请求到决定返回 runner 的完整链路",
+        "排查 HITL 请求卡住或 race condition 问题",
+        "了解跨 worker HITL 决定的一致性保证"
+      ],
+      "symbols": [
+        "HITLCoordinator.request",
+        "HITLCoordinator.resolve",
+        "ToolPolicy.decide",
+        "HITLRequested",
+        "HITLResolved",
+        "HITLAlreadyResolved",
+        "HITLNotPending"
+      ],
+      "graph_node_id": "chain-hitl-decision",
+      "token_estimate": 2000,
+      "source_paths": [
+        "src/gg_relay/session/hitl/coordinator.py",
+        "src/gg_relay/session/hitl/policy.py",
+        "src/gg_relay/api/routers/hitl.py",
+        "src/gg_relay/session/runner/bridge.py",
+        "src/gg_relay/im/subscriber.py",
+        "src/gg_relay/core/events.py"
+      ],
+      "confidence": "high",
+      "review_status": "reviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "chain-eventbus-fanout",
+      "path": "L3-chains/eventbus-fanout.md",
+      "level": "L3",
+      "title": "L3 链路 — EventBus Fan-out",
+      "summary": "EventBus 多消费者分发链路：durable 事件先持久化再 fan-out、lossy 事件 drop-oldest 背压、SSE Last-Event-ID 断点重放",
+      "tags": [
+        "python",
+        "event-bus",
+        "fanout",
+        "sse",
+        "durable",
+        "lossy"
+      ],
+      "domain": [
+        "event-driven",
+        "pub-sub",
+        "sse",
+        "persistence",
+        "backpressure"
+      ],
+      "intent": [
+        "追踪一个事件从 SessionManager 发布到所有消费者接收的路径",
+        "理解 durable tier 的 persist-before-fanout 保证",
+        "排查 SSE 断连重放或事件丢失问题"
+      ],
+      "symbols": [
+        "EventBus.publish",
+        "EventBus._dispatch",
+        "EventBus.replay_after",
+        "SqlAlchemyDurableEventStore.persist",
+        "SqlAlchemyDurableEventStore.fetch_after"
+      ],
+      "graph_node_id": "chain-eventbus-fanout",
+      "token_estimate": 2000,
+      "source_paths": [
+        "src/gg_relay/core/event_bus.py",
+        "src/gg_relay/store/durable_event.py",
+        "src/gg_relay/api/sse.py",
+        "src/gg_relay/tracing/metrics_subscriber.py",
+        "src/gg_relay/tracing/subscriber.py",
+        "src/gg_relay/im/subscriber.py"
+      ],
+      "confidence": "high",
+      "review_status": "reviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "gg-relay-api-contract",
+      "path": "api-contracts/gg-relay-api.md",
+      "level": "API",
+      "title": "gg-relay API 契约文档",
+      "summary": "gg-relay REST API 契约：session CRUD、SSE 事件流、HITL 审批、admin 管理和运维端点",
+      "tags": [
+        "python",
+        "fastapi",
+        "rest-api",
+        "sse",
+        "auth"
+      ],
+      "domain": [
+        "api",
+        "session",
+        "hitl",
+        "audit",
+        "sse"
+      ],
+      "intent": [
+        "查 API 端点的请求/响应格式",
+        "了解认证方式和错误码定义",
+        "集成 gg-relay API 的客户端开发"
+      ],
+      "symbols": [
+        "POST /api/v1/sessions",
+        "GET /api/v1/sessions/{id}/events",
+        "POST /api/v1/sessions/{id}/hitl/{req_id}",
+        "GET /healthz",
+        "GET /metrics"
+      ],
+      "graph_node_id": "gg-relay-api-contract",
+      "token_estimate": 2500,
+      "source_paths": [
+        "src/gg_relay/api/routers/sessions.py",
+        "src/gg_relay/api/routers/events.py",
+        "src/gg_relay/api/routers/hitl.py",
+        "src/gg_relay/api/routers/admin_keys.py",
+        "src/gg_relay/api/routers/health.py",
+        "src/gg_relay/api/schemas.py",
+        "docs/api.md"
+      ],
+      "confidence": "high",
+      "review_status": "needs-human-review",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "adr-summary",
+      "path": "ADR/ADR-Summary.md",
+      "level": "ADR",
+      "title": "ADR 索引",
+      "summary": "gg-relay 架构决策索引：EventBus 唯一 fan-out、Protocol 接口、不可变领域对象和乐观锁并发控制",
+      "tags": [
+        "architecture",
+        "decision",
+        "adr"
+      ],
+      "domain": [
+        "architecture",
+        "design-decision"
+      ],
+      "intent": [
+        "查看所有架构决策记录",
+        "了解系统为什么这样设计"
+      ],
+      "symbols": [
+        "EventBus",
+        "Protocol",
+        "frozen-dataclass",
+        "optimistic-locking"
+      ],
+      "graph_node_id": "adr-summary",
+      "token_estimate": 800,
+      "source_paths": [
+        "docs/architecture.md",
+        "docs/security.md",
+        "docs/cluster.md"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "adr-001-eventbus",
+      "path": "ADR/001-eventbus-only-fanout.md",
+      "level": "ADR",
+      "title": "ADR-001: EventBus 作为唯一 fan-out 机制",
+      "summary": "EventBus 是所有跨组件通信的唯一通道，禁止直接调用以保证松耦合和可测试性",
+      "tags": [
+        "architecture",
+        "event-bus",
+        "decoupling"
+      ],
+      "domain": [
+        "event-driven",
+        "architecture",
+        "decoupling"
+      ],
+      "intent": [
+        "为什么不允许 subscriber 直接调用其他 subscriber",
+        "EventBus 设计决策的上下文和理由"
+      ],
+      "symbols": [
+        "EventBus",
+        "RelayEvent",
+        "publish",
+        "subscribe"
+      ],
+      "graph_node_id": "adr-001-eventbus",
+      "token_estimate": 800,
+      "source_paths": [
+        "src/gg_relay/core/event_bus.py",
+        "docs/architecture.md"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "adr-002-protocol",
+      "path": "ADR/002-protocol-interfaces.md",
+      "level": "ADR",
+      "title": "ADR-002: typing.Protocol 接口隔离",
+      "summary": "所有跨模块边界使用 typing.Protocol（结构化子类型），避免导入耦合，支持零成本 mock",
+      "tags": [
+        "architecture",
+        "protocol",
+        "structural-typing",
+        "dependency-inversion"
+      ],
+      "domain": [
+        "architecture",
+        "interface-design",
+        "testing"
+      ],
+      "intent": [
+        "为什么用 Protocol 而不是 ABC",
+        "理解跨模块边界的接口设计原则"
+      ],
+      "symbols": [
+        "DurableEventStore",
+        "EventBusBackend",
+        "ExecutorBackend",
+        "SessionTransport",
+        "PluginAssembler",
+        "IMBackend"
+      ],
+      "graph_node_id": "adr-002-protocol",
+      "token_estimate": 600,
+      "source_paths": [
+        "src/gg_relay/core/protocol.py",
+        "src/gg_relay/session/executor/protocol.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "adr-003-optimistic-locking",
+      "path": "ADR/003-optimistic-locking.md",
+      "level": "ADR",
+      "title": "ADR-003: 乐观锁并发控制",
+      "summary": "sessions/hitl 表使用 version 列实现乐观锁，竞争时 ConcurrencyError 映射为 HTTP 409，1 次 jitter 重试",
+      "tags": [
+        "architecture",
+        "concurrency",
+        "optimistic-locking",
+        "version"
+      ],
+      "domain": [
+        "concurrency",
+        "database",
+        "consistency"
+      ],
+      "intent": [
+        "为什么用乐观锁而不是悲观锁",
+        "理解 version 列和 ConcurrencyError 的使用方式"
+      ],
+      "symbols": [
+        "ConcurrencyError",
+        "_update_status_locked",
+        "sessions.version",
+        "hitl_requests.version"
+      ],
+      "graph_node_id": "adr-003-optimistic-locking",
+      "token_estimate": 600,
+      "source_paths": [
+        "src/gg_relay/store/repository.py",
+        "src/gg_relay/session/manager.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    },
+    {
+      "id": "adr-004-delivery-tiers",
+      "path": "ADR/004-delivery-tiers.md",
+      "level": "ADR",
+      "title": "ADR-004: Delivery Tier 事件分级策略",
+      "summary": "EventBus 事件分为 lossy（可丢弃，UI 追赶）和 durable（先持久化，SSE replay）两个投递等级",
+      "tags": [
+        "architecture",
+        "event-bus",
+        "lossy",
+        "durable",
+        "backpressure"
+      ],
+      "domain": [
+        "event-driven",
+        "reliability",
+        "persistence",
+        "backpressure"
+      ],
+      "intent": [
+        "为什么区分 lossy 和 durable 事件",
+        "理解 persist-before-fanout 的可靠性保证"
+      ],
+      "symbols": [
+        "DeliveryTier",
+        "durable",
+        "lossy",
+        "DurableEventStore",
+        "durable_block_timeout_s"
+      ],
+      "graph_node_id": "adr-004-delivery-tiers",
+      "token_estimate": 600,
+      "source_paths": [
+        "src/gg_relay/core/events.py",
+        "src/gg_relay/core/event_bus.py"
+      ],
+      "confidence": "high",
+      "review_status": "unreviewed",
+      "generated_from_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0",
+      "last_verified_commit": "5a800a1e24ec0ee308f9728e3f5c2b02e21684a0"
+    }
+  ],
+  "graph_stats": {
+    "total_nodes": 18,
+    "total_edges": 26,
+    "node_types": {
+      "repo": 1,
+      "system": 1,
+      "module": 7,
+      "function": 3,
+      "api": 1,
+      "adr": 5
+    },
+    "edge_types": {
+      "contains": 8,
+      "depends_on": 6,
+      "calls": 6,
+      "implements": 1,
+      "handles": 1,
+      "decided_by": 4
+    }
+  }
+}
