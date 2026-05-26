@@ -1,0 +1,265 @@
+tests/integration/test_dashboard_charts.py
+  s_4553ffe6941e4a::t_c980d35e4563af 1-162
+tests/integration/test_schema_drift_warn.py
+  s_4553ffe6941e4a::t_dab04c4ccecfda 1-134
+tests/unit/api/test_startup_admin_warning.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 42-48
+src/gg_relay/cli.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 411-495
+uv.lock
+  ai_agent 1170,1241
+tests/integration/test_dashboard_toast.py
+  s_4553ffe6941e4a::t_a4656013e49114 1-140,149-150,163-166
+  s_4553ffe6941e4a::t_49d96c388a70d5 141-148,151-162
+src/gg_relay/dashboard/templates/_kanban_filters.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 7,14
+src/gg_relay/dashboard/templates/_session_comments.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 62
+tests/integration/test_router_passes_actor_role.py
+  s_4553ffe6941e4a::t_2ccf6f2c4127fa 1-105,115-179
+  s_4553ffe6941e4a::t_5ea74d393aa117 106-114
+tests/integration/test_api_pause_resume.py
+  s_4553ffe6941e4a::t_a316791af19fdb 43
+  s_4553ffe6941e4a::t_94e571ef571d88 115-122
+  s_4553ffe6941e4a::t_c8bb9d6b3f6cad 366,369-374,377,379,383-400
+src/gg_relay/session/runner/wire_runner.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 173-183
+docs/superpowers/plans/2026-05-26-require-per-user-credentials-plan-v5.md
+  s_4553ffe6941e4a::t_37883ec7081857 462,473,475
+  s_4553ffe6941e4a::t_2db944415039a3 1-14,16-461,463-472,474,476-750
+  s_4553ffe6941e4a::t_7ba897574862e1 15
+src/gg_relay/dashboard/static/app.css
+  s_4553ffe6941e4a::t_64559ce43cdc80 11-372,379,636-1169
+src/gg_relay/dashboard/templates/list.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 2,4,6-7,9-21
+pyproject.toml
+  s_4553ffe6941e4a::t_64559ce43cdc80 46-54
+tests/integration/test_user_credentials_dashboard.py
+  s_4553ffe6941e4a::t_afc6e53e232ba3 255-259,261-337
+  s_4553ffe6941e4a::t_21b4770346d595 2-5,7-11,19-23,25-28,30-33,35,38,40-46,64-65,67-68,78-81,89-93,103-106,110-111,126-127,131-135,137-138,142-144,148-149,153-155,159-160,164-168,172-173,177-181,241,243-244,247-252,254
+  s_4553ffe6941e4a::t_72b48dd463a641 1,6,12-18,24,29,34,36-37,39,50,60-63,66,82-88,94-102,107-109,112-125,128-130,136,139-141,145-147,150-152,156-158,161-163,169-171,174-176,240,242,245-246,253
+  s_4553ffe6941e4a::t_2a381d9bf9a4f1 69-77
+  s_4553ffe6941e4a::t_6c59ef75551e8a 182-239
+  s_4553ffe6941e4a::t_ed26f16d8cd581 260
+  s_4553ffe6941e4a::t_f4cb0f21a5cd36 47-49,51-59
+tests/unit/store/test_user_credentials_store.py
+  s_4553ffe6941e4a::t_dcd3fa4a1e4d1a 1-2
+  s_4553ffe6941e4a::t_12b240001b6454 3-370
+src/gg_relay/store/migrations/versions/0013_user_credentials.py
+  s_4553ffe6941e4a::t_dea50693c56bc5 1-103
+tests/integration/test_dashboard_legacy_admin_role.py
+  s_4553ffe6941e4a::t_f0a1dca2615084 139-221
+  s_4553ffe6941e4a::t_3ea72c5ce64a79 222-289
+  s_4553ffe6941e4a::t_4cee5782ad6d62 1-138
+src/gg_relay/api/routers/user_credentials.py
+  s_4553ffe6941e4a::t_0a773fd17a7e8a 1-142,178-441
+  s_16909fc22355b6::t_74b060641e7455 143-177
+docs/dashboard-ux-copy.md
+  s_4553ffe6941e4a::t_88e763adb28d5b 1-169
+tests/integration/test_require_per_user_credentials.py
+  s_4553ffe6941e4a::t_7fdd414cb928e7 1-607
+tests/integration/test_plan8_baseline.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 96,102-105,113-114
+src/gg_relay/dashboard/templates/_cmdk_modal.html
+  s_4553ffe6941e4a::t_b2399afd67ec5c 1-61
+src/gg_relay/dashboard/templates/overview.html
+  s_4553ffe6941e4a::t_f17b39249c1d45 2,14
+  s_4553ffe6941e4a::t_03ba1ace92190c 48-54,67-101
+  s_4553ffe6941e4a::t_3797ddd0acb5a8 163-169,174-175,179-184,192-245
+  s_4553ffe6941e4a::t_6d777183c5b5e1 146
+  s_4553ffe6941e4a::t_f49a6d3af8fe2b 147
+  s_4553ffe6941e4a::t_eb8b0c00193a32 1,3-4,7-13,15-47,55-66,102-145,148-162,170-173,176-178,185-191,246-248
+  s_4553ffe6941e4a::t_8a0fbb76e3146b 5-6
+docs/superpowers/plans/2026-05-25-per-user-credentials-plan-v3.md
+  s_4553ffe6941e4a::t_7cdb56d3a5da0b 643-651
+  s_4553ffe6941e4a::t_256bf63ae4d539 319
+  s_4553ffe6941e4a::t_85a212226a1664 358-365
+  s_4553ffe6941e4a::t_c9fa72bf6ab92c 1,3,5
+  s_4553ffe6941e4a::t_ad1423aeafe3ca 153-158
+  s_4553ffe6941e4a::t_76071413963288 442-443,456,458-515
+  s_4553ffe6941e4a::t_523e89fa260efe 710-711
+  s_4553ffe6941e4a::t_86262c6077a78e 116
+  s_4553ffe6941e4a::t_96d0f695930f77 718-735,737-749
+  s_4553ffe6941e4a::t_ac704e56afec04 281-290
+  s_4553ffe6941e4a::t_28b34b646eddd0 707
+  s_4553ffe6941e4a::t_46922df0521521 781-820
+  s_4553ffe6941e4a::t_b5554fa3ab1e3e 2,4,6-115,117-152,159-280,291-318,320-357,366-441,444-455,457,516-642,652-706,708-709,712-717,736,750-780,821-852
+src/gg_relay/session/client.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 55,197-421,437,470-480,538-559,562-568,595-610,615-625,639-646,683-707,754,790,802,829
+src/gg_relay/dashboard/templates/_cmdk_results.html
+  s_4553ffe6941e4a::t_6fbf71bffa25bd 1-75
+src/gg_relay/dashboard/templates/admin_credentials.html
+  s_16909fc22355b6::t_5fd7daddcd5498 29,31-33,36,39-42
+  s_16909fc22355b6::t_2f6529a7883a67 129-141,147,159-175,195-203
+  s_4553ffe6941e4a::t_707ed349d0f7ea 1-28,30,34-35,37-38,43-71,94-128,142-146,148-158,176-183,188-194,204-207
+  s_16909fc22355b6::t_db4ac8169d8580 184-187
+  s_16909fc22355b6::t_2b6f0477a4e38e 72-93
+src/gg_relay/dashboard/templates/_sidebar.html
+  s_4553ffe6941e4a::t_2c2b2af78b7771 73-84,88-96
+  s_4553ffe6941e4a::t_b462b7f0488791 1-16,18-25,27-72,85-87,97-117
+  s_4553ffe6941e4a::t_384151f99c6049 17,26
+src/gg_relay/dashboard/templates/base.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 2,5,17-26,28-100,102-333
+src/gg_relay/store/schema.py
+  s_4553ffe6941e4a::t_b8718d434e6de2 521
+  s_4553ffe6941e4a::t_64559ce43cdc80 27,479-520
+tests/integration/test_user_credentials_api.py
+  s_4553ffe6941e4a::t_d6c03a7ae4b1fd 135,146,215-216,249-250,267,273-274,283,359,377,399-400
+  s_4553ffe6941e4a::t_88e4351542c4fb 3-57,65,69-79,84-85,87-134,136-145,147-214,217-248,251-266,268-272,275-282,284-358,360-376,378-398,401-416
+  s_4553ffe6941e4a::t_6a2d2b84491407 58-64,66-68
+  s_4553ffe6941e4a::t_9b34c1bf6721e7 80-83,86
+  s_4553ffe6941e4a::t_29fa7027dafaf9 1-2
+.gitignore
+  s_4553ffe6941e4a::t_1e2e2bbee8e9e8 28-32
+src/gg_relay/dashboard/templates/new.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 3,6-17,79-97
+docs/openapi.snapshot.json
+  s_52997f2e3c44a0::t_7ad3e2c09e170e 2534-2536,2653,3959-3963,4601-4605
+  s_4553ffe6941e4a::t_690128c0f8c419 4083-4087
+  s_4553ffe6941e4a::t_a4f7a2600d0d4d 657-658
+  s_4553ffe6941e4a::t_64559ce43cdc80 375-402,647-656,1500-1654,2424-2533,2631,2652,2654-2655,2666-2668,3838-3958,3986-4082,4584-4600,4753-4769
+  s_4553ffe6941e4a::t_efdea45839decb 4770-4774
+src/gg_relay/dashboard/templates/cost.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 2,4,6-7,9-18
+tests/integration/test_body_credentials_allowlist.py
+  s_4553ffe6941e4a::t_8e49ca9d53389e 1-36,38-87,113-272
+  s_4553ffe6941e4a::t_21eea08c632d02 88-92,94-112
+  s_4553ffe6941e4a::t_98cc8ed19397b9 93
+  s_4553ffe6941e4a::t_6db084ffcbc817 37
+src/gg_relay/dashboard/templates/search.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 12,14-15,18,20-21,24-26
+src/gg_relay/dashboard/templates/_sessions_table.html
+  s_52997f2e3c44a0::t_bb5b6d7787acb1 1-26
+src/gg_relay/api/main.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 47-48,140,175-181,267-311,391-440,459-462,471-472,524-548,935-942
+  s_4553ffe6941e4a::t_a4f7a2600d0d4d 441
+.env.example
+  s_4553ffe6941e4a::t_64559ce43cdc80 112-183
+src/gg_relay/dashboard/templates/me_credentials.html
+  s_4553ffe6941e4a::t_b5ff619c5d29f3 1-31,33,41-69,71-80,92-106,111-125
+  s_16909fc22355b6::t_a1537527ed53f0 107-110
+  s_16909fc22355b6::t_8167d22926047b 70,81-91
+  s_16909fc22355b6::t_1a8e97076b5c49 34,38-40
+  s_16909fc22355b6::t_063646b5ae0369 32,35-37
+tests/integration/test_dashboard_a11y.py
+  s_4553ffe6941e4a::t_0b51be4b2907c7 144-149,151,155-168
+  s_4553ffe6941e4a::t_784829a33c89ce 1-143,150,152-154,169-217
+Makefile
+  s_4553ffe6941e4a::t_64559ce43cdc80 8,25-49
+docs/superpowers/plans/2026-05-26-require-per-user-credentials-plan-v1.md
+  s_4553ffe6941e4a::t_7c2dcc6cc8125b 1-337
+tests/unit/session/test_manager.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 284-386
+src/gg_relay/dashboard/templates/sessions_list.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 2,4,6-16
+docs/superpowers/plans/2026-05-26-require-per-user-credentials-plan-v2.md
+  s_4553ffe6941e4a::t_3d3b702a452c2d 1-545
+src/gg_relay/dashboard/templates/kanban.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 2,4,6-20
+src/gg_relay/session/executor/inprocess.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 90-101,104-105
+src/gg_relay/dashboard/templates/_new_session_cta.html
+  s_4553ffe6941e4a::t_97c444e894f992 4,9,17,21,25,29-30,32,35-36,39-41,43,46-47,50-52,54
+  s_4553ffe6941e4a::t_436d70f90bd3bf 1-3,5-8,10-16,18-20,22-24,26-28,31,33-34,37-38,42,44-45,48-49,53,55
+src/gg_relay/session/spec.py
+  s_52997f2e3c44a0::t_68dde77b22abc5 169
+  s_4553ffe6941e4a::t_64559ce43cdc80 50-54,145,167-168
+src/gg_relay/dashboard/templates/templates.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 2,4,6-7,9-19
+docs/superpowers/plans/2026-05-26-require-per-user-credentials-plan-v4.md
+  s_4553ffe6941e4a::t_d656421ac1f687 1-475
+src/gg_relay/api/routers/__init__.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 14-19,34-35
+src/gg_relay/store/user_credentials.py
+  s_4553ffe6941e4a::t_4c8c0bb0cd7a60 1-403
+tests/integration/test_dashboard_cmdk.py
+  s_4553ffe6941e4a::t_579b8794825146 1-285
+src/gg_relay/api/schemas.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 17-24,38-73,88-99
+images/gg-relay-runner/Dockerfile
+  s_4553ffe6941e4a::t_64559ce43cdc80 63
+scripts/check_oos.sh
+  s_4553ffe6941e4a::t_c081653567af41 97-107
+src/gg_relay/session/manager.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 30,182-255,283-284,302-316,366-367,397-408,413-481,606-610,615-618,621-642,684-687,713-714,1093-1095,1288,1311,1363-1385
+scripts/load_test.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 24-28,49-51,61-63,73
+src/gg_relay/api/routers/sessions.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 12,20,27,45,47,70-98,107-109,164-178,200-209,211-212,232-239,246-254,257-311,466,566,864,930-987
+docs/ecc-frontend-capabilities-report.md
+  s_682edb64463753::t_ca0c1849c4c2a7 1-177
+docs/superpowers/plans/2026-05-25-per-user-credentials-plan-v2.md
+  s_4553ffe6941e4a::t_0277e9259c6858 1-704
+tests/integration/test_manager_credentials_merge.py
+  s_4553ffe6941e4a::t_bab646ed6922fe 233,260,305,331,352,385,451
+  s_4553ffe6941e4a::t_5b30ec8be5c23c 1-3
+  s_4553ffe6941e4a::t_352262a3d84dfd 4-232,234-259,261-304,306-330,332-351,353-384,386-450
+src/gg_relay/config.py
+  s_4553ffe6941e4a::t_64559ce43cdc80 389-482
+docs/superpowers/plans/2026-05-26-require-per-user-credentials-plan-v3.md
+  s_4553ffe6941e4a::t_6ec376e507a8b6 1-644
+tests/unit/session/test_client_upstream_auth_guards.py
+  s_4553ffe6941e4a::t_29175ab68c0d1c 60
+  s_4553ffe6941e4a::t_8ed12617f58590 38-39
+  s_4553ffe6941e4a::t_9ea94a60c5c443 1-37,40-59,61-167,179-186,188,190,195-196,198,201,209,217-479
+  s_4553ffe6941e4a::t_f66fac2fd1e122 168-178,187,189,191-194,197,199-200,202-208,210-216
+docs/superpowers/plans/2026-05-25-per-user-credentials-plan-v1.md
+  s_4553ffe6941e4a::t_d4a90cecf4dd9c 1-541
+tests/unit/session/test_client_credentials_passthrough.py
+  s_4553ffe6941e4a::t_37873f2a29ae39 1-249
+src/gg_relay/dashboard/templates/favorites.html
+  s_4553ffe6941e4a::t_64559ce43cdc80 2,4,6-7,9-18
+docs/dashboard-design-audit.md
+  s_4553ffe6941e4a::t_797d01b50648f1 1-112
+tests/integration/test_dashboard_cta_partials.py
+  s_4553ffe6941e4a::t_e25cb51189573d 1-200
+tests/unit/cli/test_cli.py
+  s_4553ffe6941e4a::t_2f26a868d85046 61-68
+src/gg_relay/dashboard/router.py
+  s_4553ffe6941e4a::t_22bbbe02f4205a 2176,2182
+  s_4553ffe6941e4a::t_dbb8e337bea238 1267-1270
+  s_16909fc22355b6::t_34a217bc610af7 2346-2348
+  s_4553ffe6941e4a::t_473140f4ad8424 1795-1797
+  s_4553ffe6941e4a::t_a4f7a2600d0d4d 137,916
+  s_4553ffe6941e4a::t_64559ce43cdc80 58-62,102-136,255-260,262,915,917,920-934,940-947,1079-1266,1299-1304,1378-1380,1502-1504,1672-1794,1887-1891,1941-1948,2003-2175,2177-2181,2183-2345
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.1",
+  "base_commit_sha": "c146600c1824fb7dca6429869422bb3a2e94fafb",
+  "prompts": {},
+  "sessions": {
+    "s_16909fc22355b6": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "74a85ce1-d32b-4365-bc07-9c82e0728e20",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_4553ffe6941e4a": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "b626e6d3-7408-412e-8005-b998ce67c003",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_52997f2e3c44a0": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "cb937ec7-8aab-4063-8c7e-56c16f5e478f",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    },
+    "s_682edb64463753": {
+      "agent_id": {
+        "tool": "cursor",
+        "id": "4b281bd4-f086-4705-89f3-f602e93cc046",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "sawyerhuang <sawyerhuang@tencent.com>"
+    }
+  }
+}
