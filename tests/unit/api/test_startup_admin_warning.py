@@ -39,6 +39,13 @@ def _make_cfg(tmp_path: Path, *, api_keys_raw: str, role_mapping_raw: str) -> Co
     cfg.public_base_url = "http://localhost:8000"
     cfg.default_timeout_s = 5
     cfg.grace_period_s = 1
+    # Force-disable the legacy admin path so the env (or .env) value
+    # of ``RELAY_DASHBOARD_ADMIN_PASSWORD`` cannot leak in and seed
+    # the lifespan ``dashboard-admin`` internal key, which would
+    # bump the admin count and flip ``warn_no_admin`` to False —
+    # invalidating the "no admin configured" scenario this test
+    # is trying to exercise.
+    cfg.dashboard_admin_password = None
     return cfg
 
 

@@ -43,6 +43,15 @@ dependencies = [
     # ``bcrypt.checkpw``-verified at login; the SDK is a tiny C-ext
     # library with zero transitive deps so adding it here is cheap.
     "bcrypt>=4.0",
+    # Plan v3 §B per-user upstream credentials. ``cryptography.fernet``
+    # encrypts the persisted ``user_credentials.value_encrypted`` column
+    # at rest with an operator-supplied symmetric key
+    # (``RELAY_CREDENTIALS_ENCRYPTION_KEY``). cryptography is already a
+    # transitive dep via OpenTelemetry / aiohttp but we pin it explicitly
+    # here so a future upstream prune doesn't silently brick the
+    # feature — a missing fernet at import-time is fail-loud, not
+    # fail-quiet.
+    "cryptography>=42",
 ]
 
 [project.optional-dependencies]

@@ -1,8 +1,21 @@
 {% extends "base.html" %}
+{% from "_new_session_cta.html" import cta with context %}
 {% block title %}Cost attribution — gg-relay{% endblock %}
+{% set active_nav = 'cost' %}
 {% block content %}
+{% set _role = dashboard_role(request) %}
+{% set _can_submit = _role in ('submitter', 'admin') %}
 <section class="cost-page">
-    <h2>Cost attribution</h2>
+    <div class="page-header">
+        <div>
+            <h2>Cost attribution</h2>
+            <p class="muted" style="margin:4px 0 0">Per-owner monthly spend — admin sees the team, others see themselves.</p>
+        </div>
+        <div class="page-actions">
+            {{ cta('page', _can_submit) }}
+            <a href="/dashboard/overview" class="btn-ghost">Back to Overview</a>
+        </div>
+    </div>
 
     <div class="summary-banner" role="region" aria-label="My usage this month">
         <div class="stat">

@@ -1,8 +1,20 @@
 {% extends "base.html" %}
 {% block title %}New session — gg-relay{% endblock %}
+{% set active_nav = 'new' %}
 {% block content %}
 <div class="new-session-page">
-    <h2>📤 Submit new session</h2>
+    <div class="page-header">
+        <div>
+            <h2>Submit new session</h2>
+            <p class="muted" style="margin:4px 0 0">
+                Compose a prompt, pick an executor / plugins profile, and dispatch it to a runner.
+            </p>
+        </div>
+        <div class="page-actions">
+            <a href="/dashboard/templates" class="btn-ghost">Browse templates</a>
+            <a href="/dashboard/kanban" class="btn-ghost">Back to Kanban</a>
+        </div>
+    </div>
 
     {% if template_load_error %}
     <div class="alert alert-warning">{{ template_load_error }}</div>
@@ -64,7 +76,25 @@
               } else {
                   const errBox = document.getElementById('submit-error');
                   errBox.style.display = 'block';
-                  errBox.textContent = 'Submit failed: ' + event.detail.xhr.status + ' ' + event.detail.xhr.responseText.slice(0, 400);
+                  let handled = false;
+                  try {
+                      const body = JSON.parse(event.detail.xhr.responseText);
+                      const code = body && body.detail && body.detail.code;
+                      if (code === 'missing_credentials') {
+                          errBox.innerHTML = 'Per-user credentials required. <a href=&quot;/dashboard/me/credentials&quot;>Configure now</a>.';
+                          handled = true;
+                      } else if (code === 'credential_lookup_unavailable') {
+                          errBox.textContent = 'Credentials store temporarily unavailable. Retry shortly.';
+                          handled = true;
+                      } else if (code === 'unsupported_credential_key') {
+                          const bad = (body.detail.rejected_keys || []).join(', ');
+                          errBox.textContent = 'Unsupported credential key(s): ' + bad + '. Allowed env names mirror /dashboard/me/credentials.';
+                          handled = true;
+                      }
+                  } catch (e) { /* fall through */ }
+                  if (!handled) {
+                      errBox.textContent = 'Submit failed: ' + event.detail.xhr.status + ' ' + event.detail.xhr.responseText.slice(0, 400);
+                  }
               }
           ">
 

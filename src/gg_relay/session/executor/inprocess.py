@@ -87,10 +87,22 @@ class InProcessExecutor:
         # paired with a stop() call. stop() also pops; pop(default) is idempotent.
         task.add_done_callback(lambda _t: self._tasks.pop(runtime_id, None))
 
-        extra: tuple[tuple[str, object], ...] = ()
+        # Plan 9 follow-up — expose the runner task on the handle so
+        # SessionManager can surface its exception after the transport
+        # drains. Pre-fix the runner's exceptions died inside
+        # ``runner_wrapper`` (asyncio's "Task exception was never
+        # retrieved" log) and manager defaulted ``end_status`` to
+        # ``completed`` for ANY crash that wasn't a timeout, cancel,
+        # or plugin-install failure — including the SDK runtime
+        # guards (SDKPermissionError on upstream auth failure).
+        # Wire/docker backends surface failure through their own
+        # channel (exit code / TransportClosed semantics) and do not
+        # populate this key.
+        extra_pairs: list[tuple[str, object]] = [("runner_task", task)]
         if self._control_channel is not None:
             bridge: InProcessBridge = InProcessBridge(self._control_channel)
-            extra = (("bridge", bridge),)
+            extra_pairs.append(("bridge", bridge))
+        extra: tuple[tuple[str, object], ...] = tuple(extra_pairs)
 
         return RuntimeHandle(
             backend="inprocess",

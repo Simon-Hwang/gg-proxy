@@ -55,6 +55,11 @@ from pydantic import SecretStr
 from gg_relay.api.dependencies.require_role import ROLE_HIERARCHY
 from gg_relay.api.deps import get_coordinator, get_manager
 from gg_relay.api.middleware.dashboard_cookie import SESSION_KEY as _COOKIE_SESSION_KEY
+from gg_relay.api.routers.user_credentials import (
+    ALLOWED_ENV_NAMES as _CRED_ALLOWED_ENV_NAMES,
+    length_class as _cred_length_class,
+    mask_credential_value,
+)
 from gg_relay.core import EventBus, SessionCreated, SessionState, SessionStateChanged
 from gg_relay.core.domain import SessionSummary
 from gg_relay.session.hitl.coordinator import HITLCoordinator, HITLNotPending
@@ -93,6 +98,42 @@ def _owner_color(owner: str | None) -> str:
 
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["owner_color"] = _owner_color
+
+
+def _ctx_dashboard_role(request: Request) -> str:
+    """Jinja global — resolve the current request's dashboard role.
+
+    Wraps :func:`_dashboard_role` (defined further down) but is exposed
+    early via a forward-friendly indirection so the global registration
+    below can stay co-located with the template loader setup. The
+    actual lookup runs on every render so a logged-out request (no
+    cookie middleware state) reliably collapses to ``"viewer"``,
+    which the sidebar partial uses to gray out create CTAs.
+    """
+    return _dashboard_role(request)
+
+
+def _ctx_dashboard_username(request: Request) -> str | None:
+    """Jinja global — resolve the cookie-session username.
+
+    Returns ``None`` for anonymous requests so the sidebar/topbar
+    user-chip partials can fall back to an unauthenticated state
+    without crashing on a missing attribute.
+    """
+    username = getattr(request.state, "dashboard_user", None)
+    if isinstance(username, str) and username:
+        return username
+    # Fallback to direct cookie read for tests that bypass the
+    # cookie middleware (e.g. only the legacy admin path is active).
+    if hasattr(request, "session"):
+        raw = request.session.get(_COOKIE_SESSION_KEY)
+        if isinstance(raw, str) and raw:
+            return raw
+    return None
+
+
+templates.env.globals["dashboard_role"] = _ctx_dashboard_role
+templates.env.globals["dashboard_username"] = _ctx_dashboard_username
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -211,8 +252,14 @@ async def sessions_list(
     manager: SessionManager = _ManagerDep,
 ) -> HTMLResponse:
     rows, _next_cursor = await manager.list(limit=200)
+    # HTMX 轮询请求只需要表格片段，避免用完整页面替换 <table> 导致内容重复
+    template = (
+        "_sessions_table.html"
+        if request.headers.get("HX-Request")
+        else "sessions_list.html"
+    )
     return templates.TemplateResponse(
-        request, "sessions_list.html", {"sessions": rows}
+        request, template, {"sessions": rows}
     )
 
 
@@ -865,18 +912,39 @@ def _dashboard_label(request: Request) -> str | None:
 # ── Plan 8 D8.20 / Task 12 — search page + HTMX results fragment ──────
 
 
+_LEGACY_ADMIN_LABEL = "dashboard-admin"
+
+
 def _dashboard_role(request: Request) -> str:
     """Resolve the dashboard user's role using the same lookup as the
-    audit / comments fragments. Falls back to ``viewer`` when no cookie
-    or no role mapping is configured — keeping the safe default
-    consistent with :func:`gg_relay.api.dependencies.require_role._resolve_role`.
+    audit / comments fragments.
+
+    Resolution order:
+
+    1. Anonymous (no cookie) → ``viewer``.
+    2. Explicit ``role_mapping`` hit → that role.
+    3. ``dashboard-admin`` (legacy admin path via
+       ``dashboard_admin_password``) → ``admin``. This is the only
+       way to log in as ``admin`` in installations that haven't
+       configured ``role_mapping_raw``; without this fallback the
+       legacy admin lands as ``viewer`` and every "+ New session"
+       affordance renders as a disabled ``<span>`` (the reported
+       "clicking New Session does nothing" bug).
+    4. Otherwise → ``viewer`` (matches
+       :func:`gg_relay.api.dependencies.require_role._resolve_role`).
     """
     cfg = request.app.state.config
     label = _dashboard_label(request)
-    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
     if not label:
         return "viewer"
-    return role_map.get(label, "viewer")
+    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
+    if label in role_map:
+        return role_map[label]
+    if label == _LEGACY_ADMIN_LABEL and getattr(
+        cfg, "dashboard_admin_password", None
+    ):
+        return "admin"
+    return "viewer"
 
 
 @router.get("/search", response_class=HTMLResponse)
@@ -1008,6 +1076,198 @@ async def search_results(
     )
 
 
+def _cmdk_pages(can_submit: bool, is_admin: bool) -> list[dict[str, str]]:
+    """Static navigation entries surfaced by the command palette.
+
+    Kept in router (not template) so the same list can be filtered
+    server-side against the typed query and pinned by tests without
+    parsing template loops. Mirrors the sidebar order.
+    """
+    pages: list[dict[str, str]] = [
+        {
+            "href": "/dashboard/overview", "icon": "▦",
+            "label": "Overview", "hint": "Operator dashboard",
+        },
+        {
+            "href": "/dashboard/kanban", "icon": "▤",
+            "label": "Kanban", "hint": "Lifecycle board",
+        },
+        {
+            "href": "/dashboard/list", "icon": "☰",
+            "label": "List", "hint": "Table view",
+        },
+        {
+            "href": "/dashboard/sessions", "icon": "◴",
+            "label": "Live feed", "hint": "Auto-refresh",
+        },
+        {
+            "href": "/dashboard/search", "icon": "⌕",
+            "label": "Search", "hint": "Filter sessions",
+        },
+        {
+            "href": "/dashboard/favorites", "icon": "★",
+            "label": "Favorites", "hint": "Starred sessions",
+        },
+        {
+            "href": "/dashboard/templates", "icon": "▣",
+            "label": "Templates", "hint": "Saved prompts",
+        },
+        {
+            "href": "/dashboard/cost", "icon": "¤",
+            "label": "Cost", "hint": "Per-owner spend",
+        },
+    ]
+    if can_submit:
+        pages.append(
+            {
+                "href": "/dashboard/me/credentials", "icon": "⚷",
+                "label": "My credentials",
+                "hint": "Per-user upstream keys",
+            }
+        )
+    if is_admin:
+        pages.extend(
+            [
+                {
+                    "href": "/dashboard/admin/keys", "icon": "⚿",
+                    "label": "API keys", "hint": "Admin only",
+                },
+                {
+                    "href": "/dashboard/admin/credentials", "icon": "⚷",
+                    "label": "Credentials",
+                    "hint": "Per-user upstream — admin only",
+                },
+            ]
+        )
+    return pages
+
+
+def _cmdk_quick_actions(can_submit: bool) -> list[dict[str, str]]:
+    """Action shortcuts surfaced at the top of the palette.
+
+    Only emitted for callers who can actually perform them (RBAC-gated
+    on the server side instead of disabling client-side — the palette
+    must never surface a disabled affordance because there's no place
+    to render the explanation).
+    """
+    if not can_submit:
+        return []
+    return [
+        {
+            "href": "/dashboard/new",
+            "icon": "+",
+            "label": "Submit new session",
+            "hint": "Create from prompt or template",
+        },
+        {
+            "href": "/dashboard/templates",
+            "icon": "▣",
+            "label": "Open templates",
+            "hint": "Save or reuse a prompt",
+        },
+    ]
+
+
+async def _cmdk_recent_sessions(
+    request: Request,
+    q: str | None,
+    limit: int = 6,
+) -> list[dict[str, Any]]:
+    """Recent sessions surfaced in the palette.
+
+    For non-admin callers we always filter by ``owner=<self-label>``
+    so the palette can't leak peers' work. Admins see the global
+    most-recent list.
+
+    When ``q`` is set, we use ``search_sessions`` so the same prefix
+    / substring rules the dedicated search page uses apply.
+    """
+    store: SessionRepository = request.app.state.store
+    label = _dashboard_label(request)
+    role = _dashboard_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+    owner = None if is_admin else label
+    try:
+        rows, _next = await store.search_sessions(
+            q=q or None,
+            owner=owner,
+            tags=None,
+            status=None,
+            after=None,
+            limit=limit,
+        )
+    except (CursorInvalidError, CursorFilterMismatchError):
+        return []
+    items: list[dict[str, Any]] = []
+    for r in rows:
+        spec = r.get("spec_json") if hasattr(r, "get") else None
+        prompt_val = ""
+        if isinstance(spec, dict):
+            prompt_val = str(spec.get("prompt") or "")
+        prompt_excerpt = prompt_val[:48].replace("\n", " ").strip() if prompt_val else ""
+        items.append(
+            {
+                "id": r["id"],
+                "status": r["status"],
+                "owner": r.get("owner") if hasattr(r, "get") else None,
+                "prompt_excerpt": prompt_excerpt,
+            }
+        )
+    return items
+
+
+@router.get("/cmdk", response_class=HTMLResponse)
+async def cmdk_modal(
+    request: Request,
+    q: str | None = Query(None, max_length=200),
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Command palette modal shell + initial results.
+
+    Returned as an HTMX fragment that the global keybind in base.html
+    swaps into ``#cmdk-mount`` when the user presses ⌘K / Ctrl+K.
+    """
+    role = _dashboard_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+    can_submit = role in ("submitter", "admin")
+    return templates.TemplateResponse(
+        request,
+        "_cmdk_modal.html",
+        {
+            "q": q or "",
+            "quick_actions": _cmdk_quick_actions(can_submit),
+            "pages": _cmdk_pages(can_submit, is_admin),
+            "recent_sessions": await _cmdk_recent_sessions(request, q),
+            "can_submit": can_submit,
+            "is_admin": is_admin,
+        },
+    )
+
+
+@router.get("/cmdk/results", response_class=HTMLResponse)
+async def cmdk_results(
+    request: Request,
+    q: str | None = Query(None, max_length=200),
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Cmdk results fragment — same shape as the modal body so the
+    input can swap ``#cmdk-results`` in place as the user types.
+    """
+    role = _dashboard_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+    can_submit = role in ("submitter", "admin")
+    return templates.TemplateResponse(
+        request,
+        "_cmdk_results.html",
+        {
+            "q": q or "",
+            "quick_actions": _cmdk_quick_actions(can_submit),
+            "pages": _cmdk_pages(can_submit, is_admin),
+            "recent_sessions": await _cmdk_recent_sessions(request, q),
+        },
+    )
+
+
 @router.get("/sessions/{session_id}/audit", response_class=HTMLResponse)
 async def session_audit_timeline(
     request: Request,
@@ -1034,11 +1294,14 @@ async def session_audit_timeline(
     whole page chrome.
     """
     store: SessionRepository = request.app.state.store
-    cfg = request.app.state.config
 
     label = _dashboard_label(request)
-    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
-    role = role_map.get(label, "viewer") if label else "viewer"
+    # Use _dashboard_role (not raw role_map lookup) so the legacy
+    # admin path (dashboard_admin_password without role_mapping_raw)
+    # resolves to "admin" — the same fix B1 applied to the rest of
+    # the dashboard router. Bypassing it caused the
+    # "admin → 403 on /dashboard/admin/keys" regression.
+    role = _dashboard_role(request)
 
     sess = await store.get_session(session_id)
     if sess is None:
@@ -1110,11 +1373,11 @@ async def session_comments_fragment(
     fragments single-sourced on identity resolution.
     """
     store: SessionRepository = request.app.state.store
-    cfg = request.app.state.config
 
     label = _dashboard_label(request)
-    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
-    role = role_map.get(label, "viewer") if label else "viewer"
+    # See note on session_audit_timeline — _dashboard_role honors the
+    # legacy admin login; the raw role_map lookup does not.
+    role = _dashboard_role(request)
 
     sess = await store.get_session(session_id)
     if sess is None:
@@ -1235,10 +1498,10 @@ async def new_session_form(
     page but their POST will be rejected at the API boundary.
     """
     store: SessionRepository = request.app.state.store
-    cfg = request.app.state.config
     label = _dashboard_label(request)
-    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
-    role = role_map.get(label, "viewer") if label else "viewer"
+    # See note on session_audit_timeline — _dashboard_role honors the
+    # legacy admin login; the raw role_map lookup does not.
+    role = _dashboard_role(request)
     is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
 
     template_obj: dict[str, Any] | None = None
@@ -1406,6 +1669,132 @@ async def dashboard_root(
     )
 
 
+@router.get("/overview", response_class=HTMLResponse)
+async def overview_page(
+    request: Request,
+    _: None = _RequireSessionDep,
+    manager: SessionManager = _ManagerDep,
+) -> HTMLResponse:
+    """Multica-aligned operator overview — KPI cards + 24h trend + status mix.
+
+    This is an additive route; the legacy ``/dashboard/`` (role-based
+    redirect) and ``/dashboard/cost`` (attribution table) stay intact
+    so existing bookmarks / tests are unaffected.
+
+    Data sources all reuse existing repository methods:
+
+    * **Live count** — ``SessionManager.list(limit=200)`` then filter
+      by ``status`` so a fresh deploy with no rows still renders zeros
+      instead of an empty page.
+    * **24h tokens / cost** — ``SessionRepository.aggregate_tokens_by_bucket``
+      summed across all hourly buckets; the same store call powers the
+      kanban global chart, guaranteeing the two views show identical
+      numbers without a parallel aggregation path.
+    * **Status mix** — derived from the same in-memory ``sessions``
+      list via :func:`_kanban_columns` so the dashboard never double-
+      reads the DB for a view that is, by design, a snapshot.
+
+    RBAC: non-admin viewers/submitters see only their own slice of
+    the recent-sessions table — admins see the team firehose. This
+    mirrors :func:`kanban_page` and avoids the affordance of
+    surfacing other owners' sessions just because they fit in the
+    KPI bucket query.
+    """
+    store: SessionRepository = request.app.state.store
+    label = _dashboard_label(request)
+    role = _dashboard_role(request)
+    is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
+
+    sessions_summaries, _next_cursor = await manager.list(limit=200)
+    sessions = list(sessions_summaries)
+    columns = _kanban_columns(sessions)
+
+    live_count = (
+        len(columns["queued"]) + len(columns["running"]) + len(columns["paused"])
+    )
+    total_count = len(sessions)
+    status_mix = {
+        "queued": len(columns["queued"]),
+        "running": len(columns["running"]),
+        "paused": len(columns["paused"]),
+        "completed": 0,
+        "failed": 0,
+        "cancelled": 0,
+        "interrupted": 0,
+    }
+    for s in columns["terminal"]:
+        state = s.status.value if hasattr(s.status, "value") else str(s.status)
+        if state in status_mix:
+            status_mix[state] += 1
+
+    bucket_rows = await store.aggregate_tokens_by_bucket(
+        window_s=86400, bucket_s=3600
+    )
+    input_tokens = sum(int(r["input_tokens"]) for r in bucket_rows)
+    output_tokens = sum(int(r["output_tokens"]) for r in bucket_rows)
+    total_tokens = input_tokens + output_tokens
+    total_cost = sum(float(r["cost_usd"]) for r in bucket_rows)
+    bucket_sessions = sum(int(r["sessions"]) for r in bucket_rows)
+
+    # Filter by ownership FIRST, then slice — otherwise non-admin
+    # users could see an empty recent list even with their own
+    # sessions queued behind a noisy admin/other-owner header
+    # (Santa Reviewer E findings round 2). For non-admin callers the
+    # match is **strict** `owner == label` — un-owned (owner=None)
+    # rows are intentionally excluded to avoid surfacing sessions
+    # that may have been minted by a system process or another
+    # caller (Santa Reviewer G findings round 3).
+    if is_admin:
+        recent_pool = sessions
+    elif label:
+        recent_pool = [
+            s for s in sessions if getattr(s, "owner", None) == label
+        ]
+    else:
+        recent_pool = []
+
+    recent_rows: list[dict[str, Any]] = []
+    for s in recent_pool[:5]:
+        recent_rows.append(
+            {
+                "id": s.id,
+                "status": s.status.value
+                if hasattr(s.status, "value")
+                else str(s.status),
+                "owner": getattr(s, "owner", None),
+                "submitted_at": s.submitted_at.isoformat()
+                if hasattr(s.submitted_at, "isoformat")
+                else str(s.submitted_at),
+                "tags": list(getattr(s, "tags", []) or []),
+            }
+        )
+
+    cfg = request.app.state.config
+    return templates.TemplateResponse(
+        request,
+        "overview.html",
+        {
+            "active_nav": "overview",
+            "kpis": {
+                "live": live_count,
+                "total": total_count,
+                "tokens": total_tokens,
+                "cost_usd": total_cost,
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "bucket_sessions": bucket_sessions,
+            },
+            "status_mix": status_mix,
+            "recent_rows": recent_rows,
+            "chart_js_cdn": getattr(cfg, "chart_js_cdn", ""),
+            "chart_js_offline": bool(getattr(cfg, "chart_js_offline", False)),
+            "role": role,
+            "is_admin": is_admin,
+            "can_submit": role in ("submitter", "admin"),
+        },
+    )
+
+
 @router.get("/cost", response_class=HTMLResponse)
 async def cost_page(
     request: Request,
@@ -1490,14 +1879,16 @@ async def templates_page(
     is acceptable per the plan ordering.
     """
     store: SessionRepository = request.app.state.store
-    cfg = request.app.state.config
     label = _dashboard_label(request)
     if not label:
         return HTMLResponse(
             "Login required", status_code=401
         )
-    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
-    role = role_map.get(label, "viewer")
+    # See note on session_audit_timeline — _dashboard_role honors the
+    # legacy admin login; the raw role_map lookup does not (the
+    # legacy admin would have been demoted to viewer and lost the
+    # admin-only template visibility scope).
+    role = _dashboard_role(request)
     is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
     rows = await store.list_templates(
         actor=label, is_admin=is_admin, limit=200
@@ -1544,12 +1935,17 @@ async def admin_keys_page(
     the same admin label that drives ``cfg.role_mapping`` is the
     one this page gates on.
     """
-    cfg = request.app.state.config
     label = _dashboard_label(request)
     if not label:
         return HTMLResponse("Login required", status_code=401)
-    role_map: dict[str, str] = getattr(cfg, "role_mapping", {}) or {}
-    role = role_map.get(label, "viewer")
+    # Bug fix (user-reported): "admin clicks API keys → 403".
+    # Previously this used a raw role_map.get(label, "viewer") which
+    # bypassed the legacy-admin → admin fallback in _dashboard_role.
+    # Operators on the default install (dashboard_admin_password set,
+    # role_mapping_raw unset) logged in as admin but landed as
+    # viewer here, so the page slammed them with 403 even though
+    # the sidebar already showed them the "API keys" link.
+    role = _dashboard_role(request)
     is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
     if not is_admin:
         return HTMLResponse(
@@ -1601,6 +1997,352 @@ async def admin_keys_page(
             "items": rows,
             "current_actor": label,
         },
+    )
+
+
+@router.get("/me/credentials", response_class=HTMLResponse)
+async def me_credentials_page(
+    request: Request,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Self-service upstream-credentials dashboard (Plan v3 §B.7).
+
+    Submitter+ may view, set, and delete THEIR OWN stored
+    credentials. Viewer is intentionally blocked because a viewer
+    cannot submit a session and storing a credential they can't
+    use is meaningless.
+
+    The page itself is read-only Jinja; mutations call
+    ``/api/v1/me/credentials/{env_name}`` via HTMX so the API-side
+    allowlist / encryption checks drive user-visible errors.
+    """
+    label = _dashboard_label(request)
+    if not label:
+        return HTMLResponse("Login required", status_code=401)
+    role = _dashboard_role(request)
+    if ROLE_HIERARCHY.get(role, 0) < ROLE_HIERARCHY["submitter"]:
+        return HTMLResponse(
+            "<div class='error'>Forbidden — submitter+ only.</div>",
+            status_code=403,
+        )
+    store = getattr(request.app.state, "user_credentials_store", None)
+    feature_disabled = store is None or not store.enabled
+    rows: list[dict[str, Any]] = []
+    if not feature_disabled:
+        raw_rows = await store.list_for_user(label)
+        # Plan v3 §B.7 follow-up — show each row's value as a
+        # fixed-length mask so the user can tell their own keys apart
+        # without ever echoing back plaintext. Bricked rows return no
+        # plaintext from `get_for_user` (they are skipped); render an
+        # explicit "(bricked)" so the row is still understandable.
+        plaintexts = await store.get_for_user(label)
+        for r in raw_rows:
+            env = r["env_name"]
+            pt = plaintexts.get(env)
+            rows.append(
+                {
+                    "env_name": env,
+                    "value_masked": (
+                        mask_credential_value(pt)
+                        if pt is not None
+                        else "(bricked)"
+                    ),
+                    "is_bricked": pt is None,
+                    "updated_at": (
+                        r["updated_at"].isoformat()
+                        if hasattr(r["updated_at"], "isoformat")
+                        else r["updated_at"]
+                    ),
+                    "created_by_label": r["created_by_label"],
+                    "notes": r["notes"],
+                }
+            )
+    return templates.TemplateResponse(
+        request,
+        "me_credentials.html",
+        {
+            "credentials": rows,
+            "current_actor": label,
+            "feature_disabled": feature_disabled,
+            "allowed_env_names": sorted(_CRED_ALLOWED_ENV_NAMES),
+            "active_nav": "me_credentials",
+        },
+    )
+
+
+@router.get("/admin/credentials", response_class=HTMLResponse)
+async def admin_credentials_page(
+    request: Request,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """Operator view of every user's credentials (Plan v3 §B.7).
+
+    Admin-only. Identity / role resolution mirrors
+    :func:`admin_keys_page` so the legacy-admin → admin fallback in
+    :func:`_dashboard_role` keeps working (don't regress the
+    user-reported 403 bug from Plan v3 prep).
+    """
+    label = _dashboard_label(request)
+    if not label:
+        return HTMLResponse("Login required", status_code=401)
+    role = _dashboard_role(request)
+    if ROLE_HIERARCHY.get(role, 0) < ROLE_HIERARCHY["admin"]:
+        return HTMLResponse(
+            "<div class='error'>Forbidden — admin only.</div>",
+            status_code=403,
+        )
+    # Plan v3 §B.7 follow-up — admin can narrow the view to a single
+    # user_label via ?user_label=alice. Empty / missing → show all.
+    # The filter is purely a render-side projection; the table still
+    # uses ``store.list_all()`` so the datalist always has the full
+    # set of known users to switch to. Trim only — exact match
+    # against the stored ``user_label`` column.
+    user_label_filter = (request.query_params.get("user_label") or "").strip()
+    store = getattr(request.app.state, "user_credentials_store", None)
+    feature_disabled = store is None or not store.enabled
+    rows: list[dict[str, Any]] = []
+    bricked_rows: list[dict[str, Any]] = []
+    user_label_choices: list[str] = []
+    if not feature_disabled:
+        raw_rows = await store.list_all()
+        # Per-user plaintext map cached so we don't decrypt twice when
+        # the same user has multiple env_name rows. Each lookup is
+        # one DB roundtrip + N Fernet decrypts; N here is tiny
+        # (≤ |ALLOWED_ENV_NAMES| = 10) so caching by user is enough.
+        plaintext_cache: dict[str, dict[str, str]] = {}
+        for r in raw_rows:
+            ul = r["user_label"]
+            if user_label_filter and ul != user_label_filter:
+                continue
+            if ul not in plaintext_cache:
+                plaintext_cache[ul] = await store.get_for_user(ul)
+            pt = plaintext_cache[ul].get(r["env_name"])
+            rows.append(
+                {
+                    "user_label": ul,
+                    "env_name": r["env_name"],
+                    "value_masked": (
+                        mask_credential_value(pt)
+                        if pt is not None
+                        else "(bricked)"
+                    ),
+                    "is_bricked": pt is None,
+                    "updated_at": (
+                        r["updated_at"].isoformat()
+                        if hasattr(r["updated_at"], "isoformat")
+                        else r["updated_at"]
+                    ),
+                    "created_by_label": r["created_by_label"],
+                    "notes": r["notes"],
+                }
+            )
+        for r in await store.list_bricked():
+            ul = r["user_label"]
+            if user_label_filter and ul != user_label_filter:
+                continue
+            bricked_rows.append(
+                {
+                    "user_label": ul,
+                    "env_name": r["env_name"],
+                    "key_fingerprint": r["key_fingerprint"],
+                    "updated_at": (
+                        r["updated_at"].isoformat()
+                        if hasattr(r["updated_at"], "isoformat")
+                        else r["updated_at"]
+                    ),
+                }
+            )
+        # Plan v3 §B.7 follow-up — datalist candidates: union of
+        # users with stored rows + configured dashboard cookie users
+        # + role-mapping labels + the legacy admin label. The input
+        # is still free-form so admin can pre-seed credentials for a
+        # user_label that hasn't logged in yet.
+        cfg = request.app.state.config
+        candidates: set[str] = {r["user_label"] for r in raw_rows}
+        candidates.update(
+            f"dashboard-{u}"
+            for u in (getattr(cfg, "dashboard_users", {}) or {})
+        )
+        candidates.update(getattr(cfg, "role_mapping", {}) or {})
+        candidates.add("dashboard-admin")
+        user_label_choices = sorted(candidates)
+
+    return templates.TemplateResponse(
+        request,
+        "admin_credentials.html",
+        {
+            "credentials": rows,
+            "bricked_credentials": bricked_rows,
+            "current_actor": label,
+            "feature_disabled": feature_disabled,
+            "allowed_env_names": sorted(_CRED_ALLOWED_ENV_NAMES),
+            "active_nav": "admin_credentials",
+            "user_label_filter": user_label_filter,
+            "user_label_choices": user_label_choices,
+        },
+    )
+
+
+def _admin_creds_cell_guard(
+    request: Request,
+) -> tuple[str, Any] | HTMLResponse:
+    """Common admin / feature-enabled / env-name guard for the
+    reveal-cell + mask-cell fragment endpoints.
+
+    Returns ``(label, store)`` on success, or a pre-built
+    :class:`HTMLResponse` (401 / 403 / 503) on rejection. Centralises
+    the three failure modes so both fragment routes stay one short
+    function each.
+    """
+    label = _dashboard_label(request)
+    if not label:
+        return HTMLResponse(
+            "<span class='error'>Login required</span>", status_code=401
+        )
+    role = _dashboard_role(request)
+    if ROLE_HIERARCHY.get(role, 0) < ROLE_HIERARCHY["admin"]:
+        return HTMLResponse(
+            "<span class='error'>Forbidden — admin only.</span>",
+            status_code=403,
+        )
+    store = getattr(request.app.state, "user_credentials_store", None)
+    if store is None or not store.enabled:
+        return HTMLResponse(
+            "<span class='error'>Feature disabled.</span>",
+            status_code=503,
+        )
+    return label, store
+
+
+def _admin_creds_mask_button(user: str, env: str, masked: str) -> str:
+    """HTML fragment for the default (mask + Reveal) admin cell.
+
+    Used both by ``admin_credentials.html`` initial render and by the
+    Hide-button swap target so the two paths can never drift in
+    formatting.
+    """
+    safe_user = urllib.parse.quote(user, safe="")
+    safe_env = urllib.parse.quote(env, safe="")
+    from html import escape as html_escape
+
+    return (
+        f'<code class="cred-mask" '
+        f'title="Last 4 chars only — full value is never echoed back.">'
+        f"{html_escape(masked)}</code> "
+        f'<button type="button" class="reveal-btn" '
+        f'hx-get="/dashboard/admin/credentials/cell/reveal'
+        f"?user={safe_user}&env={safe_env}\" "
+        f'hx-target="closest td" hx-swap="innerHTML" '
+        f'hx-confirm="Reveal plaintext for '
+        f'{html_escape(user)} / {html_escape(env)}? '
+        f'This action is logged.">Reveal</button>'
+    )
+
+
+@router.get(
+    "/admin/credentials/cell/reveal", response_class=HTMLResponse
+)
+async def admin_credentials_reveal_cell(
+    request: Request,
+    user: str,
+    env: str,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """HTMX fragment: return plaintext + Hide button for ONE row.
+
+    Plan v3 §B.7 follow-up — every successful reveal writes one
+    ``user_credential_admin_reveal`` audit row before the response is
+    rendered (metadata-only — never the plaintext). 4xx paths
+    intentionally do NOT audit so failed admin probes don't pollute
+    the log; the dashboard's auth/role check upstream already gates
+    who can hit this endpoint at all.
+    """
+    guard = _admin_creds_cell_guard(request)
+    if isinstance(guard, HTMLResponse):
+        return guard
+    label, store = guard
+    if env not in _CRED_ALLOWED_ENV_NAMES:
+        return HTMLResponse(
+            "<span class='error'>env_name not allowed</span>",
+            status_code=400,
+        )
+
+    plaintexts = await store.get_for_user(user)
+    value = plaintexts.get(env)
+    if value is None:
+        return HTMLResponse(
+            "<span class='error'>not found / bricked</span>",
+            status_code=404,
+        )
+
+    audit = getattr(request.app.state, "audit_service", None)
+    if audit is not None:
+        await audit.record(
+            actor=label,
+            action="user_credential_admin_reveal",
+            target_type="user_credential",
+            target_id=f"{user}/{env}",
+            metadata={
+                "env_name": env,
+                "value_length_class": _cred_length_class(value),
+                "victim_label": user,
+                "self_service": False,
+            },
+        )
+
+    from html import escape as html_escape
+
+    safe_user = urllib.parse.quote(user, safe="")
+    safe_env = urllib.parse.quote(env, safe="")
+    return HTMLResponse(
+        f'<code class="cred-plaintext">{html_escape(value)}</code> '
+        f'<button type="button" class="hide-btn" '
+        f'hx-get="/dashboard/admin/credentials/cell/mask'
+        f"?user={safe_user}&env={safe_env}\" "
+        f'hx-target="closest td" hx-swap="innerHTML">Hide</button>'
+    )
+
+
+@router.get(
+    "/admin/credentials/cell/mask", response_class=HTMLResponse
+)
+async def admin_credentials_mask_cell(
+    request: Request,
+    user: str,
+    env: str,
+    _: None = _RequireSessionDep,
+) -> HTMLResponse:
+    """HTMX fragment: return mask + Reveal button (the default cell
+    state). Used by the Hide button to roll back to the safe view
+    without forcing a full page reload. NOT audited — this endpoint
+    never returns plaintext."""
+    guard = _admin_creds_cell_guard(request)
+    if isinstance(guard, HTMLResponse):
+        return guard
+    _, store = guard
+    if env not in _CRED_ALLOWED_ENV_NAMES:
+        return HTMLResponse(
+            "<span class='error'>env_name not allowed</span>",
+            status_code=400,
+        )
+
+    plaintexts = await store.get_for_user(user)
+    value = plaintexts.get(env)
+    if value is None:
+        # Bricked or deleted between reveal/hide — render the same
+        # warning marker the page-level render would have shown.
+        from html import escape as html_escape
+
+        return HTMLResponse(
+            f'<span class="badge" '
+            f'style="background:#fef3c7;color:#b45309;" '
+            f'title="Encrypted with a previous '
+            f'RELAY_CREDENTIALS_ENCRYPTION_KEY; re-enter to fix.">'
+            f"{html_escape('bricked')}</span>"
+        )
+
+    return HTMLResponse(
+        _admin_creds_mask_button(user, env, mask_credential_value(value))
     )
 
 

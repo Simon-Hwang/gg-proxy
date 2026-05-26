@@ -1,11 +1,23 @@
 {% extends "base.html" %}
+{% from "_new_session_cta.html" import cta with context %}
 {% block title %}Kanban · gg-relay{% endblock %}
+{% set active_nav = 'kanban' %}
 {% block content %}
-<h2>Kanban</h2>
-<p class="muted">
-    Live SSE updates with 5s polling fallback. Cards link to session detail
-    (read-only — drag-to-reassign is intentionally not implemented).
-</p>
+{% set _role = dashboard_role(request) %}
+{% set _can_submit = _role in ('submitter', 'admin') %}
+<div class="page-header">
+    <div>
+        <h2>Kanban</h2>
+        <p class="muted" style="margin:4px 0 0">
+            Live SSE updates with 5s polling fallback. Cards link to session detail
+            (read-only — drag-to-reassign is intentionally not implemented).
+        </p>
+    </div>
+    <div class="page-actions">
+        {{ cta('page', _can_submit) }}
+        <a href="/dashboard/list" class="btn-ghost">Switch to list</a>
+    </div>
+</div>
 
 {# Plan 8 Task 15 / D8.0 — combined owner/status/tag filter. Plain GET
    form so the resulting URL is shareable; ``filter_*`` values come from

@@ -21,6 +21,11 @@ Environment variables (all optional):
     * ``RELAY_DASHBOARD_PASSWORD``  — Dashboard login password (default ``admin``)
     * ``RELAY_LOADTEST_EXECUTOR``   — Session executor for fixture/REST submits
       (``inprocess`` default — keeps load on the API surface, not Docker)
+    * ``ANTHROPIC_API_KEY``         — Forwarded into ``body.credentials`` when
+      non-empty. Required when the relay is in
+      ``RELAY_REQUIRE_PER_USER_CREDENTIALS=true`` strict mode and the
+      load-test API key resolves to a non-admin role. Empty (default)
+      preserves the legacy ``"credentials": {}`` payload.
 
 The fixture session created on ``test_start`` is shared by ``rest`` polling
 and ``sse`` streaming, so the swarm focuses on the hot read/stream paths
@@ -41,6 +46,9 @@ API_KEY = os.environ.get("RELAY_API_KEY", "test-key")
 DASHBOARD_USER = os.environ.get("RELAY_DASHBOARD_USER", "admin")
 DASHBOARD_PASSWORD = os.environ.get("RELAY_DASHBOARD_PASSWORD", "admin")
 EXECUTOR = os.environ.get("RELAY_LOADTEST_EXECUTOR", "inprocess")
+# Plan v5 — env-var only credential injection for strict-mode relays.
+# Empty string preserves the legacy ``"credentials": {}`` body.
+CREDENTIALS_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 
 _FIXTURE_SESSION_ID: str | None = None
 
@@ -50,6 +58,9 @@ def _api_headers() -> dict[str, str]:
 
 
 def _build_session_payload(label: str) -> dict[str, Any]:
+    creds: dict[str, str] = {}
+    if CREDENTIALS_KEY:
+        creds["ANTHROPIC_API_KEY"] = CREDENTIALS_KEY
     return {
         "spec": {
             "prompt": f"load-test fixture ({label})",
@@ -59,7 +70,7 @@ def _build_session_payload(label: str) -> dict[str, Any]:
             "timeout_s": 60,
             "tags": ["loadtest", label],
         },
-        "credentials": {},
+        "credentials": creds,
     }
 
 

@@ -60,7 +60,7 @@ ARG CLAUDE_CLI_VERSION=2.1.133
 #   nodejs (Node 20) — runtime for the claude CLI + any gg-plugins JS hooks
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
-        tini ca-certificates curl gnupg bash \
+        tini ca-certificates curl gnupg bash git \
  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && rm -rf /var/lib/apt/lists/* \

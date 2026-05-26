@@ -86,8 +86,6 @@ EXCLUDE_DIRS=(
   --exclude-dir=.git
   --exclude-dir=htmlcov
   --exclude-dir=.pytest_cache
-  --exclude-dir=.venv
-  --exclude-dir=.venv-spike
   --exclude-dir=.ruff_cache
   --exclude-dir=.mypy_cache
   --exclude-dir=node_modules
@@ -95,6 +93,18 @@ EXCLUDE_DIRS=(
   --exclude-dir=.cursor
   --exclude-dir=.claude
 )
+
+# GNU grep's --exclude-dir is fixed-string, not glob. Multi-Python
+# developers commonly run ``uv venv --python 3.11 .venv-py311`` next
+# to ``.venv``, so we expand every dot-venv-prefixed directory at the
+# repo root into its own --exclude-dir flag. Without this, the OOS
+# scan walks third-party site-packages (mcp/testcontainers) and trips
+# on legitimate ``OIDC`` / ``"/health"`` strings in their source.
+for _venv_dir in .venv .venv-* venv venv-*; do
+  if [[ -d "${_venv_dir}" ]]; then
+    EXCLUDE_DIRS+=("--exclude-dir=${_venv_dir}")
+  fi
+done
 
 EXCLUDE_FILES=(
   --exclude=CHANGELOG.md

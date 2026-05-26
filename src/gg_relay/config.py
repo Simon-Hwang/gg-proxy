@@ -386,6 +386,100 @@ class Config(BaseSettings):
     max_concurrent: int = 10
     grace_period_s: int = 30
 
+    # ── Plan v3 §B per-user upstream credentials ───────────────────────
+    credentials_encryption_key: SecretStr | None = None
+    """Fernet symmetric key used to encrypt the ``user_credentials.value``
+    column at rest. Generate via ``gg-relay generate-encryption-key``.
+
+    When unset the per-user-credentials feature is disabled:
+
+      * ``UserCredentialsStore`` is constructed with ``fernet=None`` —
+        ``get_for_user`` returns ``{}`` so the manager merge collapses
+        to a no-op,
+      * ``GET /api/v1/me/credentials`` and friends return 503
+        ``user_credentials_disabled``,
+      * the dashboard surfaces a yellow banner inviting the operator
+        to either set the key OR set
+        ``RELAY_DISABLE_USER_CREDENTIALS=true`` to silence the warning.
+
+    Format: 32-byte url-safe base64, exactly as ``Fernet.generate_key()``
+    emits. A non-empty but malformed key raises at startup (the lifespan
+    re-raises Fernet's ValueError) — silently disabling on a typo would
+    leave operators thinking they configured the feature when they
+    hadn't."""
+
+    disable_user_credentials: bool = False
+    """Hard kill switch for the per-user-credentials feature.
+
+    When ``True``:
+
+      * the store is built with ``fernet=None`` even if
+        :attr:`credentials_encryption_key` is set,
+      * routes return 503 and the lifespan emits an INFO (not warning)
+        log so operators don't see a false-alarm.
+
+    Useful for environments that explicitly opt out (e.g. air-gapped
+    deployments where the relay never reaches Anthropic so there are
+    no credentials to manage). Defaults to ``False`` (feature available
+    when the encryption key is set)."""
+
+    require_per_user_credentials: bool = False
+    """Plan v5 — strict-mode opt-in for multi-tenant deployments.
+
+    When ``True``, :meth:`SessionManager.submit` rejects sessions from
+    **non-admin** actors whose merged ``runtime_ctx.credentials`` do
+    NOT contain ``ANTHROPIC_API_KEY`` or ``ANTHROPIC_AUTH_TOKEN``
+    (non-empty). Admin actors retain the fallback path for operations.
+
+    Independent of this flag:
+
+      * a WARN log fires on EVERY fallback (admin + non-admin) for
+        grep-able observability,
+      * request-body ``credentials`` keys are ALWAYS validated against
+        the same allowlist used by ``/api/v1/me/credentials`` uploads
+        (defence-in-depth — closes the wildcard-injection channel
+        even when strict mode is off).
+
+    A distinct ``503 credential_lookup_unavailable`` (with
+    ``Retry-After: 5``) is returned when the credentials store itself
+    raises under strict mode — operator/infra issue, not user-
+    attributable.
+
+    Bedrock / Vertex deployments: leave this ``False``. The upload
+    allowlist does not include ``CLAUDE_CODE_USE_BEDROCK`` /
+    ``CLAUDE_CODE_USE_VERTEX``, so a non-admin cannot configure those
+    providers via ``/dashboard/me/credentials``. A future plan can
+    extend support; for now strict mode is Anthropic-direct only.
+
+    Default ``False`` preserves single-tenant behaviour: every
+    existing deployment that does not set
+    ``RELAY_REQUIRE_PER_USER_CREDENTIALS`` sees identical behaviour."""
+
+    # ── SDK upstream runtime guards ────────────────────────────────────
+    sdk_api_retry_budget: int = 3
+    """Relay-side budget for ``SystemMessage(subtype="api_retry")`` frames
+    emitted by the upstream ``claude`` CLI before the runner gives up.
+
+    The Claude CLI binary has its own internal ``max_retries=10`` (not
+    configurable through ``claude_code_sdk`` — the CLI exposes no
+    ``--retries`` flag). On a misconfigured ``ANTHROPIC_*`` credential
+    this means **every session pays a ~3-minute exponential-backoff tax
+    + then silently completes** with a synthetic
+    ``"Failed to authenticate"`` AssistantMessage and zero tokens.
+
+    Relay therefore counts ``api_retry`` frames per runner and raises
+    :class:`SDKPermissionError` once the count exceeds this budget. The
+    manager's exception path then writes ``status=failed`` with
+    ``end_reason="permission:401"`` so the dashboard surfaces an
+    actionable failure instead of a misleading ``completed`` row.
+
+    Default ``3`` keeps a small grace window for genuine transient 5xx
+    blips while still failing fast on credential misconfiguration. Set
+    to ``0`` to disable the guard entirely (the CLI's own ``max_retries``
+    will then run to exhaustion — falls back to the misclassification
+    safety net in the runner that detects synthetic AssistantMessages).
+    """
+
     # ── pause/resume (Plan 6) ──────────────────────────────────────────
     paused_timeout_s: int = 1800
     """How long a session may stay PAUSED before the watchdog cancels it

@@ -44,6 +44,8 @@ from gg_relay.api.routers import (
     metrics_router,
     sessions_router,
     templates_router,
+    user_credentials_admin_router,
+    user_credentials_me_router,
 )
 from gg_relay.auth import (
     ApiKeyStore,
@@ -135,6 +137,7 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
         *,
         control_channel: ControlChannel | None = None,
         runtime_ctx: Any = None,
+        install_report: Any = None,
     ) -> Any:
         if kind == "docker":
             return DockerExecutor(
@@ -169,6 +172,13 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
             session_id=session_id,
             control_channel=control_channel,
             runtime_ctx=runtime_ctx,
+            install_report=install_report,
+            # Relay-side ``api_retry`` budget — see
+            # ``Config.sdk_api_retry_budget`` for rationale. Threaded
+            # from cfg here so the in-process runner can fail-fast on
+            # upstream auth failures instead of letting the CLI burn
+            # its full 10-attempt internal retry loop.
+            api_retry_budget=cfg.sdk_api_retry_budget,
         )
         return InProcessExecutor(runner=runner, control_channel=control_channel)
 
@@ -254,6 +264,51 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         slow_query_log_ms=getattr(cfg, "db_slow_query_log_ms", 500),
     )
     store = SessionRepository(engine)
+
+    # Plan v3 hardening — fail-fast on DB schema drift.
+    # The lifespan does NOT auto-run migrations (rollback safety,
+    # multi-worker race avoidance, no surprise schema mutation). But
+    # it CAN catch the common operator mistake of forgetting
+    # ``gg-relay migrate`` after a code update — every 0013-touching
+    # route would otherwise 500 with ``no such table: user_credentials``
+    # only at first user click. We emit a loud WARN at boot so the
+    # operator notices BEFORE traffic hits.
+    #
+    # Test path opt-out: tests that use ``create_all_tables`` skip
+    # Alembic entirely → no ``alembic_version`` table → check
+    # silently passes.
+    try:
+        from sqlalchemy import text
+
+        async with engine.connect() as conn:
+            row = await conn.execute(
+                text("SELECT version_num FROM alembic_version")
+            )
+            db_head = (row.scalar() or "").strip()
+        if db_head:
+            from alembic.config import Config as AlembicConfig
+            from alembic.script import ScriptDirectory
+
+            alembic_cfg = AlembicConfig("alembic.ini")
+            script = ScriptDirectory.from_config(alembic_cfg)
+            expected_head = script.get_current_head() or ""
+            if db_head != expected_head:
+                logger.warning(
+                    "DB schema drift: alembic_version=%r but code "
+                    "expects head=%r. Run `gg-relay migrate` (or "
+                    "`uv run alembic upgrade head`) BEFORE accepting "
+                    "traffic — newer-feature routes will 500 with "
+                    "`no such table: ...` until you do.",
+                    db_head,
+                    expected_head,
+                )
+    except Exception:  # pragma: no cover - best-effort check
+        # ``alembic_version`` missing (test fixture / fresh DB
+        # without alembic) or any other introspection hiccup — do
+        # NOT block boot, just stay silent and let real first-query
+        # surface the actual error.
+        pass
+
     # Plan 8 D8.4 / Task 5 — durable audit log. Single shared service
     # across all routes; the SessionManager grabs an explicit reference
     # below so business mutations (submit / cancel / pause / resume)
@@ -333,6 +388,57 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except ImportError:
             logger.warning("OTel HTTP exporter requested but optional dep missing")
 
+    # ── Plan v3 §B.2 per-user upstream credentials ───────────────────
+    # Built BEFORE the SessionManager so it can be passed in as the
+    # optional ``user_credentials_store`` collaborator. The store is
+    # constructed with ``fernet=None`` when either:
+    #
+    #   * ``RELAY_DISABLE_USER_CREDENTIALS=true`` (operator opt-out),
+    #     or
+    #   * ``RELAY_CREDENTIALS_ENCRYPTION_KEY`` is unset (no key, no
+    #     persistence — the feature stays dark until the operator
+    #     generates one).
+    #
+    # A malformed key (wrong length / wrong base64) re-raises out of
+    # the lifespan so the operator notices immediately at startup —
+    # silently disabling on a typo is the foot-gun Plan v3 §B.2 calls
+    # out explicitly.
+    from gg_relay.store.user_credentials import (
+        UserCredentialsStore,
+        build_fernet_from_key,
+    )
+
+    user_creds_fernet = None
+    user_creds_fingerprint = None
+    user_creds_warn_disabled = False
+    if cfg.disable_user_credentials:
+        logger.info(
+            "user_credentials feature DISABLED via "
+            "RELAY_DISABLE_USER_CREDENTIALS=true"
+        )
+    elif cfg.credentials_encryption_key is None:
+        logger.warning(
+            "RELAY_CREDENTIALS_ENCRYPTION_KEY missing; per-user upstream "
+            "credentials disabled — set the key (e.g. via "
+            "`gg-relay generate-encryption-key`) or "
+            "RELAY_DISABLE_USER_CREDENTIALS=true to silence this warning"
+        )
+        user_creds_warn_disabled = True
+    else:
+        raw_key = cfg.credentials_encryption_key.get_secret_value()
+        user_creds_fernet, user_creds_fingerprint = build_fernet_from_key(
+            raw_key
+        )
+        logger.info(
+            "user_credentials feature ENABLED (key_fingerprint=%s)",
+            user_creds_fingerprint,
+        )
+    user_credentials_store = UserCredentialsStore(
+        engine,
+        fernet=user_creds_fernet,
+        key_fingerprint=user_creds_fingerprint,
+    )
+
     manager = SessionManager(
         executor_factory=executor_factory,
         assembler=assembler,
@@ -350,6 +456,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         max_paused_per_api_key=cfg.max_paused_per_api_key,
         resume_timeout_s=cfg.resume_timeout_s,
         audit_service=audit_service,
+        user_credentials_store=user_credentials_store,
+        require_per_user_credentials=getattr(
+            cfg, "require_per_user_credentials", False
+        ),
     )
 
     app.state.engine = engine
@@ -358,6 +468,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.coordinator = coordinator
     app.state.redactor = redactor
     app.state.manager = manager
+    app.state.user_credentials_store = user_credentials_store
+    app.state.user_credentials_warn_disabled = user_creds_warn_disabled
 
     # ── Plan 8 Task 22 / D8.29 — DB-backed API key self-service ──────
     # Step 1: ApiKeyStore over the api_keys table (Alembic 0011).
@@ -409,7 +521,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     dashboard_key_store = DashboardKeyStore(engine)
     app.state.dashboard_key_store = dashboard_key_store
     dashboard_internal_keys: dict[str, str] = {}
-    for username in cfg.dashboard_users:
+    # Plan 8 D8.26 multi-user path: mint one internal key per
+    # bcrypt-configured user. ``cfg.dashboard_users`` is the parsed
+    # ``{username: bcrypt_hash}`` from ``RELAY_DASHBOARD_USERS_RAW``.
+    users_to_mint: list[tuple[str, str]] = [
+        (username, cfg.role_mapping.get(f"dashboard-{username}", "submitter"))
+        for username in cfg.dashboard_users
+    ]
+    # Legacy admin path (D4.11): operators who only set
+    # ``RELAY_DASHBOARD_ADMIN_PASSWORD`` log in as username="admin"
+    # but were never minted an internal key — every dashboard →
+    # ``/api/v1/*`` mutation got 401 ``invalid_api_key`` because
+    # ``DashboardCookieMiddleware`` had no mapping for "admin".
+    # Mirror the same get_or_create + upsert path used for
+    # ``dashboard_users``, gated on ``dashboard_admin_password``
+    # actually being set (so we don't accidentally provision a
+    # back-door admin key in installs that disabled the legacy
+    # path). Skip when "admin" is already in ``dashboard_users``
+    # to avoid double-minting (the multi-user entry takes
+    # precedence and carries its own role mapping).
+    if (
+        getattr(cfg, "dashboard_admin_password", None) is not None
+        and "admin" not in cfg.dashboard_users
+    ):
+        users_to_mint.append(("admin", "admin"))
+    for username, role in users_to_mint:
         label = f"dashboard-{username}"
         try:
             raw_key = await dashboard_key_store.get_or_create(username)
@@ -417,7 +553,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             existing = await api_key_store.get_by_label(label)
             expected_hash = hash_key(raw_key)
             if existing is None or existing.get("revoked_at") is not None:
-                role = cfg.role_mapping.get(label, "submitter")
                 await api_key_store.create(
                     label=label,
                     raw_key=raw_key,
@@ -432,7 +567,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 # Stored key differs (manual DB tweak / older random
                 # generation); revoke + recreate with the DB-backed key.
                 await api_key_store.revoke(label=label)
-                role = cfg.role_mapping.get(label, "submitter")
                 await api_key_store.create(
                     label=label,
                     raw_key=raw_key,
@@ -798,6 +932,14 @@ def create_app(config: Config | None = None) -> FastAPI:
     # (sessions/events/hitl/audit/...) with operator-only admin
     # tooling clearly tagged at the tail.
     app.include_router(admin_keys_router, prefix="/api/v1")
+    # Plan v3 §B.4 — per-user upstream credentials self-service.
+    # Two halves: /me/credentials (submitter+ on their own rows) and
+    # /admin/credentials (admin override on any user's rows). Both
+    # halves enforce the env_name allowlist from
+    # ``routers/user_credentials.py:ALLOWED_ENV_NAMES`` so admin
+    # cannot smuggle PATH/LD_PRELOAD either.
+    app.include_router(user_credentials_me_router, prefix="/api/v1")
+    app.include_router(user_credentials_admin_router, prefix="/api/v1")
     # Plan 9 D9.12 — admin drain endpoint (POST /api/v1/admin/drain).
     # Flips ``app.state.drained=True`` so /readyz returns 503; the
     # K8s preStop hook calls this before SIGTERM so the load balancer

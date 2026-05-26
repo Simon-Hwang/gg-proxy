@@ -59,7 +59,7 @@
         hx-target="#comments-list-{{ session_id }}"
         hx-swap="outerHTML"
         hx-on::after-request="if(event.detail.successful) { htmx.find(this, 'textarea').value=''; htmx.ajax('GET', '/dashboard/sessions/{{ session_id }}/comments', '#comments-list-{{ session_id }}'); }">
-    <textarea name="body" placeholder="Markdown comment..." rows="3" required maxlength="8000"></textarea>
+    <textarea name="body" placeholder="Write a comment (Markdown supported)" rows="3" required maxlength="8000" aria-label="New comment body"></textarea>
     <button type="submit">Post comment</button>
   </form>
 </div>

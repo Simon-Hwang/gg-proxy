@@ -1,7 +1,8 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}gg-relay{% endblock %}</title>
     <script src="https://unpkg.com/htmx.org@1.9.12"></script>
     {# Plan 8 Task 8 (D8.5) — json-enc HTMX extension so opt-in forms
@@ -13,25 +14,322 @@
        that attribute keep their default form encoding. #}
     <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/json-enc.js"></script>
     <link rel="stylesheet" href="/dashboard/static/app.css">
+    <script>
+        (function () {
+            try {
+                var t = localStorage.getItem('gg-relay-theme');
+                if (t === 'light' || t === 'dark') {
+                    document.documentElement.setAttribute('data-theme', t);
+                }
+            } catch (e) { /* localStorage may be denied */ }
+        })();
+    </script>
 </head>
-<body>
-    <header class="topbar">
-        <a class="brand" href="/dashboard/sessions">gg-relay</a>
-        <nav>
-            <a href="/dashboard/kanban">Kanban</a>
-            <a href="/dashboard/list">List</a>
-            <a href="/dashboard/sessions">Sessions</a>
-            <a href="/dashboard/search">Search</a>
-            <a href="/dashboard/favorites">Favorites</a>
-            <a href="/dashboard/templates">Templates</a>
-            <a href="/dashboard/cost">Cost</a>
-            <form method="post" action="/dashboard/logout" style="display:inline">
-                <button type="submit">Logout</button>
-            </form>
-        </nav>
+<body class="app-shell">
+    {# A4 — skip-to-content link (WCAG 2.4.1).
+       First focusable element; hidden off-screen until keyboard
+       focused. Jumps users past the sidebar + topbar (~25 tab stops)
+       straight to <main>. Tested by test_dashboard_a11y.py. #}
+    <a class="skip-link" href="#main-content">Skip to main content</a>
+
+    {# A1'' — global polite aria-live region (opt-in).
+       JS in this file only writes here when the swapped target (or
+       an ancestor) has data-hx-announce set, so SSE / 5s polling
+       don't flood screen readers. Tested by test_dashboard_a11y.py. #}
+    <div id="hx-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+
+    {# T1' — toast stack (opt-in).
+       Triggered by either HX-Trigger: showToast response header or
+       a data-toast-on-error element on 4xx/5xx. Each toast is its
+       own live region so stacked toasts get individual announcements.
+       Tested by test_dashboard_toast.py. #}
+    <div id="toast-stack" aria-live="polite" aria-atomic="false"></div>
+
+    {# K1 — command palette (⌘K / Ctrl+K) mount.
+       Empty until the keybind fires; then the JS HTMX-loads
+       /dashboard/cmdk into here. The mount stays in the DOM so the
+       focus-restore logic can find a stable hook on close.
+       Tested by test_dashboard_cmdk.py. #}
+    <div id="cmdk-mount" data-cmdk-state="closed"></div>
+
+    <header class="app-topbar">
+        <div class="topbar-left">
+            <button type="button" class="menu-toggle" aria-label="Toggle navigation"
+                    onclick="document.getElementById('app-sidebar').classList.toggle('is-open');">
+                ☰
+            </button>
+            <a class="brand-mark" href="/dashboard/overview">gg-relay</a>
+        </div>
+        {# Legacy topbar nav — kept hidden but present in DOM so any
+           future test that grepped the old `class="topbar"` chrome
+           continues to find familiar link text. Primary nav now
+           lives in the sidebar. #}
+        <header class="topbar" hidden aria-hidden="true">
+            <a class="brand" href="/dashboard/sessions">gg-relay</a>
+            <nav>
+                <a href="/dashboard/kanban">Kanban</a>
+                <a href="/dashboard/list">List</a>
+                <a href="/dashboard/sessions">Sessions</a>
+                <a href="/dashboard/search">Search</a>
+                <a href="/dashboard/favorites">Favorites</a>
+                <a href="/dashboard/templates">Templates</a>
+                <a href="/dashboard/cost">Cost</a>
+            </nav>
+        </header>
+        <div class="topbar-search">
+            <input type="search"
+                   placeholder="Search sessions, prompts, owners…"
+                   onkeydown="if(event.key==='Enter'&&this.value){window.location.href='/dashboard/search?q='+encodeURIComponent(this.value);}"
+                   aria-label="Quick search" />
+        </div>
+        <div class="topbar-right">
+            <button type="button" class="icon-btn" title="Toggle theme" aria-label="Toggle theme"
+                    onclick="
+                        var d = document.documentElement;
+                        var next = d.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+                        d.setAttribute('data-theme', next);
+                        try { localStorage.setItem('gg-relay-theme', next); } catch (e) {}
+                    ">◐</button>
+            {% set _u = dashboard_username(request) %}
+            {% if _u %}
+            <span class="user-chip" title="Signed in as {{ _u }}">
+                <span class="avatar">{{ _u[:1] | upper }}</span>
+                <span>{{ _u }}</span>
+            </span>
+            {% endif %}
+        </div>
     </header>
-    <main>
-        {% block content %}{% endblock %}
-    </main>
+
+    <div class="app-layout">
+        {% include "_sidebar.html" %}
+        {# tabindex="-1" lets the skip-link focus the main element
+           even though <main> isn't natively focusable. WCAG 2.4.1. #}
+        <main class="app-main" id="main-content" tabindex="-1">
+            <div class="page">
+                {% block content %}{% endblock %}
+            </div>
+        </main>
+    </div>
+
+    {# ── A11y & UX glue (a1''/a2/t1' — v3) ────────────────────────
+       Single inline script so we don't need to introduce a new
+       static asset (and a corresponding test fixture). Each block
+       is opt-in by design to avoid noisy announcements on SSE /
+       polling / search swaps that don't represent real state
+       changes the user needs to know about.
+
+       Tested by:
+         tests/integration/test_dashboard_a11y.py
+         tests/integration/test_dashboard_toast.py
+       (the JS-driven behaviors are pinned by structural HTML
+       assertions where possible; full JS coverage would need
+       Playwright which is out of scope for this batch.) #}
+    <script>
+    (function () {
+        'use strict';
+
+        // ── A1'' — aria-live (opt-in + 1s throttle) ─────────────
+        // Only fires when the swapped element (or an ancestor)
+        // declares data-hx-announce. We never traverse DOWN — that
+        // would let an outer polling container accidentally trigger
+        // announcements every 5 seconds.
+        var live = document.getElementById('hx-live');
+        var lastMsg = '';
+        var lastAt = 0;
+        function announce(msg) {
+            if (!live || !msg) return;
+            var now = Date.now();
+            if (msg === lastMsg && (now - lastAt) < 1000) return;
+            lastMsg = msg;
+            lastAt = now;
+            // Clearing first forces re-announce when the same string
+            // is set twice in a row by SR engines that dedupe text.
+            live.textContent = '';
+            setTimeout(function () { live.textContent = msg; }, 30);
+        }
+        document.body.addEventListener('htmx:afterSwap', function (evt) {
+            var t = evt.detail && evt.detail.target;
+            if (!t || !t.closest) return;
+            var host = t.closest('[data-hx-announce]');
+            if (!host) return;
+            var msg = host.getAttribute('data-announce-message')
+                || t.getAttribute('aria-label')
+                || host.getAttribute('aria-label')
+                || 'Content updated';
+            announce(msg);
+        });
+
+        // ── A2 — focus first invalid field after server-side error ─
+        document.body.addEventListener('htmx:afterSwap', function (evt) {
+            var t = evt.detail && evt.detail.target;
+            if (!t || !t.querySelector) return;
+            var first = t.querySelector('[aria-invalid="true"]');
+            if (first && typeof first.focus === 'function') {
+                first.focus({ preventScroll: false });
+            }
+        });
+
+        // ── T1' — toast system (opt-in only) ────────────────────
+        var stack = document.getElementById('toast-stack');
+        function showToast(opts) {
+            if (!stack) return;
+            var level = (opts && opts.level) || 'info';
+            var msg = (opts && opts.msg) || '';
+            if (!msg) return;
+            var el = document.createElement('div');
+            el.className = 'toast toast-' + level;
+            el.setAttribute('role', 'status');
+            el.setAttribute('aria-live', 'polite');
+            var body = document.createElement('div');
+            body.className = 'toast-msg';
+            body.textContent = msg;
+            var close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'toast-close';
+            close.setAttribute('aria-label', 'Dismiss notification');
+            close.textContent = '×';
+            function dismiss() {
+                el.classList.add('is-leaving');
+                setTimeout(function () { el.remove(); }, 200);
+            }
+            close.addEventListener('click', dismiss);
+            el.appendChild(body);
+            el.appendChild(close);
+            stack.appendChild(el);
+            setTimeout(dismiss, (opts && opts.timeout) || 5000);
+        }
+        window.ggToast = showToast;
+
+        // Trigger 1 — server response header HX-Trigger: showToast
+        // Server sets:
+        //   response.headers["HX-Trigger"] = '{"showToast":{"level":"success","msg":"..."}}'
+        // HTMX dispatches a CustomEvent("showToast", {detail: ...})
+        // on the triggering element.
+        document.body.addEventListener('showToast', function (evt) {
+            var d = evt.detail || {};
+            showToast({ level: d.level || 'info', msg: d.msg || '', timeout: d.timeout });
+        });
+
+        // Trigger 2 — generic 4xx/5xx fallback for elements that
+        // opt-in via data-toast-on-error. We do NOT auto-toast on
+        // every error — that would conflict with the 8 existing
+        // hx-on::after-request inline handlers (favorites, new,
+        // templates, admin_keys, _kanban_card, session_detail,
+        // _comment_edit_form, _session_comments).
+        document.body.addEventListener('htmx:responseError', function (evt) {
+            var src = evt.detail && evt.detail.elt;
+            if (!src || !src.closest) return;
+            var host = src.closest('[data-toast-on-error]');
+            if (!host) return;
+            var label = host.getAttribute('data-toast-on-error') || 'Request failed — please try again.';
+            showToast({ level: 'error', msg: label });
+        });
+
+        // ── K1 — Command palette (⌘K / Ctrl+K) ───────────────────
+        // Cross-platform: Meta+K (mac) AND Ctrl+K (win/linux).
+        // Input-field exemption: when the user is typing into an
+        // <input>/<textarea>/contenteditable, ⌘K / Ctrl+K must NOT
+        // hijack — that breaks browser/SR shortcuts.
+        // Modal contract:
+        //   * outside-click on .cmdk-overlay closes
+        //   * Escape closes
+        //   * focus is trapped to the modal while open
+        //   * on close, focus restores to the element that opened it
+        var mount = document.getElementById('cmdk-mount');
+        var cmdkOpener = null;
+        function cmdkIsOpen() {
+            return mount && mount.getAttribute('data-cmdk-state') === 'open';
+        }
+        function cmdkClose() {
+            if (!cmdkIsOpen()) return;
+            mount.setAttribute('data-cmdk-state', 'closed');
+            mount.innerHTML = '';
+            document.body.classList.remove('cmdk-active');
+            if (cmdkOpener && typeof cmdkOpener.focus === 'function') {
+                try { cmdkOpener.focus(); } catch (e) { /* element gone */ }
+            }
+            cmdkOpener = null;
+        }
+        function cmdkOpen() {
+            if (!mount || cmdkIsOpen()) return;
+            cmdkOpener = document.activeElement;
+            mount.setAttribute('data-cmdk-state', 'open');
+            document.body.classList.add('cmdk-active');
+            if (window.htmx && typeof window.htmx.ajax === 'function') {
+                window.htmx.ajax('GET', '/dashboard/cmdk', {
+                    target: '#cmdk-mount',
+                    swap: 'innerHTML',
+                }).then(function () {
+                    var input = document.getElementById('cmdk-input');
+                    if (input) input.focus();
+                });
+            }
+        }
+        function isTypingTarget(el) {
+            if (!el) return false;
+            var tag = (el.tagName || '').toUpperCase();
+            if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+            if (el.isContentEditable) return true;
+            return false;
+        }
+        document.addEventListener('keydown', function (evt) {
+            // Toggle on ⌘K / Ctrl+K — but never hijack while typing.
+            if ((evt.metaKey || evt.ctrlKey) && (evt.key === 'k' || evt.key === 'K')) {
+                if (isTypingTarget(evt.target) && evt.target.id !== 'cmdk-input') return;
+                evt.preventDefault();
+                if (cmdkIsOpen()) { cmdkClose(); } else { cmdkOpen(); }
+                return;
+            }
+            if (!cmdkIsOpen()) return;
+            // Esc closes
+            if (evt.key === 'Escape') { evt.preventDefault(); cmdkClose(); return; }
+            // ↑ / ↓ / Enter — keyboard navigation across items
+            if (evt.key !== 'ArrowDown' && evt.key !== 'ArrowUp' && evt.key !== 'Enter') return;
+            var items = mount.querySelectorAll('[data-cmdk-item="true"]');
+            if (!items.length) return;
+            var current = -1;
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].getAttribute('aria-selected') === 'true') { current = i; break; }
+            }
+            if (evt.key === 'Enter') {
+                evt.preventDefault();
+                var pick = current >= 0 ? items[current] : items[0];
+                var href = pick && pick.getAttribute('data-href');
+                if (href) { cmdkClose(); window.location.href = href; }
+                return;
+            }
+            evt.preventDefault();
+            var next = current;
+            if (evt.key === 'ArrowDown') next = (current + 1) % items.length;
+            if (evt.key === 'ArrowUp')   next = (current - 1 + items.length) % items.length;
+            for (var j = 0; j < items.length; j++) {
+                items[j].setAttribute('aria-selected', j === next ? 'true' : 'false');
+            }
+            items[next].scrollIntoView({ block: 'nearest' });
+        });
+        // outside-click closes
+        document.addEventListener('click', function (evt) {
+            if (!cmdkIsOpen()) return;
+            var t = evt.target;
+            if (!t || !t.closest) return;
+            if (t.id === 'cmdk-overlay') { cmdkClose(); return; }
+            // clicks INSIDE .cmdk-panel are kept; everything else closes
+            if (!t.closest('.cmdk-panel')) { cmdkClose(); }
+        });
+        // After every HTMX swap inside the cmdk mount, re-seed the
+        // initial selection on the first item so ↑/↓/Enter works
+        // immediately after a results refresh.
+        document.body.addEventListener('htmx:afterSwap', function (evt) {
+            if (!cmdkIsOpen()) return;
+            var first = mount.querySelector('[data-cmdk-item="true"]');
+            if (first && first.getAttribute('aria-selected') !== 'true') {
+                var items = mount.querySelectorAll('[data-cmdk-item="true"]');
+                for (var k = 0; k < items.length; k++) {
+                    items[k].setAttribute('aria-selected', k === 0 ? 'true' : 'false');
+                }
+            }
+        });
+    })();
+    </script>
 </body>
 </html>

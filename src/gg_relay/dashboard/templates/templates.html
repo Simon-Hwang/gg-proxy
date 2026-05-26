@@ -1,8 +1,22 @@
 {% extends "base.html" %}
+{% from "_new_session_cta.html" import cta with context %}
 {% block title %}Prompt Templates — gg-relay{% endblock %}
+{% set active_nav = 'templates' %}
 {% block content %}
+{% set _role = dashboard_role(request) %}
+{% set _can_submit = _role in ('submitter', 'admin') %}
 <section class="templates-page">
-    <h2>Prompt Templates</h2>
+    <div class="page-header">
+        <div>
+            <h2>Prompt Templates</h2>
+            <p class="muted" style="margin:4px 0 0">
+                Save and share prompts you reuse — click <strong>Use</strong> to seed a new session.
+            </p>
+        </div>
+        <div class="page-actions">
+            {{ cta('page', _can_submit) }}
+        </div>
+    </div>
 
     <details class="create-form-wrapper">
         <summary>+ New template</summary>

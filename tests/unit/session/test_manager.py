@@ -281,6 +281,109 @@ class TestTimeout:
         assert det.end_reason == "timeout"
 
 
+class TestSdkPermissionFailure:
+    """Manager-side contract: when the runner raises
+    :class:`SDKPermissionError` (the path taken by the relay's
+    upstream-auth guards in ``client.py``), manager must land the
+    session as ``failed`` with ``end_reason=permission:403``.
+
+    Pre-fix the runner would synthesize a ``session.end(status="completed")``
+    on upstream auth failure — manager never saw an exception, so the
+    dashboard showed ``completed`` with zero tokens for what was
+    actually a credential rejection. The two new runtime guards in
+    ``client.py`` (api_retry budget + synthetic-completion detection)
+    convert that into an SDKPermissionError; this test pins what
+    manager does with it.
+    """
+
+    async def test_runner_permission_error_marks_failed(
+        self, store_engine, tmp_path: Path
+    ):
+        from gg_relay.core.exceptions import SDKPermissionError
+
+        async def auth_failing_runner(
+            transport: SessionTransport, spec: SessionSpec
+        ) -> None:
+            del transport, spec
+            # Mimic what the api_retry budget guard or the synthetic
+            # completion guard raises after seeing upstream 401s.
+            raise SDKPermissionError(
+                "upstream api_retry budget exhausted "
+                "(count=4 budget=3): error_status=401 "
+                "error='authentication_failed'"
+            )
+
+        manager = SessionManager(
+            executor_factory=make_factory(
+                lambda p, c, sid: auth_failing_runner  # noqa: ARG005
+            ),
+            assembler=FakeAssembler(),
+            store=SessionRepository(store_engine),
+            bus=EventBus(),
+            coordinator=HITLCoordinator(),
+            redactor=RedactionEngine(),
+            default_policy=ToolPolicy(),
+            install_dir_root=tmp_path / "installs",
+        )
+        sid = await manager.submit(make_spec(tmp_path))
+        det = await _wait_for_status(
+            manager, sid, {SessionState.FAILED}, timeout=3.0
+        )
+        assert det.status == SessionState.FAILED
+        # ``classify_sdk_error`` is idempotent on already-typed
+        # SDKError instances, so the SDKPermissionError flows through
+        # unchanged and lands as ``permission:403`` (the class-level
+        # ``category`` + ``http_status`` constants).
+        assert det.end_reason == "permission:403", (
+            f"expected permission:403, got {det.end_reason!r}"
+        )
+
+    async def test_runner_generic_exception_marks_failed_unknown(
+        self, store_engine, tmp_path: Path
+    ):
+        """A bare ``RuntimeError`` from the runner must NOT be silently
+        swallowed as ``completed``. Pre-fix the in-process executor's
+        task wrapper ate every runner exception that wasn't a
+        cancel/timeout/install-failure, so any plumbing crash (DB
+        unavailable, JSON decode error, type bug, …) produced a
+        misleading green checkmark in the dashboard.
+
+        Post-fix: ``classify_sdk_error`` buckets the bare exception
+        as ``SDKUnknownError`` → ``unknown:500``. We pin both the
+        status and the reason shape so a regression of either
+        plumbing layer (executor surface OR manager classification)
+        gets caught.
+        """
+
+        async def crashing_runner(
+            transport: SessionTransport, spec: SessionSpec
+        ) -> None:
+            del transport, spec
+            raise RuntimeError("something exploded mid-stream")
+
+        manager = SessionManager(
+            executor_factory=make_factory(
+                lambda p, c, sid: crashing_runner  # noqa: ARG005
+            ),
+            assembler=FakeAssembler(),
+            store=SessionRepository(store_engine),
+            bus=EventBus(),
+            coordinator=HITLCoordinator(),
+            redactor=RedactionEngine(),
+            default_policy=ToolPolicy(),
+            install_dir_root=tmp_path / "installs",
+        )
+        sid = await manager.submit(make_spec(tmp_path))
+        det = await _wait_for_status(
+            manager, sid, {SessionState.FAILED}, timeout=3.0
+        )
+        assert det.status == SessionState.FAILED
+        assert det.end_reason == "unknown:500", (
+            f"generic exception must land as unknown:500, "
+            f"got {det.end_reason!r}"
+        )
+
+
 class TestPluginInstallFailure:
     async def test_install_failure_marks_failed(
         self, store_engine, tmp_path: Path

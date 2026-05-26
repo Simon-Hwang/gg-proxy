@@ -4,14 +4,14 @@
    to ``/dashboard/kanban`` so the same partial serves both the kanban
    page and the list page (list view passes ``/dashboard/list``). #}
 <form class="kanban-filters" method="get" action="{{ filter_action or '/dashboard/kanban' }}">
-  <input type="text" name="owner" placeholder="Owner..." value="{{ filter_owner or '' }}" maxlength="64" />
+  <input type="text" name="owner" placeholder="e.g. dashboard-alice" value="{{ filter_owner or '' }}" maxlength="64" aria-label="Filter by owner label" />
   <select name="status">
     <option value="" {% if not filter_status %}selected{% endif %}>All status</option>
     {% for st in ['queued', 'running', 'paused', 'completed', 'failed', 'cancelled', 'interrupted'] %}
       <option value="{{ st }}" {% if filter_status == st %}selected{% endif %}>{{ st }}</option>
     {% endfor %}
   </select>
-  <input type="text" name="tag" placeholder="Tag..." value="{{ filter_tag or '' }}" maxlength="64" />
+  <input type="text" name="tag" placeholder="e.g. deploy" value="{{ filter_tag or '' }}" maxlength="64" aria-label="Filter by tag" />
   <button type="submit" class="btn btn-primary">Filter</button>
   {% if filter_owner or filter_status or filter_tag %}
     <a href="{{ filter_action or '/dashboard/kanban' }}" class="btn-link">Clear</a>

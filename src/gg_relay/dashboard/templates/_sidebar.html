@@ -1,0 +1,117 @@
+{# Sidebar — multica-aligned primary navigation.
+
+   Layout: main groups (Insights / Sessions / Library) + a sidebar
+   footer with the current user chip and logout. The two primary
+   create-CTAs sit at the very top so they remain the most
+   discoverable action on every page.
+
+   RBAC: ``role`` is provided by the ``dashboard_role(request)``
+   Jinja global registered in ``router.py``. ``submitter`` and
+   ``admin`` see clickable CTAs; ``viewer`` sees a disabled affordance
+   so they understand why the create flow is unavailable instead of
+   getting an authorization error after clicking.
+
+   Active link highlighting: pages opt-in by setting ``active_nav``
+   in their template context (e.g. ``active_nav='overview'``). The
+   sidebar compares this against each link's id.  #}
+{% from "_new_session_cta.html" import cta with context %}
+{% set role = dashboard_role(request) %}
+{% set username = dashboard_username(request) %}
+{% set can_submit = role in ('submitter', 'admin') %}
+{% set is_admin = role == 'admin' %}
+{% set active = active_nav or '' %}
+
+<aside class="sidebar" id="app-sidebar" aria-label="Primary navigation">
+    <div class="cta-stack">
+        {{ cta('sidebar', can_submit) }}
+        {% if can_submit %}
+        <a href="/dashboard/templates" class="cta-secondary" title="Manage prompt templates">
+            <span aria-hidden="true">＋</span> New template
+        </a>
+        {% else %}
+        <span class="cta-secondary cta-disabled" aria-disabled="true"
+              title="Read-only role — submitter or admin needed to create a template">
+            <span aria-hidden="true">＋</span> New template
+        </span>
+        {% endif %}
+    </div>
+
+    <nav class="nav-group" aria-label="Insights">
+        <div class="nav-group-title">Insights</div>
+        <a href="/dashboard/overview" class="nav-link {% if active == 'overview' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">▦</span> Overview
+        </a>
+        <a href="/dashboard/cost" class="nav-link {% if active == 'cost' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">¤</span> Cost
+        </a>
+    </nav>
+
+    <nav class="nav-group" aria-label="Sessions">
+        <div class="nav-group-title">Sessions</div>
+        <a href="/dashboard/kanban" class="nav-link {% if active == 'kanban' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">▤</span> Kanban
+        </a>
+        <a href="/dashboard/list" class="nav-link {% if active == 'list' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">☰</span> List
+        </a>
+        <a href="/dashboard/sessions" class="nav-link {% if active == 'sessions' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">◴</span> Live feed
+        </a>
+        <a href="/dashboard/search" class="nav-link {% if active == 'search' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">⌕</span> Search
+        </a>
+        <a href="/dashboard/favorites" class="nav-link {% if active == 'favorites' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">★</span> Favorites
+        </a>
+    </nav>
+
+    <nav class="nav-group" aria-label="Library">
+        <div class="nav-group-title">Library</div>
+        <a href="/dashboard/templates" class="nav-link {% if active == 'templates' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">▣</span> Templates
+        </a>
+        {# Plan v3 §B.7 — per-user upstream credentials self-service.
+           Visible to submitter+ on the assumption that storing a
+           credential you cannot use is meaningless; viewer is filtered
+           out by ``can_submit``. The /me page itself also enforces the
+           same RBAC, so even a typo'd URL bounces. #}
+        {% if can_submit %}
+        <a href="/dashboard/me/credentials"
+           class="nav-link {% if active == 'me_credentials' %}active{% endif %}"
+           title="Your upstream API credentials (ANTHROPIC_API_KEY etc.)">
+            <span class="nav-icon" aria-hidden="true">⚷</span> My credentials
+        </a>
+        {% endif %}
+        {% if is_admin %}
+        <a href="/dashboard/admin/keys" class="nav-link {% if active == 'admin_keys' %}active{% endif %}">
+            <span class="nav-icon" aria-hidden="true">⚿</span> API keys
+        </a>
+        {# Plan v3 §B.7 — admin-only override surface for every user's
+           upstream credentials. Distinct icon (⚷ filled-key) so the
+           operator can tell the per-user credentials view apart from
+           the API keys view at a glance. #}
+        <a href="/dashboard/admin/credentials"
+           class="nav-link {% if active == 'admin_credentials' %}active{% endif %}"
+           title="Per-user upstream credentials — admin override">
+            <span class="nav-icon" aria-hidden="true">⛭</span> Credentials
+        </a>
+        {% endif %}
+    </nav>
+
+    <div class="sidebar-footer">
+        {% if username %}
+        <div class="user-row" title="Logged in as {{ username }}">
+            <span class="avatar" aria-hidden="true">{{ username[:1] | upper }}</span>
+            <div class="user-meta">
+                <span class="user-name">{{ username }}</span>
+                <span class="role-badge role-{{ role }}">{{ role }}</span>
+            </div>
+            <div class="user-actions">
+                <form method="post" action="/dashboard/logout" style="margin:0">
+                    <button type="submit" title="Sign out">Logout</button>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</aside>

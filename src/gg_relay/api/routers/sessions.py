@@ -9,6 +9,7 @@ runtime context, never serialised back out.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -16,13 +17,14 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
+from gg_relay.api.dependencies import require_role as _rr_mod
 from gg_relay.api.dependencies.require_role import (
     ROLE_HIERARCHY,
-    _resolve_role,
     require_role,
     require_role_or_own_session,
 )
 from gg_relay.api.deps import ApiKeyIdDep, ManagerDep
+from gg_relay.api.routers.user_credentials import ALLOWED_ENV_NAMES
 from gg_relay.api.schemas import (
     BatchSessionItem,
     BatchSessionRequest,
@@ -40,7 +42,9 @@ from gg_relay.api.schemas import (
 )
 from gg_relay.core import RetryConfigError, SDKError, SessionState
 from gg_relay.session.manager import (
+    CredentialsLookupUnavailable,
     MaxPausedExceeded,
+    MissingCredentialsError,
     ResumeQueueTimeout,
     SessionDetail,
     SessionManager,
@@ -63,6 +67,35 @@ from gg_relay.store import (
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
+def _validate_body_credentials(creds: Mapping[str, str]) -> None:
+    """Plan v5 §2.4.2 — validate every key in body ``credentials``
+    against the same ``ALLOWED_ENV_NAMES`` allowlist that
+    ``/me/credentials`` enforces on upload.
+
+    Defence-in-depth: runs REGARDLESS of strict mode. Closes the
+    Santa-v2 wildcard exfiltration channel where
+    ``{"ANTHROPIC_BASE_URL": "attacker"}`` would have passed strict
+    mode + leaked operator's host ``ANTHROPIC_API_KEY`` to attacker
+    infra via the SDK env merge.
+    """
+    bad = [k for k in creds.keys() if k not in ALLOWED_ENV_NAMES]
+    if bad:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "unsupported_credential_key",
+                "error": "credential_key_not_allowed",
+                "rejected_keys": sorted(bad),
+                "allowed": sorted(ALLOWED_ENV_NAMES),
+                "message": (
+                    "request-body credentials contained "
+                    "unsupported env-var name(s); allowed set "
+                    "mirrors /api/v1/me/credentials uploads."
+                ),
+            },
+        )
+
+
 def _build_spec(req: SessionSubmitRequest) -> SessionSpec:
     plugins = PluginManifest(
         profile=req.spec.plugins.profile,
@@ -71,6 +104,9 @@ def _build_spec(req: SessionSubmitRequest) -> SessionSpec:
         with_components=tuple(req.spec.plugins.with_components),
         without_components=tuple(req.spec.plugins.without_components),
         extra_env=tuple((k, v) for k, v in req.spec.plugins.extra_env),
+        pre_run_cmds=tuple(
+            tuple(cmd) for cmd in req.spec.plugins.pre_run_cmds
+        ),
     )
     return SessionSpec(
         prompt=req.spec.prompt,
@@ -125,6 +161,21 @@ _DESCRIPTION_MAX_LEN = 512
     response_model=SessionResponse,
     status_code=202,
     dependencies=[Depends(require_role("submitter"))],
+    responses={
+        202: {"description": "Session accepted"},
+        400: {
+            "description": (
+                "missing_credentials (strict mode) | "
+                "unsupported_credential_key | other SDK errors"
+            ),
+        },
+        503: {
+            "description": (
+                "credential_lookup_unavailable — credentials store "
+                "transient failure under strict mode"
+            ),
+        },
+    },
 )
 async def submit_session(
     request: Request,
@@ -146,7 +197,19 @@ async def submit_session(
          apply a defensive in-place truncation on the response
          path and emit ``X-Description-Truncated: true`` whenever
          truncation actually happened.
+
+    Plan v5 §2.4 — strict-mode + body-credentials allowlist:
+
+      * ``body.credentials`` keys are validated against
+        ``ALLOWED_ENV_NAMES`` BEFORE anything else (defence-in-
+        depth; runs regardless of strict mode).
+      * Resolved ``actor_role`` is forwarded to the manager so
+        :class:`MissingCredentialsError` / :class:`CredentialsLookupUnavailable`
+        can fire when strict mode is on. Both errors carry an
+        explicit audit row.
     """
+    _validate_body_credentials(body.credentials)
+
     spec = _build_spec(body)
     ctx = SessionRuntimeContext(
         credentials=dict(body.credentials),
@@ -166,14 +229,86 @@ async def submit_session(
     if description is not None and len(description) > _DESCRIPTION_MAX_LEN:
         description = description[:_DESCRIPTION_MAX_LEN]
         response_headers["X-Description-Truncated"] = "true"
+
+    # Plan v5 §2.4.3 — derive audit + actor metadata OUTSIDE try so
+    # the except branches can use them. Mirrors the proven pattern at
+    # ``user_credentials.py:205`` and ``sessions.py:524-526``.
+    audit = getattr(request.app.state, "audit_service", None)
+    actor_label = getattr(request.state, "api_key_label", None)
+    actor_role = _rr_mod._resolve_role(request)
+
     try:
         sid = await manager.submit(
             spec,
             runtime_ctx=ctx,
             api_key_id=api_key_id,
             owner=owner,
+            # Plan v3 §B.6.2 — actor_label is the AUTHENTICATED
+            # identity (api key label) of the submitter. Distinct
+            # from ``owner``, which is the spoofable attribution
+            # override per Plan 7 D7.26. The manager keys per-user
+            # DB credentials off actor_label so a submitter cannot
+            # borrow another user's stored ANTHROPIC_API_KEY by
+            # setting ``body.owner``.
+            actor_label=actor_label,
+            actor_role=actor_role,
             description=description,
         )
+    except MissingCredentialsError as exc:
+        if audit is not None:
+            with contextlib.suppress(Exception):
+                await audit.record(
+                    actor=actor_label or "anon",
+                    action="session_reject_missing_credentials",
+                    target_type="session",
+                    target_id="-",
+                    metadata={
+                        "role": actor_role,
+                        "reason": "no_per_user_credentials",
+                    },
+                )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "missing_credentials",
+                "error": "per_user_credentials_required",
+                "actor_label": exc.actor_label,
+                "actor_role": exc.actor_role,
+                "message": (
+                    "This deployment requires per-user credentials "
+                    "(ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN). "
+                    "Configure at /dashboard/me/credentials, or "
+                    "ask an admin to provision via "
+                    "/dashboard/admin/credentials."
+                ),
+            },
+        ) from exc
+    except CredentialsLookupUnavailable as exc:
+        if audit is not None:
+            with contextlib.suppress(Exception):
+                await audit.record(
+                    actor=actor_label or "anon",
+                    action="session_reject_lookup_unavailable",
+                    target_type="session",
+                    target_id="-",
+                    metadata={
+                        "reason": "credentials_store_unavailable",
+                    },
+                )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "credential_lookup_unavailable",
+                "error": "credentials_store_transient_failure",
+                "actor_label": exc.actor_label,
+                "message": (
+                    "User-credentials store is temporarily "
+                    "unavailable. Retry; if persistent, check the "
+                    "relay's database and Fernet-key health."
+                ),
+            },
+            headers={"Retry-After": "5"},
+        ) from exc
     except SDKError as exc:
         # Plan 7 D7.25 / Task 14 — typed SDK errors carry their own
         # HTTP status + machine-readable ``error_category``. We
@@ -328,7 +463,7 @@ async def search_sessions(
     """
     store = request.app.state.store
     label = getattr(request.state, "api_key_label", None)
-    role = _resolve_role(request)
+    role = _rr_mod._resolve_role(request)
 
     if ROLE_HIERARCHY.get(role, 0) < ROLE_HIERARCHY["admin"]:
         if owner is not None and owner != label:
@@ -428,7 +563,7 @@ async def list_my_favorites(
     """
     store = request.app.state.store
     label = getattr(request.state, "api_key_label", None) or "anon"
-    current_role = _resolve_role(request)
+    current_role = _rr_mod._resolve_role(request)
     is_admin = (
         ROLE_HIERARCHY.get(current_role, 0) >= ROLE_HIERARCHY["admin"]
     )
@@ -726,7 +861,7 @@ async def batch_sessions(
     store = request.app.state.store
     audit = request.app.state.audit_service
     label = getattr(request.state, "api_key_label", None) or "anon"
-    role = _resolve_role(request)
+    role = _rr_mod._resolve_role(request)
     is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
     batch_size = len(payload.ids)
     items: list[BatchSessionItem] = []
@@ -792,7 +927,64 @@ async def batch_sessions(
                 items.append(BatchSessionItem(id=sid, status="ok"))
                 ok_count += 1
             else:  # retry
-                new_sid = await manager.retry(sid, actor=label)
+                try:
+                    new_sid = await manager.retry(
+                        sid, actor=label, actor_role=role
+                    )
+                except MissingCredentialsError:
+                    if audit is not None:
+                        with contextlib.suppress(Exception):
+                            await audit.record(
+                                actor=label,
+                                action="session_reject_missing_credentials",
+                                target_type="session",
+                                target_id=sid,
+                                metadata={
+                                    "role": role,
+                                    "reason": "no_per_user_credentials",
+                                    "via": "batch_retry",
+                                },
+                            )
+                    items.append(
+                        BatchSessionItem(
+                            id=sid,
+                            status="error",
+                            error_code="missing_credentials",
+                            error_message=(
+                                "Per-user credentials required for "
+                                "retry; configure at "
+                                "/dashboard/me/credentials."
+                            ),
+                        )
+                    )
+                    error_count += 1
+                    continue
+                except CredentialsLookupUnavailable:
+                    if audit is not None:
+                        with contextlib.suppress(Exception):
+                            await audit.record(
+                                actor=label,
+                                action="session_reject_lookup_unavailable",
+                                target_type="session",
+                                target_id=sid,
+                                metadata={
+                                    "reason": "credentials_store_unavailable",
+                                    "via": "batch_retry",
+                                },
+                            )
+                    items.append(
+                        BatchSessionItem(
+                            id=sid,
+                            status="error",
+                            error_code="credential_lookup_unavailable",
+                            error_message=(
+                                "Credentials store transient "
+                                "failure; retry shortly."
+                            ),
+                        )
+                    )
+                    error_count += 1
+                    continue
                 items.append(
                     BatchSessionItem(
                         id=sid, status="ok", new_session_id=new_sid

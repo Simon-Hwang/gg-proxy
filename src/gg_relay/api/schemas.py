@@ -14,7 +14,14 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+# ── pre_run_cmds 校验上限 ────────────────────────────────────────────
+# 设计目标：把 API body 注入到容器内执行的能力收敛到一个可审计的小窗口。
+PRE_RUN_CMDS_MAX_COUNT = 20
+PRE_RUN_CMDS_MAX_ARGV_LEN = 32
+PRE_RUN_CMDS_MAX_TOKEN_LEN = 200
 
 
 class PluginManifestIn(BaseModel):
@@ -28,6 +35,42 @@ class PluginManifestIn(BaseModel):
     with_components: list[str] = Field(default_factory=list)
     without_components: list[str] = Field(default_factory=list)
     extra_env: list[tuple[str, str]] = Field(default_factory=list)
+    # Per-session pre-run argv list. 每条命令是 argv 字符串数组，无 shell。
+    # 仅 docker executor 下生效（SessionSpecIn 的 model_validator 强制）。
+    pre_run_cmds: list[list[str]] = Field(
+        default_factory=list,
+        max_length=PRE_RUN_CMDS_MAX_COUNT,
+        description=(
+            "Sequential argv commands executed inside the runner container "
+            "before the SDK starts (e.g. git fetch / git worktree add). "
+            "Each entry is an argv list (no shell). Docker executor only."
+        ),
+    )
+
+    @field_validator("pre_run_cmds")
+    @classmethod
+    def _validate_pre_run_cmds(
+        cls, v: list[list[str]]
+    ) -> list[list[str]]:
+        for cmd in v:
+            if not cmd:
+                raise ValueError("pre_run_cmds entry must be a non-empty argv")
+            if len(cmd) > PRE_RUN_CMDS_MAX_ARGV_LEN:
+                raise ValueError(
+                    f"pre_run_cmds argv exceeds {PRE_RUN_CMDS_MAX_ARGV_LEN} tokens"
+                )
+            for token in cmd:
+                if not isinstance(token, str):
+                    raise ValueError("pre_run_cmds tokens must be strings")
+                if len(token) > PRE_RUN_CMDS_MAX_TOKEN_LEN:
+                    raise ValueError(
+                        f"pre_run_cmds token exceeds "
+                        f"{PRE_RUN_CMDS_MAX_TOKEN_LEN} chars"
+                    )
+                # NUL 字符在 exec 中不能传递，提前拒绝。
+                if "\x00" in token:
+                    raise ValueError("pre_run_cmds tokens must not contain NUL")
+        return v
 
 
 class SessionSpecIn(BaseModel):
@@ -41,6 +84,19 @@ class SessionSpecIn(BaseModel):
     executor: Literal["docker", "inprocess"] = "docker"
     timeout_s: int = 1800
     tags: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _enforce_pre_run_executor(self) -> SessionSpecIn:
+        # pre_run_cmds 在 inprocess 下会直接在 gg-relay 宿主机进程执行 argv，
+        # 绕过 ToolPolicy/HITL，本期出于"安全是 P0"原则只允许 docker。
+        # 后续若启用，需要 admin-only 配置开关 + allowlist。
+        if self.executor != "docker" and self.plugins.pre_run_cmds:
+            raise ValueError(
+                "pre_run_cmds is only supported with executor='docker'; "
+                "inprocess sessions execute argv on the host and are blocked "
+                "in this release for safety."
+            )
+        return self
 
 
 class SessionSubmitRequest(BaseModel):

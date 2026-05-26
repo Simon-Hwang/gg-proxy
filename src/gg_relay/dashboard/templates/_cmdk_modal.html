@@ -1,0 +1,61 @@
+{# Command palette (⌘K / Ctrl+K) modal shell.
+
+   Server returns this fragment via HTMX swap into #cmdk-mount when
+   the user presses ⌘K / Ctrl+K (binding lives in base.html).
+
+   Contract for the JS side (also in base.html):
+     * Root element is ``.cmdk-overlay`` — outside-click on it closes.
+     * ``.cmdk-panel`` is the focus-trap container.
+     * ``#cmdk-input`` autofocuses on mount.
+     * Items have ``data-cmdk-item`` and ``data-href``; the JS keeps
+       the up/down cursor on these and Enter navigates to data-href.
+     * Each list section has ``data-cmdk-section`` for grouping.
+
+   Refreshing the results list:
+     * Input ``hx-get="/dashboard/cmdk/results"`` with debounced
+       ``hx-trigger="input changed delay:120ms, keyup[key=='Backspace'] delay:120ms"``
+     * Swap target ``#cmdk-results``.
+
+   RBAC: ``can_submit`` from context. Viewers see navigation +
+   recent sessions but the "Quick action: New session" entry is
+   omitted (NOT disabled — cmdk should only surface actions the user
+   can actually take).
+#}
+<div class="cmdk-overlay" id="cmdk-overlay"
+     role="presentation"
+     data-cmdk-open="true">
+    <div class="cmdk-panel" role="dialog" aria-modal="true"
+         aria-labelledby="cmdk-title">
+        <h2 id="cmdk-title" class="sr-only">Command palette</h2>
+
+        <div class="cmdk-input-row">
+            <span class="cmdk-leading" aria-hidden="true">⌘</span>
+            <input id="cmdk-input"
+                   type="search"
+                   autocomplete="off"
+                   spellcheck="false"
+                   class="cmdk-input"
+                   placeholder="Jump to a session, page, or action…"
+                   aria-label="Command palette search"
+                   aria-controls="cmdk-results"
+                   hx-get="/dashboard/cmdk/results"
+                   hx-trigger="input changed delay:120ms, keyup[key=='Backspace'] delay:120ms"
+                   hx-target="#cmdk-results"
+                   hx-swap="innerHTML"
+                   name="q" />
+            <kbd class="cmdk-hint" aria-hidden="true">Esc</kbd>
+        </div>
+
+        <div id="cmdk-results" class="cmdk-results"
+             role="listbox"
+             aria-label="Command results">
+            {% include "_cmdk_results.html" %}
+        </div>
+
+        <div class="cmdk-footer">
+            <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+            <span><kbd>↵</kbd> open</span>
+            <span><kbd>Esc</kbd> close</span>
+        </div>
+    </div>
+</div>

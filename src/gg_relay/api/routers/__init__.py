@@ -11,6 +11,12 @@ from gg_relay.api.routers.hitl import router as hitl_router
 from gg_relay.api.routers.metrics import metrics_router
 from gg_relay.api.routers.sessions import router as sessions_router
 from gg_relay.api.routers.templates import router as templates_router
+from gg_relay.api.routers.user_credentials import (
+    admin_router as user_credentials_admin_router,
+)
+from gg_relay.api.routers.user_credentials import (
+    me_router as user_credentials_me_router,
+)
 
 __all__ = [
     "admin_drain_router",
@@ -25,4 +31,6 @@ __all__ = [
     "metrics_router",
     "sessions_router",
     "templates_router",
+    "user_credentials_admin_router",
+    "user_credentials_me_router",
 ]

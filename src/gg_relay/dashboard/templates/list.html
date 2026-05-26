@@ -1,12 +1,24 @@
 {% extends "base.html" %}
+{% from "_new_session_cta.html" import cta with context %}
 {% block title %}Sessions list · gg-relay{% endblock %}
+{% set active_nav = 'list' %}
 {% block content %}
+{% set _role = dashboard_role(request) %}
+{% set _can_submit = _role in ('submitter', 'admin') %}
 <div class="list-page">
-  <h2>Sessions</h2>
-  <p class="muted">
-    Table view with cursor pagination. Scroll to load more — filters
-    are server-side and the URL stays shareable.
-  </p>
+  <div class="page-header">
+    <div>
+      <h2>Sessions</h2>
+      <p class="muted" style="margin:4px 0 0">
+        Table view with cursor pagination. Scroll to load more — filters
+        are server-side and the URL stays shareable.
+      </p>
+    </div>
+    <div class="page-actions">
+      {{ cta('page', _can_submit) }}
+      <a href="/dashboard/kanban" class="btn-ghost">Switch to kanban</a>
+    </div>
+  </div>
 
   {# Plan 8 Task 15: filter form points at the list endpoint so
      Filter/Clear stay on the same view. #}

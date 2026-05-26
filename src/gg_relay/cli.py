@@ -408,6 +408,91 @@ def version() -> None:
         typer.echo("0.1.0")
 
 
+@app.command(name="generate-encryption-key")
+def generate_encryption_key() -> None:
+    """Print a fresh Fernet key for ``RELAY_CREDENTIALS_ENCRYPTION_KEY``.
+
+    Output is a single line — the 44-char url-safe base64 string the
+    operator pastes into their secrets manager / env var. The key is
+    NOT persisted by this command; capture it immediately.
+
+    Equivalent one-liner::
+
+        python -c "from cryptography.fernet import Fernet; \\
+            print(Fernet.generate_key().decode())"
+
+    This subcommand exists purely to remove the friction (and to give
+    the docs a stable, no-import-required reference). Plan v3 §B.2.
+    """
+    from cryptography.fernet import Fernet
+
+    typer.echo(Fernet.generate_key().decode("utf-8"))
+
+
+@app.command(name="list-bricked-credentials")
+def list_bricked_credentials() -> None:
+    """List ``user_credentials`` rows that no longer decrypt with the
+    current ``RELAY_CREDENTIALS_ENCRYPTION_KEY``.
+
+    A "bricked" row is one whose ``key_fingerprint`` does not match
+    the fingerprint of the currently-configured encryption key — that
+    is, a row encrypted with a previously-rotated key. The store
+    skips these rows at runtime (so a single bricked row never
+    poisons a working submit) but the operator usually wants to
+    surface them so the affected users can re-enter the value.
+
+    Output format (one row per line, machine-friendly TSV)::
+
+        <user_label>\\t<env_name>\\t<row_fingerprint>\\t<updated_at>
+
+    Exits non-zero when the feature is disabled (no encryption key
+    set) — distinguishes "no creds at all" from "no bricked creds".
+    Plan v3 §B.2.
+    """
+    import asyncio
+
+    from gg_relay.store import make_async_engine
+    from gg_relay.store.user_credentials import (
+        UserCredentialsStore,
+        build_fernet_from_key,
+    )
+
+    cfg = _load_config()
+    raw_key = (
+        cfg.credentials_encryption_key.get_secret_value()
+        if cfg.credentials_encryption_key is not None
+        else None
+    )
+    fernet, fingerprint = build_fernet_from_key(raw_key)
+    if fernet is None:
+        typer.echo(
+            "RELAY_CREDENTIALS_ENCRYPTION_KEY is unset — cannot identify "
+            "bricked rows without a current key.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    async def _do() -> None:
+        eng = make_async_engine(cfg.database_url)
+        try:
+            store = UserCredentialsStore(
+                eng, fernet=fernet, key_fingerprint=fingerprint
+            )
+            rows = await store.list_bricked()
+            if not rows:
+                typer.echo("(no bricked credentials)")
+                return
+            for row in rows:
+                typer.echo(
+                    f"{row['user_label']}\t{row['env_name']}\t"
+                    f"{row['key_fingerprint']}\t{row['updated_at']}"
+                )
+        finally:
+            await eng.dispose()
+
+    asyncio.run(_do())
+
+
 def main(args: list[str] | None = None) -> int:
     """Entry-point for ``python -m gg_relay.cli`` and tests.
 

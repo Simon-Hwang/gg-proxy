@@ -27,7 +27,7 @@ import logging
 import random
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -179,6 +179,80 @@ class ResumeQueueTimeout(RuntimeError):
 _RETRY_JITTER_MAX_S = 0.05
 
 
+# Plan v5 §2.2 — multi-tenant credential enforcement primitives.
+
+def _credential_bundle_is_complete(
+    creds: Mapping[str, str],
+) -> bool:
+    """Returns ``True`` iff ``creds`` contains a complete Anthropic
+    direct/proxy auth bundle.
+
+    v5 scope (Anthropic-direct ONLY — Bedrock/Vertex deferred):
+
+      * ``ANTHROPIC_API_KEY`` non-empty,  OR
+      * ``ANTHROPIC_AUTH_TOKEN`` non-empty.
+
+    ``ANTHROPIC_BASE_URL`` alone does NOT satisfy — it is a proxy
+    URL, not authentication. Reviewers H+J+K (Santa rounds 2-3)
+    pinned the regression net: empty creds dict + base-url-only
+    would have let a non-admin pass strict mode while the SDK still
+    inherited operator's ``ANTHROPIC_API_KEY`` from ``os.environ``,
+    routing operator credentials to attacker infrastructure.
+
+    Empty / whitespace-only / non-str values count as absent. The
+    ``isinstance(value, str)`` guard tolerates in-process callers
+    that bypass pydantic with a non-str value (e.g. ``None`` from
+    a mis-typed test fixture).
+    """
+    for key in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        value = creds.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+    return False
+
+
+class MissingCredentialsError(Exception):
+    """Plan v5 §2.2 — strict mode rejected a non-admin session
+    lacking a complete Anthropic auth bundle. API translates to
+    ``HTTP 400 missing_credentials``.
+
+    Distinct from :class:`CredentialsLookupUnavailable` so the API
+    layer can pick the correct status code AND audit action.
+    """
+
+    def __init__(
+        self,
+        *,
+        actor_label: str | None,
+        actor_role: str | None,
+    ) -> None:
+        self.actor_label = actor_label
+        self.actor_role = actor_role
+        super().__init__(
+            "non-admin actor requires per-user credentials "
+            "(ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN); "
+            "operator enabled RELAY_REQUIRE_PER_USER_CREDENTIALS"
+        )
+
+
+class CredentialsLookupUnavailable(Exception):
+    """Plan v5 §2.2 — strict mode hit a transient credentials-store
+    failure. API translates to ``HTTP 503 credential_lookup_unavailable``
+    with ``Retry-After: 5``.
+
+    NOT user-attributable; operator/infra problem. Soft-mode
+    behaviour is unchanged (legacy silent ``db_creds={}`` + WARN);
+    only strict mode escalates to this exception.
+    """
+
+    def __init__(self, *, actor_label: str | None) -> None:
+        self.actor_label = actor_label
+        super().__init__(
+            "user_credentials store lookup failed; refusing "
+            "fallback under strict mode"
+        )
+
+
 class SessionManager:
     """Process-wide orchestrator for SessionSpec submissions.
 
@@ -206,6 +280,8 @@ class SessionManager:
         max_paused_per_api_key: int = 20,
         resume_timeout_s: float = 60.0,
         audit_service: Any = None,
+        user_credentials_store: Any = None,
+        require_per_user_credentials: bool = False,
     ) -> None:
         self._executor_factory = executor_factory
         self._assembler = assembler
@@ -223,6 +299,21 @@ class SessionManager:
         # the explicit audit hooks below skip silently — the fallback
         # middleware still picks up the mutation in the API path.
         self._audit = audit_service
+        # Plan v3 §B.6 — per-user upstream credentials store. Optional so
+        # legacy in-process callers (existing unit tests, programmatic
+        # clients) keep working without DB-backed credentials. When set
+        # AND the caller passes ``actor_label`` to ``submit``, the
+        # manager merges the user's stored credentials into
+        # ``runtime_ctx.credentials`` before the executor sees them.
+        # Caller-supplied body credentials WIN over DB rows (see
+        # ``submit`` for the precise merge rule).
+        self._user_credentials_store = user_credentials_store
+        # Plan v5 §2.2 — strict-mode flag. When True AND
+        # actor_role != "admin", ``submit`` rejects sessions whose
+        # merged credentials fail :func:`_credential_bundle_is_complete`.
+        # Independent of this flag, a WARN log fires on every fallback
+        # (admin + non-admin) so operators can detect drift.
+        self._require_per_user_credentials = require_per_user_credentials
         self._sem = asyncio.Semaphore(max_concurrent)
         self._max_concurrent = max_concurrent
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
@@ -272,6 +363,8 @@ class SessionManager:
         runtime_ctx: SessionRuntimeContext = _DEFAULT_RUNTIME_CTX,
         api_key_id: str | None = None,
         owner: str | None = None,
+        actor_label: str | None = None,
+        actor_role: str | None = None,
         description: str | None = None,
         parent_session_id: str | None = None,
     ) -> str:
@@ -301,9 +394,90 @@ class SessionManager:
         verbatim to :meth:`SessionStore.create_session`; ``None``
         leaves the column NULL (top-level submission). Set by
         :meth:`retry`; client-facing endpoints do not accept it.
+
+        Plan v3 §B.6 — ``actor_label`` is the AUTHENTICATED identity of
+        the submitter (router resolves it from
+        ``request.state.api_key_label``). Distinct from ``owner``,
+        which is the spoofable Plan 7 D7.26 "attribution" override
+        (any submitter may set it). The manager keys per-user
+        DB-stored credentials off ``actor_label`` — keying off
+        ``owner`` would let Bob set ``owner='alice'`` and run his
+        session with alice's stored ``ANTHROPIC_API_KEY``. Test
+        ``test_actor_owner_decoupling_prevents_credential_borrowing``
+        in ``tests/integration/test_manager_credentials_merge.py``
+        pins this exact regression net.
         """
         if not self._accepting_new:
             raise RuntimeError("SessionManager is shutting down; refusing new submit")
+
+        # Plan v3 §B.6 — merge per-user DB credentials BEFORE persistence.
+        # Keyed by actor_label (unforgeable), not owner (spoofable).
+        # API body credentials WIN over DB rows so:
+        #   1. programmatic clients (CI) can override from outside the
+        #      dashboard,
+        #   2. incident-response operators can hot-swap a key in the
+        #      API body without touching the DB.
+        # Empty body credentials (the default `{}` from the API schema)
+        # leave DB rows intact via the dict-spread no-op.
+        if (
+            self._user_credentials_store is not None
+            and actor_label
+        ):
+            try:
+                db_creds = await self._user_credentials_store.get_for_user(
+                    actor_label
+                )
+            except Exception as exc:
+                # Plan v5 §2.2.4 — under STRICT mode escalate to a
+                # distinct error class so the API returns 503 (operator
+                # /infra) rather than 400 (mis-attributing to user).
+                # Soft mode preserves the legacy silently-empty behaviour.
+                logger.warning(
+                    "user_credentials lookup failed for actor=%s; "
+                    "submit proceeds with body credentials only",
+                    actor_label,
+                    exc_info=True,
+                )
+                if self._require_per_user_credentials:
+                    raise CredentialsLookupUnavailable(
+                        actor_label=actor_label
+                    ) from exc
+                db_creds = {}
+            if db_creds:
+                merged = {**db_creds, **runtime_ctx.credentials}
+                runtime_ctx = replace(runtime_ctx, credentials=merged)
+
+        # Plan v5 §2.2.4 — bundle-based enforcement with
+        # provider-agnostic dual WARN. Fires on EVERY fallback (admin
+        # + non-admin) for audit; only REJECTS non-admin under strict
+        # mode. Bedrock/Vertex deployments leave strict mode off
+        # (CLAUDE_CODE_USE_BEDROCK / _VERTEX not in upload allowlist).
+        if not _credential_bundle_is_complete(runtime_ctx.credentials):
+            if actor_role == "admin":
+                logger.warning(
+                    "admin actor=%r submitted session with no complete "
+                    "Anthropic auth bundle in merged credentials "
+                    "(ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN). "
+                    "Session will inherit host env via SDK subprocess.",
+                    actor_label,
+                )
+            else:
+                logger.warning(
+                    "non-admin actor=%r role=%r submitted session with "
+                    "no complete Anthropic auth bundle in merged "
+                    "credentials (ANTHROPIC_API_KEY / "
+                    "ANTHROPIC_AUTH_TOKEN). Configure via "
+                    "/dashboard/me/credentials or set "
+                    "RELAY_REQUIRE_PER_USER_CREDENTIALS=true to "
+                    "reject. Bedrock/Vertex: leave strict mode off.",
+                    actor_label,
+                    actor_role,
+                )
+                if self._require_per_user_credentials:
+                    raise MissingCredentialsError(
+                        actor_label=actor_label,
+                        actor_role=actor_role,
+                    )
 
         sid = uuid.uuid4().hex
         spec_redacted = self._redactor.redact_dict(spec.to_json_safe())
@@ -429,26 +603,43 @@ class SessionManager:
         )
 
     async def retry(
-        self, sid: str, *, actor: str | None = None
+        self,
+        sid: str,
+        *,
+        actor: str | None = None,
+        actor_role: str | None = None,
     ) -> str:
         """Submit a fresh session reusing the original's spec, return its id.
 
         Plan 8 D8.6 / Task 9. Reads ``sessions.spec_json`` for ``sid``,
-        rebuilds a :class:`SessionSpec` (credentials are NOT persisted,
-        so the new submission runs without them — the executor must
-        either be ``inprocess`` or accept its credentials elsewhere)
-        and forwards to :meth:`submit` with ``parent_session_id=sid``.
-        The retry chain therefore lives entirely in the
-        ``sessions.parent_session_id`` column; no separate "retry"
+        rebuilds a :class:`SessionSpec` (credentials are NOT persisted
+        in spec_json) and forwards to :meth:`submit` with
+        ``parent_session_id=sid``. The retry chain lives entirely in
+        the ``sessions.parent_session_id`` column; no separate "retry"
         table is needed.
 
-        ``actor`` (the API key label of the user requesting the retry)
-        is used for both the ``owner`` of the new session AND the
-        audit row's actor. When ``actor`` is ``None`` we fall back to
-        the original session's owner so an admin's batch retry of
-        someone else's session keeps the original attribution. The
-        audit row records ``parent_session_id`` in metadata so the
-        dashboard's audit timeline can render the retry edge.
+        Plan v3 §B.6.2.bis — credentials for the new submission come
+        from THE RETRIER, not from the original submitter:
+
+          * ``actor`` is the API key label of the user requesting the
+            retry. We forward it as ``actor_label=actor`` into the
+            inner :meth:`submit` call so the manager's per-user
+            credentials merge keys off the retrier's identity.
+          * Bob retrying alice's session therefore runs with bob's
+            stored ``ANTHROPIC_API_KEY`` (or the host's shell env if
+            bob has none), NEVER with alice's stored credentials.
+            Closes the v2-Santa-reviewer credential-impersonation
+            gap that a naive forward would have left open.
+          * When ``actor`` is ``None`` (e.g. fully in-process retry
+            from a test fixture) no merge happens — the new session
+            runs with whatever credentials the host process has.
+
+        ``actor`` is also used for the ``owner`` of the new session
+        AND the audit row's actor. When ``None`` we fall back to the
+        original session's owner so an admin's batch retry of someone
+        else's session keeps the original attribution. The audit row
+        records ``parent_session_id`` in metadata so the dashboard's
+        audit timeline can render the retry edge.
 
         Raises:
             :class:`SessionNotFound` — ``sid`` does not exist.
@@ -490,6 +681,10 @@ class SessionManager:
                 extra_env=tuple(
                     (k, v) for k, v in (plugins_data.get("extra_env") or [])
                 ),
+                pre_run_cmds=tuple(
+                    tuple(cmd)
+                    for cmd in (plugins_data.get("pre_run_cmds") or [])
+                ),
             )
         except ValueError as exc:
             from gg_relay.core import RetryConfigError
@@ -515,6 +710,8 @@ class SessionManager:
         new_sid = await self.submit(
             retry_spec,
             owner=owner,
+            actor_label=actor,
+            actor_role=actor_role,
             description=new_description,
             parent_session_id=sid,
         )
@@ -893,7 +1090,9 @@ class SessionManager:
                 )
             )
             install_report = await self._prepare_plugins(sid, spec)
-            handle = await self._start_executor(sid, spec, runtime_ctx, policy)
+            handle = await self._start_executor(
+                sid, spec, runtime_ctx, policy, install_report=install_report
+            )
             try:
                 try:
                     await self._update_status_locked(
@@ -1086,6 +1285,7 @@ class SessionManager:
         spec: SessionSpec,
         runtime_ctx: SessionRuntimeContext,
         policy: ToolPolicy,
+        install_report: InstallReport | None = None,
     ) -> RuntimeHandle:
         # Per-session control channel for pause/resume (Plan 6 D6.11).
         # Threaded into the executor factory as a kwarg so production
@@ -1108,6 +1308,7 @@ class SessionManager:
                 sid,
                 control_channel=channel,
                 runtime_ctx=runtime_ctx,
+                install_report=install_report,
             )
         except TypeError:
             try:
@@ -1159,7 +1360,29 @@ class SessionManager:
                 await self._persist_frames(sid, bridge.frames)
         else:
             await self._drain_inprocess_transport(sid, handle.transport)
-        del install_report  # currently unused; reserved for Plan 4+ persistence
+            # Plan 9 follow-up — surface runner-task exceptions. Pre-fix
+            # the in-process executor swallowed all runner failures
+            # inside its task wrapper (asyncio's "Task exception was
+            # never retrieved" log), so any crash that wasn't a
+            # timeout / cancel / plugin-install failure silently
+            # landed as ``status=completed``. The most visible
+            # symptom was the SDK runtime guards
+            # (:class:`SDKPermissionError` from
+            # :mod:`gg_relay.session.client`) being invisible — a
+            # synthetic upstream auth-failure "completion" looked
+            # exactly like a successful session in the dashboard.
+            # ``InProcessExecutor.start`` now exposes the task via
+            # ``handle.extra``; we read it here so manager's
+            # ``except Exception`` path classifies the failure into
+            # the typed SDK error taxonomy and writes ``failed`` +
+            # the right ``end_reason``.
+            extras = dict(handle.extra or ())
+            runner_task = extras.get("runner_task")
+            if isinstance(runner_task, asyncio.Task) and runner_task.done():
+                exc = runner_task.exception()
+                if exc is not None:
+                    raise exc
+        del install_report  # consumed upstream in _start_executor → make_sdk_runner
 
     # ── pause/resume helpers ─────────────────────────────────────────
 

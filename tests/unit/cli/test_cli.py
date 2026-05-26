@@ -58,8 +58,14 @@ class TestCheckSecrets:
         assert result.exit_code == 0, result.output
         assert "OK" in result.output
 
-    def test_fails_with_missing(self, runner: CliRunner, monkeypatch):
-        # Clear everything
+    def test_fails_with_missing(
+        self, runner: CliRunner, monkeypatch, tmp_path: Path
+    ):
+        # Hermetic: chdir into an empty tmp dir so pydantic-settings'
+        # ``env_file=".env"`` discovery doesn't pick up the developer's
+        # local repo-root .env file and silently re-supply the secrets
+        # we're about to delete from the process env.
+        monkeypatch.chdir(tmp_path)
         for k in (
             "RELAY_API_KEYS_RAW",
             "RELAY_PUBLIC_BASE_URL",

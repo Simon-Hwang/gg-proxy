@@ -24,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     String,
     Table,
@@ -474,4 +475,47 @@ dashboard_internal_keys = Table(
         "length(raw_key) = 43",
         name="ck_dashboard_internal_keys_raw_key_length",
     ),
+)
+
+# ── Plan v3 §B (Alembic 0013): per-user upstream credentials ─────────
+# Backs ``/dashboard/me/credentials`` and ``/dashboard/admin/credentials``
+# self-service for ANTHROPIC_API_KEY / AWS_ACCESS_KEY_ID / etc. Each
+# row holds ONE env var ciphertext for ONE user_label. See
+# ``store/migrations/versions/0013_user_credentials.py`` for the
+# encryption + RBAC rationale and ``store/user_credentials.py`` for
+# the access layer (Fernet decrypt + key-fingerprint mismatch
+# graceful skip).
+#
+# ``user_label`` matches ``api_keys.label`` (cookie + bearer auth both
+# converge on this identity per Plan 8 D8.25). Intentionally NO FK to
+# ``api_keys`` — an admin may pre-provision a credential before the
+# operator's api key is minted, and revoking the api key should NOT
+# cascade-delete the stored cred (the operator may simply rotate the
+# api key while keeping the same upstream credentials).
+#
+# Constraints + indexes:
+#   * ``uq_user_credentials_label_env`` — one row per (user, env_name)
+#     pair. Makes ``PUT`` semantics a natural UPSERT.
+#   * ``ix_user_credentials_user_label`` — equality scan for the
+#     submit-time ``get_for_user(label)`` lookup. PK-index seek is
+#     the dominant cost on the submit hot path; verified <2ms
+#     latency budget in Plan v3 §B.6.4.
+user_credentials = Table(
+    "user_credentials",
+    metadata,
+    Column("id", Integer, primary_key=True, autoincrement=True),
+    Column("user_label", String(64), nullable=False),
+    Column("env_name", String(64), nullable=False),
+    Column("value_encrypted", LargeBinary, nullable=False),
+    Column("key_fingerprint", String(16), nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    Column("created_by_label", String(64), nullable=False),
+    Column("notes", String(512), nullable=True),
+    UniqueConstraint(
+        "user_label",
+        "env_name",
+        name="uq_user_credentials_label_env",
+    ),
+    Index("ix_user_credentials_user_label", "user_label"),
 )

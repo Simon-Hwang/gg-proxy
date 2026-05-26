@@ -1,0 +1,248 @@
+{% extends "base.html" %}
+{% from "_new_session_cta.html" import cta with context %}
+{% block title %}Overview · gg-relay{% endblock %}
+{% block content %}
+{% set _role = dashboard_role(request) %}
+{% set _can_submit = _role in ('submitter', 'admin') %}
+<section class="overview-page">
+    <div class="page-header">
+        <div>
+            <h2>Overview</h2>
+            <div class="page-sub">Operator dashboard — live activity, 24h spend, recent sessions.</div>
+        </div>
+        <div class="page-actions">
+            {{ cta('page', _can_submit) }}
+            <a href="/dashboard/kanban" class="btn-ghost">Open Kanban</a>
+        </div>
+    </div>
+
+    <div class="kpi-grid">
+        <div class="kpi-card kpi-accent">
+            <span class="kpi-label">Live sessions</span>
+            <span class="kpi-value">{{ kpis.live }}</span>
+            <span class="kpi-meta">queued + running + paused</span>
+        </div>
+        <div class="kpi-card">
+            <span class="kpi-label">Sessions (recent)</span>
+            <span class="kpi-value">{{ kpis.total }}</span>
+            <span class="kpi-meta">last 200 in the queue</span>
+        </div>
+        <div class="kpi-card kpi-success">
+            <span class="kpi-label">Tokens · 24h</span>
+            <span class="kpi-value">{{ "{:,}".format(kpis.tokens) }}</span>
+            <span class="kpi-meta">in {{ "{:,}".format(kpis.input_tokens) }} · out {{ "{:,}".format(kpis.output_tokens) }}</span>
+        </div>
+        <div class="kpi-card kpi-warn">
+            <span class="kpi-label">Cost · 24h (USD)</span>
+            <span class="kpi-value">${{ "%.4f"|format(kpis.cost_usd) }}</span>
+            <span class="kpi-meta">{{ kpis.bucket_sessions }} aggregated sessions</span>
+        </div>
+    </div>
+
+    <div class="overview-grid">
+        <section class="surface-card" aria-label="24h tokens & cost trend">
+            <div class="surface-header">
+                <h3>Tokens &amp; cost · last 24h</h3>
+                <span class="surface-sub">hourly buckets · same data feed as kanban chart</span>
+            </div>
+            {# C2 — responsive chart container. Chart.js needs a
+               positioned parent with explicit height so responsive:true
+               works correctly; without the wrapper the canvas
+               overflows the surface card on screens < 1024 px. #}
+            <div class="chart-container">
+                <canvas id="overview-chart"></canvas>
+            </div>
+            {% if kpis.bucket_sessions == 0 %}
+            <p class="muted" style="margin-top:12px">
+                No session.end frames in the last 24h — submit a session to start populating the trend.
+            </p>
+            {% endif %}
+        </section>
+
+        <section class="surface-card" aria-label="Status distribution">
+            <div class="surface-header">
+                <h3>Status mix</h3>
+                <a href="/dashboard/kanban" class="surface-sub" style="text-decoration:none">View kanban →</a>
+            </div>
+            {# C1 — donut chart + accessible numeric legend.
+               The chart is the visual, the legend is the source of
+               truth for screen readers (canvas is non-textual).
+               Total session count is the donut center text. #}
+            <div class="status-mix-wrap">
+                <div class="chart-container chart-container--donut">
+                    <canvas id="status-mix-chart"
+                            role="img"
+                            aria-label="Session status distribution donut chart"></canvas>
+                    <div class="donut-center" aria-hidden="true">
+                        <span class="donut-center-num">{{
+                            status_mix['queued']
+                            + status_mix['running']
+                            + status_mix['paused']
+                            + status_mix['completed']
+                            + status_mix['failed']
+                            + status_mix['cancelled']
+                        }}</span>
+                        <span class="donut-center-label">total</span>
+                    </div>
+                </div>
+                <div class="status-distribution">
+                    {% for key, label in [
+                        ('queued', 'Queued'),
+                        ('running', 'Running'),
+                        ('paused', 'Paused'),
+                        ('completed', 'Completed'),
+                        ('failed', 'Failed'),
+                        ('cancelled', 'Cancelled'),
+                    ] %}
+                    <div class="status-cell dot-{{ key }}">
+                        <span class="status-name"><span class="dot"></span>{{ label }}</span>
+                        <span class="status-num">{{ status_mix[key] }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <section class="surface-card" aria-label="Recent sessions">
+        <div class="surface-header">
+            <h3>Recent sessions</h3>
+            <a href="/dashboard/list" class="surface-sub" style="text-decoration:none">View all →</a>
+        </div>
+        {% if recent_rows %}
+        <table class="recent-table">
+            <thead>
+                <tr>
+                    <th>Submitted</th>
+                    <th>ID</th>
+                    <th>Owner</th>
+                    <th>Status</th>
+                    <th>Tags</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in recent_rows %}
+                <tr>
+                    <td>{{ r.submitted_at }}</td>
+                    <td><a href="/dashboard/sessions/{{ r.id }}"><code>{{ r.id[:8] }}</code></a></td>
+                    <td>
+                        {% if r.owner %}
+                        <span class="owner-badge" style="background-color: {{ r.owner | owner_color }}" title="{{ r.owner }}">{{ r.owner[:8] }}</span>
+                        {% else %}
+                        <span class="muted">—</span>
+                        {% endif %}
+                    </td>
+                    <td><span class="status-badge status-{{ r.status }}">{{ r.status }}</span></td>
+                    <td>{% for t in r.tags %}<span class="tag">{{ t }}</span>{% endfor %}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-title">No sessions yet</div>
+            <div>Get started by submitting your first session.</div>
+            <div class="empty-actions">
+                {{ cta('page', _can_submit) }}
+                {% if _can_submit %}
+                <a href="/dashboard/templates" class="btn-ghost">Browse templates</a>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </section>
+</section>
+
+{% if chart_js_offline %}
+<script src="{{ chart_js_cdn }}"></script>
+{% else %}
+<script src="{{ chart_js_cdn or 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js' }}"></script>
+{% endif %}
+<script>
+(function () {
+    if (typeof Chart === 'undefined') { return; }
+
+    // C2 — Tokens & cost trend (responsive, fills surface card).
+    var trendCanvas = document.getElementById('overview-chart');
+    var trendChart = null;
+    function refreshTrend() {
+        if (!trendCanvas) { return; }
+        fetch('/dashboard/kanban/chart?window_s=86400&bucket_s=3600', { credentials: 'same-origin' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (data) {
+                if (!data) { return; }
+                if (trendChart) { trendChart.data = data; trendChart.update('none'); return; }
+                trendChart = new Chart(trendCanvas, {
+                    type: 'line',
+                    data: data,
+                    options: {
+                        // Responsive + maintainAspectRatio:false lets
+                        // the chart fill the .chart-container parent
+                        // height across viewports — fixes the
+                        // ≤1024 px horizontal overflow (C2).
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } },
+                        elements: { point: { radius: 2 }, line: { tension: 0.25 } }
+                    }
+                });
+            })
+            .catch(function () { /* chart is non-critical */ });
+    }
+    refreshTrend();
+
+    // C1 — Status mix donut (data is rendered server-side as
+    // span.status-num so we don't fetch — read straight from the DOM
+    // legend cells; that keeps a11y + JS in sync with one source).
+    var donut = document.getElementById('status-mix-chart');
+    if (donut) {
+        var cells = document.querySelectorAll('.status-distribution .status-cell');
+        var labels = [], values = [], colors = [];
+        // Match dot-<key> CSS class colors; resolved via getComputedStyle
+        // so the donut respects light/dark theme tokens automatically.
+        cells.forEach(function (cell) {
+            var nameEl = cell.querySelector('.status-name');
+            var numEl = cell.querySelector('.status-num');
+            var dotEl = cell.querySelector('.dot');
+            if (!nameEl || !numEl) return;
+            // status-name has a leading <span class="dot"> child;
+            // grab the trailing text node for the label
+            var label = (nameEl.textContent || '').trim();
+            var value = parseInt((numEl.textContent || '0').trim(), 10) || 0;
+            var color = dotEl
+                ? window.getComputedStyle(dotEl).backgroundColor
+                : '#888';
+            labels.push(label);
+            values.push(value);
+            colors.push(color);
+        });
+        var hasAny = values.some(function (v) { return v > 0; });
+        new Chart(donut, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: hasAny ? values : [1],
+                    backgroundColor: hasAny ? colors : ['rgba(136,136,136,0.25)'],
+                    borderWidth: 0,
+                    hoverOffset: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '68%',
+                plugins: {
+                    // Legend lives in the .status-distribution cells
+                    // alongside, so the canvas legend is suppressed
+                    // to avoid duplication (and to keep canvas
+                    // contents non-textual for SR fallback).
+                    legend: { display: false },
+                    tooltip: { enabled: hasAny }
+                }
+            }
+        });
+    }
+})();
+</script>
+{% endblock %}

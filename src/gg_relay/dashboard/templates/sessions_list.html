@@ -1,8 +1,19 @@
 {% extends "base.html" %}
+{% from "_new_session_cta.html" import cta with context %}
 {% block title %}Sessions · gg-relay{% endblock %}
+{% set active_nav = 'sessions' %}
 {% block content %}
-<h2>Sessions</h2>
-<p class="muted">Auto-refreshes every 5s.</p>
+{% set _role = dashboard_role(request) %}
+{% set _can_submit = _role in ('submitter', 'admin') %}
+<div class="page-header">
+    <div>
+        <h2>Sessions</h2>
+        <p class="muted" style="margin:4px 0 0">Auto-refreshes every 5s.</p>
+    </div>
+    <div class="page-actions">
+        {{ cta('page', _can_submit) }}
+    </div>
+</div>
 <table class="sessions" hx-get="/dashboard/sessions" hx-trigger="every 5s" hx-target="closest table" hx-swap="outerHTML">
     <thead>
         <tr>

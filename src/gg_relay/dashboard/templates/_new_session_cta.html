@@ -1,0 +1,55 @@
+{# Shared "+ New session" CTA — eliminates 8 duplicated CTA blocks
+   across the sidebar (cta-primary variant) and 7 page headers
+   (btn-cta variant).
+
+   RBAC-aware: when ``can_submit`` is false, the affordance renders
+   as a non-interactive disabled span (NOT a hidden element) so
+   viewers understand why the create flow is unavailable instead of
+   getting a 401 after clicking.
+
+   ⚠ Pinned HTML contract (see test_dashboard_cta_partials.py):
+
+   sidebar + enabled  →  '<a href="/dashboard/new" class="cta-primary" '
+   sidebar + disabled →  '<span class="cta-primary cta-disabled" aria-disabled="true"'
+   page    + enabled  →  '<a href="/dashboard/new" class="btn-cta" '
+   page    + disabled →  '<span class="btn-cta disabled" aria-disabled="true"'
+
+   Do not change class names, attribute order, or title text without
+   updating the partials test. Existing dashboard regression tests
+   (test_dashboard_legacy_admin_role.py / test_dashboard_rbac_views.py
+   etc) also assert on substrings of the above.
+
+   We intentionally use ``{%- -%}`` to strip the Jinja2 control-flow
+   whitespace so the rendered HTML matches the pre-refactor inline
+   form byte-for-byte (no extra blank lines).
+
+   Why not ``{% include %}``: macros let one file return two distinct
+   HTML shapes from one call signature. ``with context`` at the import
+   site keeps ``request`` available if a future iteration needs it.
+#}
+
+{%- macro cta(variant, can_submit) -%}
+{%- if variant == 'sidebar' -%}
+{%- if can_submit -%}
+<a href="/dashboard/new" class="cta-primary" title="Create a new session">
+            <span aria-hidden="true">+</span> New session
+        </a>
+{%- else -%}
+<span class="cta-primary cta-disabled" aria-disabled="true"
+              title="Read-only role — submitter or admin needed to create a session">
+            <span aria-hidden="true">+</span> New session
+        </span>
+{%- endif -%}
+{%- else -%}
+{%- if can_submit -%}
+<a href="/dashboard/new" class="btn-cta" title="Create a new session">
+                <span aria-hidden="true">+</span> New session
+            </a>
+{%- else -%}
+<span class="btn-cta disabled" aria-disabled="true"
+                  title="Read-only role — submitter or admin needed to create a session">
+                <span aria-hidden="true">+</span> New session
+            </span>
+{%- endif -%}
+{%- endif -%}
+{%- endmacro -%}

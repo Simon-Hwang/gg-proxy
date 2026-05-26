@@ -170,6 +170,17 @@ async def _amain() -> int:
         await consume_task
 
     await transport.close()
+
+    # Surface unhandled runner exceptions (e.g. pre_run_cmd failures) as a
+    # non-zero exit code so DockerExecutor / k8s_job can map the container
+    # outcome to a failed session — without this the host bridge sees a
+    # clean disconnect and SessionManager records 'completed' even after a
+    # crash. Cancellation is still treated as graceful (exit 0).
+    if runner_task.done() and not runner_task.cancelled():
+        exc = runner_task.exception()
+        if exc is not None:
+            logger.error("wire_runner: runner task failed: %s", exc)
+            return 1
     return 0
 
 

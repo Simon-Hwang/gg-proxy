@@ -372,6 +372,34 @@
         "title": "CommentUpdate",
         "type": "object"
       },
+      "CredentialUpsert": {
+        "description": "PUT body for ``/me/credentials/{env_name}`` and\n``/admin/credentials/{user_label}/{env_name}``.\n\n``value`` is the plaintext upstream credential. It is encrypted\nat the store boundary and never logged.",
+        "properties": {
+          "notes": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "value": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "CredentialUpsert",
+        "type": "object"
+      },
       "FrameOut": {
         "properties": {
           "payload": {
@@ -614,6 +642,18 @@
               "type": "string"
             },
             "title": "Modules",
+            "type": "array"
+          },
+          "pre_run_cmds": {
+            "description": "Sequential argv commands executed inside the runner container before the SDK starts (e.g. git fetch / git worktree add). Each entry is an argv list (no shell). Docker executor only.",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "maxItems": 20,
+            "title": "Pre Run Cmds",
             "type": "array"
           },
           "profile": {
@@ -1457,6 +1497,161 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/admin/credentials": {
+      "get": {
+        "description": "Admin view: every row across every user (metadata only).",
+        "operationId": "list_all_credentials_api_v1_admin_credentials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List All Credentials Api V1 Admin Credentials Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List All Credentials",
+        "tags": [
+          "admin-credentials"
+        ]
+      }
+    },
+    "/api/v1/admin/credentials/bricked": {
+      "get": {
+        "description": "Admin view: rows whose fingerprint != current key fingerprint.",
+        "operationId": "list_bricked_credentials_api_v1_admin_credentials_bricked_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Bricked Credentials Api V1 Admin Credentials Bricked Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Bricked Credentials",
+        "tags": [
+          "admin-credentials"
+        ]
+      }
+    },
+    "/api/v1/admin/credentials/{user_label}/{env_name}": {
+      "delete": {
+        "description": "Admin override: delete any user's credential row.",
+        "operationId": "delete_user_credential_api_v1_admin_credentials__user_label___env_name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_label",
+            "required": true,
+            "schema": {
+              "title": "User Label",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env_name",
+            "required": true,
+            "schema": {
+              "title": "Env Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete User Credential",
+        "tags": [
+          "admin-credentials"
+        ]
+      },
+      "put": {
+        "description": "Admin override: create or overwrite ANY user's credential row.\n\n``env_name`` allowlist enforcement is IDENTICAL to the ``/me/``\npath \u2014 admin is not trusted to set ``PATH`` / ``LD_PRELOAD``.\nThe row's ``created_by_label`` reflects the admin's label so\nthe user can see that an admin touched the row (audit\ntransparency).",
+        "operationId": "upsert_user_credential_api_v1_admin_credentials__user_label___env_name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_label",
+            "required": true,
+            "schema": {
+              "title": "User Label",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "env_name",
+            "required": true,
+            "schema": {
+              "title": "Env Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upsert User Credential Api V1 Admin Credentials  User Label   Env Name  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert User Credential",
+        "tags": [
+          "admin-credentials"
+        ]
+      }
+    },
     "/api/v1/admin/drain": {
       "delete": {
         "description": "Cancel the drain \u2014 ``/readyz`` flips back to 200.\n\nUseful for operator-error recovery: an accidental drain\nPOST during a deploy can be reverted without restarting the\npod. Idempotent \u2014 second undrain is a no-op.",
@@ -2226,6 +2421,119 @@
         ]
       }
     },
+    "/api/v1/me/credentials": {
+      "get": {
+        "description": "List the calling user's stored credentials (metadata only).\n\nKeys off ``request.state.api_key_label``; viewer is rejected by\n:func:`require_role` (storing creds you can't use is meaningless).",
+        "operationId": "list_my_credentials_api_v1_me_credentials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List My Credentials Api V1 Me Credentials Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List My Credentials",
+        "tags": [
+          "me-credentials"
+        ]
+      }
+    },
+    "/api/v1/me/credentials/{env_name}": {
+      "delete": {
+        "description": "Idempotently delete the calling user's credential row.",
+        "operationId": "delete_my_credential_api_v1_me_credentials__env_name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "env_name",
+            "required": true,
+            "schema": {
+              "title": "Env Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete My Credential",
+        "tags": [
+          "me-credentials"
+        ]
+      },
+      "put": {
+        "description": "Create or overwrite the calling user's credential row.\n\n``env_name`` is validated against :data:`ALLOWED_ENV_NAMES`\nBEFORE the value reaches the store (Plan v3 \u00a7B.5). The response\nis metadata-only \u2014 the supplied value is never echoed back.",
+        "operationId": "upsert_my_credential_api_v1_me_credentials__env_name__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "env_name",
+            "required": true,
+            "schema": {
+              "title": "Env Name",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialUpsert"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Upsert My Credential Api V1 Me Credentials  Env Name  Put",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upsert My Credential",
+        "tags": [
+          "me-credentials"
+        ]
+      }
+    },
     "/api/v1/sessions": {
       "get": {
         "description": "List sessions newest-first with cursor pagination.\n\nPlan 7 D7.6 / Task 9. Pass ``after=<next_cursor>`` from a previous\nresponse to fetch the next page; ``limit`` is capped at 100 to keep\npage sizes bounded. The response body carries both the new\ncursor-shaped fields (``items`` + ``next_cursor``) and the\ndeprecated v0.6 fields (``sessions`` alias + ``total=-1`` sentinel)\nso existing clients keep working until 0.8.0.\n\nError mapping \u2014 body is a flat ``{\"detail\": msg, \"code\": ...}`` JSON\nobject (no nesting) so machine clients can dispatch on ``code``:\n  * 400 ``invalid_status``           \u2014 unknown ``status`` value\n  * 400 ``cursor_invalid``           \u2014 malformed ``after`` token\n  * 400 ``cursor_filter_mismatch``   \u2014 cursor was minted under a\n    different ``status`` / ``tag`` combination than the current\n    query (re-mint by dropping ``after`` and starting over)",
@@ -2320,7 +2628,7 @@
         ]
       },
       "post": {
-        "description": "Submit a new session.\n\nPlan 7 Task 6b / D7.26 \u2014 collaboration metadata flow:\n\n  1. ``owner`` resolution: ``body.owner`` (operator override) \u2192\n     ``request.state.api_key_label`` (auto-attribute from\n     API-key middleware) \u2192 ``\"anon\"`` (default for un-authed\n     test paths). The router does this collapse so the\n     :class:`SessionManager` never has to reach into Starlette\n     state \u2014 keeping the manager framework-agnostic.\n  2. ``description`` truncation: schema cap is 512 chars; we\n     apply a defensive in-place truncation on the response\n     path and emit ``X-Description-Truncated: true`` whenever\n     truncation actually happened.",
+        "description": "Submit a new session.\n\nPlan 7 Task 6b / D7.26 \u2014 collaboration metadata flow:\n\n  1. ``owner`` resolution: ``body.owner`` (operator override) \u2192\n     ``request.state.api_key_label`` (auto-attribute from\n     API-key middleware) \u2192 ``\"anon\"`` (default for un-authed\n     test paths). The router does this collapse so the\n     :class:`SessionManager` never has to reach into Starlette\n     state \u2014 keeping the manager framework-agnostic.\n  2. ``description`` truncation: schema cap is 512 chars; we\n     apply a defensive in-place truncation on the response\n     path and emit ``X-Description-Truncated: true`` whenever\n     truncation actually happened.\n\nPlan v5 \u00a72.4 \u2014 strict-mode + body-credentials allowlist:\n\n  * ``body.credentials`` keys are validated against\n    ``ALLOWED_ENV_NAMES`` BEFORE anything else (defence-in-\n    depth; runs regardless of strict mode).\n  * Resolved ``actor_role`` is forwarded to the manager so\n    :class:`MissingCredentialsError` / :class:`CredentialsLookupUnavailable`\n    can fire when strict mode is on. Both errors carry an\n    explicit audit row.",
         "operationId": "submit_session_api_v1_sessions_post",
         "requestBody": {
           "content": {
@@ -2341,7 +2649,10 @@
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "Session accepted"
+          },
+          "400": {
+            "description": "missing_credentials (strict mode) | unsupported_credential_key | other SDK errors"
           },
           "422": {
             "content": {
@@ -2352,6 +2663,9 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "description": "credential_lookup_unavailable \u2014 credentials store transient failure under strict mode"
           }
         },
         "summary": "Submit Session",
@@ -3521,6 +3835,132 @@
         ]
       }
     },
+    "/dashboard/admin/credentials": {
+      "get": {
+        "description": "Operator view of every user's credentials (Plan v3 \u00a7B.7).\n\nAdmin-only. Identity / role resolution mirrors\n:func:`admin_keys_page` so the legacy-admin \u2192 admin fallback in\n:func:`_dashboard_role` keeps working (don't regress the\nuser-reported 403 bug from Plan v3 prep).",
+        "operationId": "admin_credentials_page_dashboard_admin_credentials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Admin Credentials Page",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/admin/credentials/cell/mask": {
+      "get": {
+        "description": "HTMX fragment: return mask + Reveal button (the default cell\nstate). Used by the Hide button to roll back to the safe view\nwithout forcing a full page reload. NOT audited \u2014 this endpoint\nnever returns plaintext.",
+        "operationId": "admin_credentials_mask_cell_dashboard_admin_credentials_cell_mask_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user",
+            "required": true,
+            "schema": {
+              "title": "User",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "title": "Env",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Credentials Mask Cell",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/admin/credentials/cell/reveal": {
+      "get": {
+        "description": "HTMX fragment: return plaintext + Hide button for ONE row.\n\nPlan v3 \u00a7B.7 follow-up \u2014 every successful reveal writes one\n``user_credential_admin_reveal`` audit row before the response is\nrendered (metadata-only \u2014 never the plaintext). 4xx paths\nintentionally do NOT audit so failed admin probes don't pollute\nthe log; the dashboard's auth/role check upstream already gates\nwho can hit this endpoint at all.",
+        "operationId": "admin_credentials_reveal_cell_dashboard_admin_credentials_cell_reveal_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "user",
+            "required": true,
+            "schema": {
+              "title": "User",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "env",
+            "required": true,
+            "schema": {
+              "title": "Env",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Admin Credentials Reveal Cell",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/dashboard/admin/keys": {
       "get": {
         "description": "Admin api_key self-service page (Plan 8 D8.29 / Task 22).\n\nServer-side rendered list + inline create + revoke forms. The\nactual mutations call ``/api/v1/admin/keys`` (POST / DELETE) via\nHTMX so the API-side guards (self-revoke, last-admin,\n409 on duplicate label) drive the user-visible errors. The\npage itself is a read-only render of the current rows so a\nnon-admin cookie session that wanders in surfaces a clear\n\"Forbidden\" instead of seeing the mutation widgets.\n\nIdentity / role resolution mirrors :func:`templates_page` so\nthe same admin label that drives ``cfg.role_mapping`` is the\none this page gates on.",
@@ -3538,6 +3978,108 @@
           }
         },
         "summary": "Admin Keys Page",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/cmdk": {
+      "get": {
+        "description": "Command palette modal shell + initial results.\n\nReturned as an HTMX fragment that the global keybind in base.html\nswaps into ``#cmdk-mount`` when the user presses \u2318K / Ctrl+K.",
+        "operationId": "cmdk_modal_dashboard_cmdk_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cmdk Modal",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/cmdk/results": {
+      "get": {
+        "description": "Cmdk results fragment \u2014 same shape as the modal body so the\ninput can swap ``#cmdk-results`` in place as the user types.",
+        "operationId": "cmdk_results_dashboard_cmdk_results_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cmdk Results",
         "tags": [
           "dashboard"
         ]
@@ -4039,6 +4581,28 @@
         ]
       }
     },
+    "/dashboard/me/credentials": {
+      "get": {
+        "description": "Self-service upstream-credentials dashboard (Plan v3 \u00a7B.7).\n\nSubmitter+ may view, set, and delete THEIR OWN stored\ncredentials. Viewer is intentionally blocked because a viewer\ncannot submit a session and storing a credential they can't\nuse is meaningless.\n\nThe page itself is read-only Jinja; mutations call\n``/api/v1/me/credentials/{env_name}`` via HTMX so the API-side\nallowlist / encryption checks drive user-visible errors.",
+        "operationId": "me_credentials_page_dashboard_me_credentials_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Me Credentials Page",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
     "/dashboard/new": {
       "get": {
         "description": "Render the web submission form (Plan 8 D8.14 / Task 16).\n\nQuery-string prefill mirrors the legacy GitHub-style \"issue\ntemplate\" link convention so a comment, README, or runbook can\ndeep-link straight into a pre-populated form:\n\n  * ``?prompt=<text>``        \u2014 seeds the prompt textarea.\n  * ``?tags=foo,bar``         \u2014 seeds the tags input as csv.\n  * ``?description=<text>``   \u2014 seeds the description input.\n  * ``?template=<id>``        \u2014 pre-loads a saved prompt template\n    (overrides the other three above when an explicit value\n    wasn't passed). Visibility is enforced server-side: the\n    template must be owned by the caller, marked ``shared``, or\n    the caller must be an admin (mirrors\n    ``GET /api/v1/templates/{id}``). A 404 / 403 result surfaces\n    as an inline ``alert-warning`` banner so the form is still\n    usable with empty values.\n\nThe form posts to ``POST /api/v1/sessions`` directly (relying on\nthe :class:`DashboardCookieMiddleware` synthetic ``X-API-Key``\ninjection from Task 3 / D8.26 so the API auth + RBAC + audit\npipeline runs unchanged). RBAC of the actual submit lives there\n\u2014 this handler does not pre-check ``submitter`` because the\nform GET is informational; a viewer-role user can render the\npage but their POST will be rejected at the API boundary.",
@@ -4181,6 +4745,28 @@
           }
         },
         "summary": "Check Duplicate Prompt",
+        "tags": [
+          "dashboard"
+        ]
+      }
+    },
+    "/dashboard/overview": {
+      "get": {
+        "description": "Multica-aligned operator overview \u2014 KPI cards + 24h trend + status mix.\n\nThis is an additive route; the legacy ``/dashboard/`` (role-based\nredirect) and ``/dashboard/cost`` (attribution table) stay intact\nso existing bookmarks / tests are unaffected.\n\nData sources all reuse existing repository methods:\n\n* **Live count** \u2014 ``SessionManager.list(limit=200)`` then filter\n  by ``status`` so a fresh deploy with no rows still renders zeros\n  instead of an empty page.\n* **24h tokens / cost** \u2014 ``SessionRepository.aggregate_tokens_by_bucket``\n  summed across all hourly buckets; the same store call powers the\n  kanban global chart, guaranteeing the two views show identical\n  numbers without a parallel aggregation path.\n* **Status mix** \u2014 derived from the same in-memory ``sessions``\n  list via :func:`_kanban_columns` so the dashboard never double-\n  reads the DB for a view that is, by design, a snapshot.\n\nRBAC: non-admin viewers/submitters see only their own slice of\nthe recent-sessions table \u2014 admins see the team firehose. This\nmirrors :func:`kanban_page` and avoids the affordance of\nsurfacing other owners' sessions just because they fit in the\nKPI bucket query.",
+        "operationId": "overview_page_dashboard_overview_get",
+        "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Overview Page",
         "tags": [
           "dashboard"
         ]

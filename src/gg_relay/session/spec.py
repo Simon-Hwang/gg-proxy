@@ -47,6 +47,11 @@ class PluginManifest:
     with_components: tuple[str, ...] = ()
     without_components: tuple[str, ...] = ()
     extra_env: tuple[tuple[str, str], ...] = ()
+    # Per-session pre-run argv list (no shell). 在 SDK query 之前于容器内
+    # 顺序执行，常用于 git fetch / git worktree add 等动态工作目录准备。
+    # 每条命令是一个 argv tuple（不解析 shell 元字符）。仅 docker executor
+    # 生效，inprocess 由 schema 层拒绝。详见 _make_runner_core 注入点。
+    pre_run_cmds: tuple[tuple[str, ...], ...] = ()
 
     def __post_init__(self) -> None:
         if not (self.profile or self.modules or self.skills):
@@ -137,6 +142,7 @@ class SessionSpec:
                 "with_components": list(self.plugins.with_components),
                 "without_components": list(self.plugins.without_components),
                 "extra_env": [list(p) for p in self.plugins.extra_env],
+                "pre_run_cmds": [list(cmd) for cmd in self.plugins.pre_run_cmds],
             },
             "executor": self.executor,
             "timeout_s": self.timeout_s,
@@ -157,6 +163,9 @@ class SessionSpec:
             without_components=tuple(plugins_data.get("without_components") or ()),
             extra_env=tuple(
                 (k, v) for k, v in (plugins_data.get("extra_env") or [])
+            ),
+            pre_run_cmds=tuple(
+                tuple(cmd) for cmd in (plugins_data.get("pre_run_cmds") or [])
             ),
         )
         return cls(

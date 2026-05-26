@@ -52,6 +52,7 @@ from claude_code_sdk import (
 )
 from claude_code_sdk.types import StreamEvent
 
+from gg_relay.core.exceptions import SDKPermissionError
 from gg_relay.session.control import (
     AckSender,
     ControlChannel,
@@ -193,6 +194,231 @@ def _serialize_tool_result(block: ToolResultBlock) -> dict[str, Any]:
     return {"content": block.content, "is_error": block.is_error}
 
 
+# ── pre-run argv execution ────────────────────────────────────────────────
+#
+# Per-command and total wall-clock budgets for spec.plugins.pre_run_cmds.
+# Output is streamed as msg.chunk frames; total bytes are capped to keep
+# misbehaving commands from flooding the transport / store. terminate()
+# is followed by a kill() fallback so a process ignoring SIGTERM cannot
+# stall cancellation (Reviewer Round 2 finding).
+PRE_RUN_PER_CMD_TIMEOUT_S = 60.0
+PRE_RUN_TOTAL_TIMEOUT_S = 300.0
+PRE_RUN_OUTPUT_LIMIT_BYTES = 64 * 1024
+PRE_RUN_KILL_GRACE_S = 5.0
+
+
+# ── upstream auth-failure guards (relay-side safety nets) ──────────────
+#
+# The Claude CLI binary emits a synthetic AssistantMessage with
+# ``model="<synthetic>"`` followed by a ResultMessage when its internal
+# ``max_retries=10`` is exhausted (e.g. ANTHROPIC_API_KEY rejected by
+# the upstream API). Without the two guards below the runner would
+# treat that as a normal ``completed`` session with zero tokens — a
+# misleading dashboard row that hides credential misconfiguration.
+#
+# ``SYNTHETIC_MODEL_MARKER`` is the model string the CLI uses for the
+# fabricated terminal message. Pinned as a module constant so the
+# detection logic is one-string-replace away from future SDK rewrites.
+SYNTHETIC_MODEL_MARKER = "<synthetic>"
+
+# Subtype carried by the SDK's ``SystemMessage`` frames when the
+# upstream API rejects a request and the CLI is retrying.
+_API_RETRY_SUBTYPE = "api_retry"
+
+
+def _extract_synthetic_text(msg: AssistantMessage) -> str:
+    """Concatenate ``TextBlock`` content from a synthetic AssistantMessage.
+
+    The CLI's fabricated terminal message always carries a single
+    TextBlock like ``"Failed to authenticate. API Error: 401 ..."``.
+    We grab every TextBlock to be defensive against multi-block
+    variants the SDK may introduce, and silently ignore non-text
+    blocks (tool_use / thinking) since they don't carry the
+    actionable error text.
+    """
+    parts: list[str] = []
+    for block in msg.content:
+        text = getattr(block, "text", None)
+        if isinstance(text, str) and text:
+            parts.append(text)
+    return " ".join(parts) if parts else "synthetic AssistantMessage"
+
+
+def _format_retry_budget_error(
+    count: int,
+    budget: int,
+    last_payload: dict[str, Any] | None,
+) -> str:
+    """Build a diagnostic message for ``SDKPermissionError`` raised by
+    the ``api_retry`` budget guard.
+
+    Includes ``error_status`` + ``error`` from the last seen retry
+    payload when present so the operator sees the upstream HTTP code
+    (typically 401 / 403) in the dashboard's ``end_reason`` column
+    without having to dig into the raw frame stream.
+    """
+    base = (
+        f"upstream api_retry budget exhausted "
+        f"(count={count} budget={budget})"
+    )
+    if not isinstance(last_payload, dict):
+        return base
+    status = last_payload.get("error_status")
+    err = last_payload.get("error")
+    if status is None and err is None:
+        return base
+    return f"{base}: error_status={status} error={err!r}"
+
+
+async def _terminate_proc(proc: asyncio.subprocess.Process) -> None:
+    """Cooperative SIGTERM → SIGKILL fallback; safe for already-exited procs."""
+    if proc.returncode is not None:
+        return
+    with contextlib.suppress(ProcessLookupError):
+        proc.terminate()
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=PRE_RUN_KILL_GRACE_S)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        with contextlib.suppress(Exception):
+            await proc.wait()
+
+
+async def _execute_pre_run_cmds(
+    transport: SessionTransport,
+    cmds: tuple[tuple[str, ...], ...],
+    start_seq: int,
+    session_id: str,
+) -> int:
+    """Run pre-run argv commands sequentially before the SDK starts.
+
+    Each command is invoked via :func:`asyncio.create_subprocess_exec`
+    (no shell interpretation). Stdout/err are streamed as ``msg.chunk``
+    frames with ``stream="pre_run"`` so the dashboard can render them
+    inline with the session timeline. Total output bytes per session
+    are capped at :data:`PRE_RUN_OUTPUT_LIMIT_BYTES` to bound store
+    growth; once the cap is hit further chunks are dropped.
+
+    Failure modes (each emits an ``error`` frame, then raises so the
+    enclosing executor sees a non-zero session outcome):
+      * ``FileNotFoundError`` / ``PermissionError`` / ``OSError`` —
+        process did not start (executable missing, no exec bit, …).
+      * non-zero exit code.
+      * per-command timeout (:data:`PRE_RUN_PER_CMD_TIMEOUT_S`).
+      * total timeout (:data:`PRE_RUN_TOTAL_TIMEOUT_S`).
+
+    Returns the next ``seq`` value the caller should use for follow-on
+    frames so the runner-wide sequence stays monotonic.
+    """
+    seq = start_seq
+    bytes_emitted = 0
+
+    async def _stream_proc_output(
+        proc: asyncio.subprocess.Process,
+    ) -> bytearray:
+        nonlocal seq, bytes_emitted
+        captured = bytearray()
+        assert proc.stdout is not None
+        while True:
+            chunk = await proc.stdout.read(4096)
+            if not chunk:
+                break
+            # capture for traceback even after we stop forwarding
+            if len(captured) < PRE_RUN_OUTPUT_LIMIT_BYTES:
+                captured.extend(
+                    chunk[: PRE_RUN_OUTPUT_LIMIT_BYTES - len(captured)]
+                )
+            if bytes_emitted < PRE_RUN_OUTPUT_LIMIT_BYTES:
+                remaining = PRE_RUN_OUTPUT_LIMIT_BYTES - bytes_emitted
+                forwarded = chunk[:remaining]
+                bytes_emitted += len(forwarded)
+                await transport.send(
+                    make_msg_chunk(
+                        seq,
+                        {
+                            "text": forwarded.decode(
+                                "utf-8", errors="replace"
+                            ),
+                            "stream": "pre_run",
+                            "session_id": session_id,
+                        },
+                    )
+                )
+                seq += 1
+                if bytes_emitted >= PRE_RUN_OUTPUT_LIMIT_BYTES:
+                    await transport.send(
+                        make_msg_chunk(
+                            seq,
+                            {
+                                "text": (
+                                    f"[pre_run] output truncated at "
+                                    f"{PRE_RUN_OUTPUT_LIMIT_BYTES} bytes\n"
+                                ),
+                                "stream": "pre_run",
+                                "session_id": session_id,
+                            },
+                        )
+                    )
+                    seq += 1
+        return captured
+
+    async def _emit_error(code: str, message: str, tb: str | None) -> None:
+        nonlocal seq
+        await transport.send(make_error(seq, code, message, traceback_=tb))
+        seq += 1
+
+    async def _run_one(argv: tuple[str, ...]) -> None:
+        proc: asyncio.subprocess.Process | None = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *argv,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except (FileNotFoundError, PermissionError, OSError) as exc:
+            await _emit_error(
+                "pre_run_spawn_failed",
+                f"failed to spawn argv={list(argv)}: {exc}",
+                traceback.format_exc(),
+            )
+            raise RuntimeError(
+                f"pre_run_cmd failed to spawn: {list(argv)}"
+            ) from exc
+
+        try:
+            captured = await _stream_proc_output(proc)
+            rc = await proc.wait()
+        except asyncio.CancelledError:
+            await _terminate_proc(proc)
+            raise
+        if rc != 0:
+            tail = captured.decode("utf-8", errors="replace")
+            await _emit_error(
+                "pre_run_failed",
+                f"pre_run argv={list(argv)} exit={rc}",
+                tail,
+            )
+            raise RuntimeError(
+                f"pre_run_cmd non-zero exit: argv={list(argv)} rc={rc}"
+            )
+
+    try:
+        async with asyncio.timeout(PRE_RUN_TOTAL_TIMEOUT_S):
+            for argv in cmds:
+                async with asyncio.timeout(PRE_RUN_PER_CMD_TIMEOUT_S):
+                    await _run_one(argv)
+    except TimeoutError as exc:
+        await _emit_error(
+            "pre_run_timeout",
+            "pre_run_cmds exceeded time budget",
+            None,
+        )
+        raise RuntimeError("pre_run_cmds timed out") from exc
+
+    return seq
+
+
 # ── runner factory ─────────────────────────────────────────────────────────
 
 
@@ -208,6 +434,7 @@ async def _make_runner_core(
     control_channel: ControlChannel | None = None,
     control_ack: AckSender | None = None,
     runtime_ctx: SessionRuntimeContext | None = None,
+    api_retry_budget: int = 0,
 ) -> None:
     """Shared dispatch loop for the in-process and wire runners.
 
@@ -240,6 +467,17 @@ async def _make_runner_core(
     # always passes None — the install is baked into the docker image.
     if install_report is not None:
         await transport.send(make_install_done(seq, install_report))
+        seq += 1
+
+    # Pre-run argv list (e.g. git fetch / git worktree add) — executed before
+    # the SDK starts so each session can dynamically prepare its working tree
+    # in the runner container. Schema layer (SessionSpecIn) restricts this to
+    # docker executor; argv-only inputs prevent shell injection. Failures
+    # raise to abort the session before the SDK is contacted.
+    if spec.plugins.pre_run_cmds:
+        seq = await _execute_pre_run_cmds(
+            transport, spec.plugins.pre_run_cmds, seq, session_id
+        )
 
     pending_perms: deque[tuple[str, str, _FrozenInput]] = deque()
     pending_use_blocks: deque[tuple[str, str, _FrozenInput]] = deque()
@@ -297,16 +535,37 @@ async def _make_runner_core(
             return PermissionResultAllow()
         return PermissionResultDeny(message="HITL rejected")
 
-    # Plan 7 D7.19 / Task 14 — when an OTel trace_id was supplied on
-    # the SessionRuntimeContext, propagate it to the SDK process via
-    # ``RELAY_TRACE_ID`` so tools / sub-processes started by the SDK
-    # can correlate their spans with the parent relay session. Mirrors
-    # the docker executor's env composition (see
-    # ``DockerExecutor._build_env``) so the in-process and container
-    # backends emit the same env contract to whatever the SDK spawns.
-    env = dict(spec.plugins.extra_env)
+    # Plan v3 §A — fold ``runtime_ctx.credentials`` into the SDK env
+    # before ``extra_env``. The Plan v3 override order is:
+    #   1. runtime_ctx.credentials (per-session secrets — supplied by
+    #      API body AND/OR per-user DB rows merged in by the manager)
+    #   2. spec.plugins.extra_env  (caller knob; wins over creds, same
+    #      precedence as docker ``_build_env``)
+    #   3. RELAY_TRACE_ID          (explicit set — system marker that
+    #      MUST win over extra_env; inprocess-only convention pinned
+    #      by ``test_trace_id_does_not_clobber_existing_env``)
+    #   4. CLAUDE_ROOT             (setdefault; extra_env wins)
+    #
+    # The SDK transport (``claude_code_sdk._internal.transport.subprocess_cli``)
+    # merges ``options.env`` on top of ``os.environ``, so any key we
+    # do NOT set still inherits from the host — single-tenant
+    # deployments relying on a shell-env ``ANTHROPIC_API_KEY`` keep
+    # working when ``credentials`` is empty.
+    env: dict[str, str] = {}
+    if runtime_ctx is not None:
+        for k, v in runtime_ctx.credentials.items():
+            env[k] = v
+    for k, v in spec.plugins.extra_env:
+        env[k] = v
     if runtime_ctx is not None and runtime_ctx.trace_id:
         env["RELAY_TRACE_ID"] = runtime_ctx.trace_id
+    # Inject CLAUDE_ROOT so the SDK reads skills/commands/rules from the
+    # per-session install directory built by InstallShellAssembler. Uses
+    # setdefault so spec.plugins.extra_env can still override if needed.
+    # Mirrors docker executor behaviour where the runner image ships
+    # GG_PLUGINS_HOME; inprocess achieves the same isolation via CLAUDE_ROOT.
+    if install_report is not None and install_report.install_root is not None:
+        env.setdefault("CLAUDE_ROOT", str(install_report.install_root))
     options = ClaudeCodeOptions(
         can_use_tool=can_use_tool,
         cwd=str(spec.cwd),
@@ -333,10 +592,37 @@ async def _make_runner_core(
             control_task = asyncio.create_task(
                 loop.run(), name=f"runner-control-{session_id or 'inproc'}"
             )
+        # Upstream auth-failure guards (relay-side safety nets):
+        #   * ``api_retry_count`` — counts ``SystemMessage(subtype="api_retry")``
+        #     frames; once it exceeds ``api_retry_budget`` (when > 0) the
+        #     runner aborts with :class:`SDKPermissionError` instead of
+        #     letting the CLI's internal 10-attempt loop run to a
+        #     synthetic ``completed`` finish (~3 minutes of dead air).
+        #   * ``last_synthetic_text`` — non-None whenever the most-recent
+        #     AssistantMessage carried ``model == SYNTHETIC_MODEL_MARKER``.
+        #     Catches the case where the CLI exhausted its OWN retries
+        #     before our budget kicked in (e.g. budget=0). On the next
+        #     ResultMessage the runner re-classifies that "completed"
+        #     into a permission failure so the dashboard surfaces the
+        #     real cause instead of a misleading zero-token success.
+        api_retry_count = 0
+        last_api_retry_payload: dict[str, Any] | None = None
+        last_synthetic_text: str | None = None
         async for msg in client.receive_messages():
             seq += 1
             match msg:
                 case ResultMessage():
+                    if last_synthetic_text is not None:
+                        # Runtime guard B — synthetic AssistantMessage
+                        # immediately before a ResultMessage means the
+                        # CLI gave up internally and is reporting a
+                        # fake "completion". Raise so manager classifies
+                        # this as a failure instead of writing
+                        # status=completed with zero tokens.
+                        raise SDKPermissionError(
+                            "upstream auth failure: synthetic completion "
+                            f"({last_synthetic_text[:200]})"
+                        )
                     seq += 1
                     await transport.send(
                         make_session_end(
@@ -350,6 +636,14 @@ async def _make_runner_core(
                     )
                     break
                 case AssistantMessage():
+                    # Track synthetic-model flag for the ResultMessage
+                    # guard above. Real AssistantMessages clear it so a
+                    # legitimate finish after recovery still completes
+                    # cleanly.
+                    if getattr(msg, "model", None) == SYNTHETIC_MODEL_MARKER:
+                        last_synthetic_text = _extract_synthetic_text(msg)
+                    else:
+                        last_synthetic_text = None
                     for block in msg.content:
                         if isinstance(block, ToolUseBlock):
                             fi = _freeze(block.input)
@@ -386,6 +680,31 @@ async def _make_runner_core(
                             make_msg_chunk(seq, _serialize_user(msg))
                         )
                 case SystemMessage() | StreamEvent():
+                    # Runtime guard A — count upstream ``api_retry``
+                    # frames and bail out once the relay-side budget
+                    # is exceeded. ``budget == 0`` disables the guard
+                    # so guard B (synthetic-completion detection) is
+                    # the only safety net.
+                    if (
+                        isinstance(msg, SystemMessage)
+                        and getattr(msg, "subtype", None) == _API_RETRY_SUBTYPE
+                    ):
+                        api_retry_count += 1
+                        if isinstance(msg.data, dict):
+                            last_api_retry_payload = msg.data
+                        if (
+                            api_retry_budget > 0
+                            and api_retry_count > api_retry_budget
+                        ):
+                            await transport.send(
+                                make_msg_chunk(seq, _serialize_misc(msg))
+                            )
+                            err_msg = _format_retry_budget_error(
+                                api_retry_count,
+                                api_retry_budget,
+                                last_api_retry_payload,
+                            )
+                            raise SDKPermissionError(err_msg)
                     await transport.send(
                         make_msg_chunk(seq, _serialize_misc(msg))
                     )
@@ -432,6 +751,7 @@ def make_sdk_runner(
     session_id: str = "",
     control_channel: ControlChannel | None = None,
     runtime_ctx: SessionRuntimeContext | None = None,
+    api_retry_budget: int = 0,
 ) -> RunnerCallable:
     """In-process runner factory.
 
@@ -467,6 +787,7 @@ def make_sdk_runner(
             control_channel=control_channel,
             control_ack=(control_channel.runner_ack if control_channel else None),
             runtime_ctx=runtime_ctx,
+            api_retry_budget=api_retry_budget,
         )
 
     return runner
@@ -478,6 +799,7 @@ def make_wire_runner(
     coordinator: WireCoordinatorProxy,
     sdk_factory: SdkFactory = ClaudeSDKClient,
     session_id: str = "",
+    api_retry_budget: int = 0,
 ) -> RunnerCallable:
     """Container-side runner factory.
 
@@ -504,6 +826,7 @@ def make_wire_runner(
             session_id=session_id,
             control_channel=coordinator.control_channel,
             control_ack=coordinator.send_ack,
+            api_retry_budget=api_retry_budget,
         )
 
     return runner

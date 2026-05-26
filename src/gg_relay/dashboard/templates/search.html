@@ -9,18 +9,21 @@
         hx-swap="innerHTML"
         hx-trigger="submit, change from:select">
     <input type="text" name="q"
-           placeholder="Search prompt..."
+           placeholder="e.g. refactor parser"
            value="{{ q or '' }}"
-           maxlength="200" />
+           maxlength="200"
+           aria-label="Search prompt text" />
     {% if is_admin %}
     <input type="text" name="owner"
-           placeholder="Owner label (admin only)"
+           placeholder="e.g. dashboard-alice"
            value="{{ owner or '' }}"
-           maxlength="64" />
+           maxlength="64"
+           aria-label="Filter by owner label (admin only)" />
     {% endif %}
     <input type="text" name="tags"
-           placeholder="tag1,tag2 (comma-sep, OR-of-any)"
-           value="{{ tags_str or '' }}" />
+           placeholder="e.g. ci,deploy,audit"
+           value="{{ tags_str or '' }}"
+           aria-label="Filter by tags (comma-separated, matches any)" />
     <select name="status">
       <option value="" {% if not status %}selected{% endif %}>all status</option>
       <option value="queued"     {% if status == 'queued' %}selected{% endif %}>queued</option>

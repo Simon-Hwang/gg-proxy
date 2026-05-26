@@ -40,6 +40,7 @@ from gg_relay.session.transport.protocol import SessionTransport
 pytestmark = pytest.mark.asyncio
 
 HEADERS = {"X-API-Key": "k1"}
+ADMIN_HEADERS = {"X-API-Key": "k_admin"}
 
 
 @dataclass
@@ -111,7 +112,14 @@ def _make_factory(
 def _make_cfg(tmp_path: Path) -> Config:
     cfg = Config()  # type: ignore[call-arg]
     cfg.database_url = f"sqlite+aiosqlite:///{tmp_path}/api.db"
-    cfg.api_keys_raw = "k1,k2"
+    # ``k1`` and ``k2`` are deliberately label-less → viewer role. The
+    # ownership-or-role dependency (Plan 8) treats them as the "regular
+    # user" lane that has to own the session to act on it. ``k_admin``
+    # is mapped to admin so we can exercise the ownership-fast-path
+    # branch (e.g. the idempotent-DELETE-on-unknown-id contract from
+    # Plan 6 D6.9=A, which Plan 8 now restricts to authorized callers).
+    cfg.api_keys_raw = "k1,k2,k_admin:admin-label"
+    cfg.role_mapping_raw = "admin-label=admin"
     cfg.gg_plugins_home = tmp_path / "plugins"
     cfg.install_dir_root = tmp_path / "installs"
     cfg.public_base_url = "http://localhost:8000"
@@ -355,17 +363,41 @@ class TestDeleteEndpoint:
         assert body["status"] == "cancelled"
         assert body["session_id"] == sid
 
-    async def test_delete_unknown_still_202(
+    async def test_delete_unknown_still_202_for_admin(
         self, client: tuple[AsyncClient, SessionManager]
     ):
+        # Plan 6 D6.9=A: DELETE is idempotent for *authorized* callers
+        # so retries on a flaky network never observe a confusing
+        # 202→404 sequence. Plan 8's ownership-or-role dependency
+        # preserves the contract via the role-fast-path: admin sails
+        # straight into the handler, which swallows SessionNotFound
+        # and returns 202.
         ac, _ = client
-        # D6.9=A: idempotent — unknown id is NOT 404.
+        r = await ac.delete(
+            "/api/v1/sessions/does-not-exist", headers=ADMIN_HEADERS
+        )
+        assert r.status_code == 202, r.text
+        body = r.json()
+        assert body["status"] == "cancelled"
+
+    async def test_delete_unknown_returns_404_for_non_owner(
+        self, client: tuple[AsyncClient, SessionManager]
+    ):
+        # Plan 8 ``require_role_or_own_session`` deliberately
+        # short-circuits with 404 when a *non-admin* targets an id
+        # they don't own (the session may genuinely not exist, or it
+        # may belong to someone else — both are indistinguishable
+        # from the caller's point of view, which is the whole point:
+        # we don't want random viewers probing the session-id space).
+        # This test pins that behaviour so a future weakening of the
+        # dependency cannot regress the privacy guarantee silently.
+        ac, _ = client
         r = await ac.delete(
             "/api/v1/sessions/does-not-exist", headers=HEADERS
         )
-        assert r.status_code == 202
-        body = r.json()
-        assert body["status"] == "cancelled"
+        assert r.status_code == 404, r.text
+        detail = r.json()["detail"]
+        assert detail["code"] == "session_not_found"
 
     async def test_delete_already_cancelled_still_202(
         self, client: tuple[AsyncClient, SessionManager], tmp_path: Path

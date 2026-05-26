@@ -1,0 +1,75 @@
+{# Cmdk results fragment.
+
+   Returned by either:
+     * /dashboard/cmdk            (initial load — includes all sections)
+     * /dashboard/cmdk/results    (typed query — same shape, items
+                                    filtered server-side)
+
+   Contract for keyboard navigation JS:
+     * Selectable items carry ``data-cmdk-item`` and ``data-href``.
+     * ``role="option"`` lives on the same element for SR support.
+     * Section headers carry ``data-cmdk-section`` (not selectable).
+     * The first ``data-cmdk-item`` is the initial cursor target;
+       the JS sets ``aria-selected="true"`` on the active one and
+       clears it on the others.
+
+   RBAC: ``can_submit`` from context. The "Quick action: + New session"
+   row is omitted (not disabled) for viewers — the palette only shows
+   actions the operator can actually take.
+#}
+{% set q = q or '' %}
+
+{% if not q and quick_actions %}
+<div class="cmdk-section" data-cmdk-section="actions">
+    <div class="cmdk-section-title">Quick actions</div>
+    {% for action in quick_actions %}
+    <a class="cmdk-item" data-cmdk-item="true"
+       data-href="{{ action.href }}"
+       role="option" aria-selected="false"
+       href="{{ action.href }}">
+        <span class="cmdk-item-icon" aria-hidden="true">{{ action.icon }}</span>
+        <span class="cmdk-item-label">{{ action.label }}</span>
+        <span class="cmdk-item-meta">{{ action.hint }}</span>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if not q and pages %}
+<div class="cmdk-section" data-cmdk-section="pages">
+    <div class="cmdk-section-title">Navigate</div>
+    {% for page in pages %}
+    <a class="cmdk-item" data-cmdk-item="true"
+       data-href="{{ page.href }}"
+       role="option" aria-selected="false"
+       href="{{ page.href }}">
+        <span class="cmdk-item-icon" aria-hidden="true">{{ page.icon }}</span>
+        <span class="cmdk-item-label">{{ page.label }}</span>
+        <span class="cmdk-item-meta">{{ page.hint }}</span>
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+{% if recent_sessions %}
+<div class="cmdk-section" data-cmdk-section="sessions">
+    <div class="cmdk-section-title">
+        {% if q %}Matching sessions{% else %}Recent sessions{% endif %}
+    </div>
+    {% for s in recent_sessions %}
+    <a class="cmdk-item" data-cmdk-item="true"
+       data-href="/dashboard/sessions/{{ s.id }}"
+       role="option" aria-selected="false"
+       href="/dashboard/sessions/{{ s.id }}">
+        <span class="cmdk-item-icon" aria-hidden="true">◴</span>
+        <span class="cmdk-item-label">{{ s.id[:8] }}{% if s.prompt_excerpt %} · {{ s.prompt_excerpt }}{% endif %}</span>
+        <span class="cmdk-item-meta">{{ s.status }}{% if s.owner %} · {{ s.owner }}{% endif %}</span>
+    </a>
+    {% endfor %}
+</div>
+{% elif q %}
+<div class="cmdk-empty">
+    No matches for <strong>{{ q }}</strong>.
+    <a class="cmdk-item-inline" href="/dashboard/search?q={{ q | urlencode }}">Open full search →</a>
+</div>
+{% endif %}
