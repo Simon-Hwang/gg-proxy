@@ -1,4 +1,4 @@
-# gg-relay
+`# gg-relay
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](pyproject.toml)
@@ -23,7 +23,7 @@ session at runtime.
 
 | Surface | Path / module | What it does |
 |---|---|---|
-| HTTP API | `/api/v1/sessions` | submit / list / get / cancel / **pause / resume / DELETE** / HITL resolve |
+| HTTP API | `/api/v1/sessions` | submit / list / gset / cancel / **pause / resume / DELETE** / HITL resolve |
 | Dashboard | `/dashboard/*` | HTMX UI for sessions, **Kanban board + SSE deltas + Chart.js token chart + Jaeger span-tree iframe**, HITL approval |
 | Feishu webhook | `/api/v1/webhooks/feishu` | interactive-card button → HITL resolution (legacy `/im/feishu/callback` was deprecated in 0.7.0 and carries a `Deprecation` header) |
 | Health | `/healthz`, `/readyz` | k8s liveness / readiness |
