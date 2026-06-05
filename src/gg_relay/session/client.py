@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import os
 import traceback
 import uuid
 from collections import deque
@@ -224,6 +225,18 @@ SYNTHETIC_MODEL_MARKER = "<synthetic>"
 # Subtype carried by the SDK's ``SystemMessage`` frames when the
 # upstream API rejects a request and the CLI is retrying.
 _API_RETRY_SUBTYPE = "api_retry"
+_SDK_HOST_ENV_PASSTHROUGH = (
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "ANTHROPIC_BASE_URL",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_REGION",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "CLOUD_ML_REGION",
+    "ANTHROPIC_VERTEX_PROJECT_ID",
+)
 
 
 def _extract_synthetic_text(msg: AssistantMessage) -> str:
@@ -552,6 +565,10 @@ async def _make_runner_core(
     # deployments relying on a shell-env ``ANTHROPIC_API_KEY`` keep
     # working when ``credentials`` is empty.
     env: dict[str, str] = {}
+    for k in _SDK_HOST_ENV_PASSTHROUGH:
+        v = os.environ.get(k)
+        if v:
+            env[k] = v
     if runtime_ctx is not None:
         for k, v in runtime_ctx.credentials.items():
             env[k] = v

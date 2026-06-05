@@ -210,6 +210,28 @@ class TestCredentialsPassThrough:
         # No leftover system markers either when trace_id is empty.
         assert "RELAY_TRACE_ID" not in env
 
+    async def test_host_auth_env_is_explicitly_forwarded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Single-tenant host auth env should be forwarded explicitly.
+
+        Some local/dev launches rely on shell or ``.env`` auth variables instead
+        of per-request credentials. We keep that path working by copying the
+        allowlisted host auth env into ``options.env`` before runtime overrides.
+        """
+        monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "tok-from-host")
+        monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://proxy.example.test")
+
+        await _run_once(
+            _spec(tmp_path),
+            runtime_ctx=SessionRuntimeContext(),
+        )
+
+        opts = _CapturingStub.captured
+        env = dict(opts.env or {})
+        assert env.get("ANTHROPIC_AUTH_TOKEN") == "tok-from-host"
+        assert env.get("ANTHROPIC_BASE_URL") == "https://proxy.example.test"
+
     async def test_trace_id_wins_over_credentials_attempt_to_set_it(
         self, tmp_path: Path
     ) -> None:

@@ -1,13 +1,14 @@
 """CLI command coverage — typer CliRunner."""
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
-from gg_relay.cli import _parse_duration, app
+from gg_relay.cli import _overlay_cwd_dotenv, _parse_duration, app
 
 
 @pytest.fixture
@@ -45,6 +46,24 @@ class TestParseDuration:
 
         with pytest.raises(typer.BadParameter):
             _parse_duration("bogus")
+
+
+def test_overlay_cwd_dotenv_overrides_stale_process_env(
+    tmp_path: Path, monkeypatch
+) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        "RELAY_INSTALL_DIR_ROOT=/tmp/relay-installs\n"
+        "RELAY_LOG_LEVEL=debug\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("RELAY_INSTALL_DIR_ROOT", "./.relay-installs")
+    monkeypatch.setenv("RELAY_LOG_LEVEL", "info")
+
+    _overlay_cwd_dotenv(cwd=tmp_path)
+
+    assert os.environ["RELAY_INSTALL_DIR_ROOT"] == "/tmp/relay-installs"
+    assert os.environ["RELAY_LOG_LEVEL"] == "debug"
 
 
 class TestCheckSecrets:

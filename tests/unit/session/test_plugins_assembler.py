@@ -167,6 +167,32 @@ async def test_prepare_raises_when_state_file_missing(tmp_path: Path) -> None:
     assert "install-state.json" in exc_info.value.stderr
 
 
+async def test_prepare_normalizes_relative_install_dir_before_subprocess(
+    tmp_path: Path,
+) -> None:
+    plugins_home = tmp_path / "gg-plugins"
+    plugins_home.mkdir()
+    (plugins_home / "install.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    install_dir = Path(".relay-installs") / "sid-123"
+    expected_install_dir = install_dir.resolve()
+    spec = _make_spec(tmp_path)
+
+    captured: dict[str, Any] = {}
+
+    async def fake_exec(*argv: str, **kwargs: Any) -> _FakeProc:
+        captured["argv"] = argv
+        _write_install_state(expected_install_dir)
+        return _FakeProc(0)
+
+    asm = InstallShellAssembler(plugins_home=plugins_home)
+    with patch("asyncio.create_subprocess_exec", side_effect=fake_exec):
+        report = await asm.prepare(spec, install_dir=install_dir)
+
+    argv = captured["argv"]
+    assert "--home" in argv and str(expected_install_dir) in argv
+    assert report.install_root == expected_install_dir / ".claude"
+
+
 async def test_profile_only_manifest_argv(tmp_path: Path) -> None:
     plugins_home = tmp_path / "gg-plugins"
     plugins_home.mkdir()

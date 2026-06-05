@@ -305,6 +305,14 @@ class Config(BaseSettings):
     public_base_url: str = ""
     """Externally-reachable base URL (used by IM card callbacks)."""
 
+    log_level: str = "info"
+    """Stdlib + uvicorn log level used by ``gg-relay serve`` by default.
+
+    Set via ``RELAY_LOG_LEVEL``. The CLI ``--log-level`` flag still wins
+    when passed explicitly so one-off debugging does not require editing
+    the env file.
+    """
+
     # ── persistence ─────────────────────────────────────────────────────
     database_url: str = DEFAULT_SQLITE_URL
 

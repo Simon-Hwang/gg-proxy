@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+import re
 from typing import Any
 
 import bcrypt
@@ -113,6 +114,11 @@ async def test_new_form_renders_with_template_options(
     assert "bob-private-tpl" not in body
     # Form posts to the API submit endpoint via the cookie middleware.
     assert 'hx-post="/api/v1/sessions"' in body
+    # Local dev config defaults to inprocess, so the form should not
+    # preselect docker and fail on an unavailable socket.
+    assert re.search(
+        r'<option value="inprocess"\s+selected', body
+    ), body
 
 
 async def test_new_form_preload_via_template_url(client_and_store) -> None:

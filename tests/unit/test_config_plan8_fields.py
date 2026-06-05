@@ -215,3 +215,16 @@ def test_feishu_user_mapping_parser_basic() -> None:
     assert result == {"alice": "ou_xxx", "bob": "ou_yyy"}
     # Empty input = empty dict.
     assert _parse_feishu_user_mapping("") == {}
+
+
+def test_config_log_level_from_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """``RELAY_LOG_LEVEL`` should populate ``Config.log_level`` directly."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("RELAY_LOG_LEVEL", "debug")
+
+    from gg_relay.config import Config
+
+    cfg = Config()  # type: ignore[call-arg]
+    assert cfg.log_level == "debug"

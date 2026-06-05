@@ -280,6 +280,7 @@ async def favorites_page(
     dependency would already have redirected un-authed callers.
     """
     store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
     label = _dashboard_label(request)
     items: list[dict[str, Any]] = []
     if label:
@@ -472,6 +473,7 @@ async def _filtered_summaries(
     doesn't 500 on a stale URL share.
     """
     store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
     label = _dashboard_label(request)
     role = _dashboard_role(request)
     is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
@@ -1006,6 +1008,7 @@ async def search_results(
     surfaces the failure inside the panel.
     """
     store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
     label = _dashboard_label(request)
     role = _dashboard_role(request)
 
@@ -1183,6 +1186,7 @@ async def _cmdk_recent_sessions(
     / substring rules the dedicated search page uses apply.
     """
     store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
     label = _dashboard_label(request)
     role = _dashboard_role(request)
     is_admin = ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY["admin"]
@@ -1498,6 +1502,7 @@ async def new_session_form(
     page but their POST will be rejected at the API boundary.
     """
     store: SessionRepository = request.app.state.store
+    cfg = request.app.state.config
     label = _dashboard_label(request)
     # See note on session_audit_timeline — _dashboard_role honors the
     # legacy admin login; the raw role_map lookup does not.
@@ -1559,6 +1564,11 @@ async def new_session_form(
             "template_load_error": template_load_error,
             "template_choices": template_choices,
             "current_actor": label,
+            "default_executor": (
+                "inprocess"
+                if getattr(cfg, "executor_kind", "docker") == "inprocess"
+                else "docker"
+            ),
         },
     )
 

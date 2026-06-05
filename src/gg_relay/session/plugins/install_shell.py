@@ -38,6 +38,7 @@ class InstallShellAssembler:
         self._home = plugins_home
 
     async def prepare(self, spec: SessionSpec, *, install_dir: Path) -> InstallReport:
+        install_dir = install_dir.expanduser().resolve()
         install_dir.mkdir(parents=True, exist_ok=True)
         argv = (
             str(self._home / "install.sh"),

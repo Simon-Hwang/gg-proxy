@@ -133,8 +133,14 @@
         <div class="form-row">
             <label for="executor-select">Backend / executor:</label>
             <select id="executor-select" name="executor">
-                <option value="docker" selected>docker (default)</option>
-                <option value="inprocess">inprocess</option>
+                <option value="docker"
+                        {% if default_executor == 'docker' %}selected{% endif %}>
+                    docker
+                </option>
+                <option value="inprocess"
+                        {% if default_executor == 'inprocess' %}selected{% endif %}>
+                    inprocess
+                </option>
             </select>
         </div>
 

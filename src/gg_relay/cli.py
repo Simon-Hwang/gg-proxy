@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 import secrets as stdlib_secrets
 from datetime import UTC, datetime, timedelta
@@ -64,6 +65,35 @@ def _parse_duration(spec: str) -> timedelta:
     return timedelta(seconds=n)
 
 
+def _overlay_cwd_dotenv(*, cwd: Path | None = None) -> None:
+    """Load ``.env`` from the working directory and override process env.
+
+    The local dev workflow starts ``gg-relay serve`` from the repo root and
+    expects that repo's ``.env`` to be the source of truth. In practice, shell
+    sessions can carry stale exported ``RELAY_*`` values from older runs; if we
+    let those win, the server boots with surprising paths like
+    ``RELAY_INSTALL_DIR_ROOT=./.relay-installs`` even though the checked-in
+    ``.env`` pins an absolute location. We intentionally scope this override to
+    the CLI startup path instead of changing global BaseSettings precedence.
+    """
+    env_path = (cwd or Path.cwd()) / ".env"
+    if not env_path.is_file():
+        return
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not key:
+            continue
+        os.environ[key] = value.strip()
+
+
 def _load_config() -> Config:
     return Config()
 
@@ -75,18 +105,32 @@ def _load_config() -> Config:
 def serve(
     host: Annotated[str, typer.Option("--host", "-h")] = "0.0.0.0",
     port: Annotated[int, typer.Option("--port", "-p")] = 8000,
+    log_level: Annotated[str | None, typer.Option("--log-level", "-l")] = None,
 ) -> None:
     """Run the FastAPI server (uvicorn)."""
     import uvicorn
+
+    _overlay_cwd_dotenv()
+    cfg = _load_config()
+    resolved_log_level = log_level or cfg.log_level
+    level_name = resolved_log_level.upper()
+    logging.basicConfig(
+        level=getattr(logging, level_name, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
     # Imported lazily so ``check-secrets`` / ``migrate`` / ``prune`` don't
     # require the full FastAPI dependency tree to be importable. mypy can't
     # see the module until Task 7 lands it; the runtime check happens here.
     from gg_relay.api.main import create_app
 
-    cfg = _load_config()
     app_obj = create_app(cfg)
-    uvicorn.run(app_obj, host=host, port=port)
+    uvicorn.run(
+        app_obj,
+        host=host,
+        port=port,
+        log_level=resolved_log_level.lower(),
+    )
 
 
 @app.command()
