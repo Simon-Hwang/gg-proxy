@@ -17,6 +17,14 @@ repository) — the plugin material is installed into a per-session
 sandbox by an `install.sh` invocation and surfaced to the Claude Code
 session at runtime.
 
+Plugin loading follows the executor's isolation boundary. Docker and K8s run
+one task per container/pod, so the runner image bakes gg-plugins into the
+runner user's normal `$HOME/.claude` for easy inspection inside the task
+environment. In-process sessions keep the host `$HOME/.claude` baseline and
+add the per-session install root from `RELAY_INSTALL_DIR_ROOT` as an extra
+plugin directory; they do not replace the host Claude configuration with
+`CLAUDE_CONFIG_DIR`.
+
 ---
 
 ## Capabilities

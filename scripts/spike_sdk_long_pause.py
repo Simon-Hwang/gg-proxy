@@ -46,7 +46,7 @@ import traceback
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 REPORT_PATH = REPO_ROOT / "docs" / "sdk-interrupt-resume-spike.md"
@@ -224,7 +224,7 @@ class _MockClient:
     async def disconnect(self) -> None:
         self.connected = False
 
-    async def receive_messages(self) -> Any:
+    async def receive_messages(self) -> AsyncIterator[Any]:
         for i in range(20):
             if self._cancel.is_set():
                 yield {"type": "ResultMessage", "stop_reason": "interrupted"}

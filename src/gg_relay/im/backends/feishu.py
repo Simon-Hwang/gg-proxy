@@ -27,6 +27,7 @@ import httpx
 from gg_relay.config import Config
 from gg_relay.core import (
     HITLRequested,
+    InstallError,
     RelayEvent,
     SessionCompleted,
     SessionStateChanged,
@@ -179,6 +180,15 @@ class FeishuCardBuilder:
             f"`{event.session_id}` → {event.to_state} "
             f"(from {event.from_state}){reason_part}"
         )
+        return RenderedCard(
+            payload={"text": text},
+            metadata={"msg_type": "text"},
+        )
+
+    def build_install_error_card(self, event: InstallError) -> RenderedCard:
+        """Render installer/runtime errors surfaced by SessionManager."""
+        msg = event.message[:300]
+        text = f"[error:{event.code}] {event.session_id} {msg}"
         return RenderedCard(
             payload={"text": text},
             metadata={"msg_type": "text"},

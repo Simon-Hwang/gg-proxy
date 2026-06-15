@@ -32,3 +32,5 @@ venv/
 
 # Cursor IDE local config (skills, hooks, plugins)
 .cursor/
+
+pyrightconfig.json

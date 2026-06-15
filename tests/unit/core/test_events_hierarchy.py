@@ -1,6 +1,6 @@
 """RelayEvent hierarchy + frame → event dispatch table tests (Plan 5 Task 1).
 
-D5.11=B: 11 concrete subclasses; D5.3: delivery_tier defaults reflect
+D5.11=B: concrete subclasses; D5.3: delivery_tier defaults reflect
 subscriber-queue policy (lossy events drop on backpressure, durable
 events block).
 """
@@ -27,6 +27,9 @@ from gg_relay.core.events import (
     SessionCreated,
     SessionOutputChunk,
     SessionStateChanged,
+    SubagentCompleted,
+    ToolInvocationFinished,
+    ToolInvocationStarted,
     ToolRequested,
     ToolResolved,
     frame_to_event,
@@ -41,6 +44,9 @@ ALL_SUBCLASSES = (
     HITLResolved,
     ToolRequested,
     ToolResolved,
+    ToolInvocationStarted,
+    ToolInvocationFinished,
+    SubagentCompleted,
     InstallDone,
     InstallError,
     Heartbeat,
@@ -85,6 +91,9 @@ class TestDeliveryTierDefaults:
             HITLResolved,
             ToolRequested,
             ToolResolved,
+            ToolInvocationStarted,
+            ToolInvocationFinished,
+            SubagentCompleted,
             InstallError,
         ],
         ids=lambda c: c.__name__,
@@ -232,14 +241,15 @@ class TestFrameToEvent:
         assert frame_to_event("sid", {"payload": {}}) is None
 
     def test_dispatch_table_covers_all_wire_frame_types(self):
-        # The wire-level frame variants in transport/protocol.py are 8: the
-        # 7 in _FRAME_TO_EVENT *plus* "install.error" / "error" handled by
-        # the same factory. This test enforces that any time someone adds
-        # a new wire frame the table grows accordingly.
+        # This test enforces that any time someone adds a new wire frame
+        # the table grows accordingly.
         expected = {
             "msg.chunk",
             "tool.request",
             "tool.result",
+            "hook.pre_tool_use",
+            "hook.post_tool_use",
+            "hook.subagent_stop",
             "install.done",
             "install.error",
             "error",

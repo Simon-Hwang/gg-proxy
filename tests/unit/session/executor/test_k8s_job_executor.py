@@ -29,7 +29,7 @@ from gg_relay.session.executor.k8s_job import (
     K8sJobQueueFull,
     K8sJobSubmitError,
 )
-from gg_relay.session.spec import PluginManifest, SessionSpec
+from gg_relay.session.spec import PluginManifest, SessionRuntimeContext, SessionSpec
 from gg_relay.session.transport.tcp import TcpServer
 
 
@@ -61,6 +61,7 @@ class _FakeK8sClient:
         self.secrets: dict[str, dict[str, str]] = {}
         self.servers: dict[str, TcpServer] = {}
         self.ports: dict[str, int] = {}
+        self.job_envs: dict[str, dict[str, str]] = {}
         self.secret_fail = secret_fail
         self.job_fail = job_fail
         self.pod_ip_timeout = pod_ip_timeout
@@ -87,6 +88,7 @@ class _FakeK8sClient:
     ) -> None:
         if self.job_fail:
             raise RuntimeError("simulated job create failure")
+        self.job_envs[name] = dict(env)
         token = self.secrets[secret_name]["RELAY_RUNNER_AUTH_TOKEN"]
         if self.wrong_token is not None:
             token = self.wrong_token
@@ -234,6 +236,31 @@ async def test_job_create_failure_cleans_up_secret() -> None:
     assert fake.delete_calls and fake.delete_calls[0].startswith(
         "gg-runner-token-"
     )
+
+
+@pytest.mark.asyncio
+async def test_build_env_includes_extra_env_without_config_dir() -> None:
+    fake = _FakeK8sClient()
+    ex = _executor(fake)
+    spec = SessionSpec(
+        prompt="hello",
+        cwd=Path("/tmp"),
+        plugins=PluginManifest(
+            profile="minimal",
+            extra_env=(("ANTHROPIC_BASE_URL", "https://proxy.example.test"),),
+        ),
+    )
+    env = ex._build_env(
+        spec,
+        SessionRuntimeContext(
+            credentials={"ANTHROPIC_API_KEY": "sk-fake"},
+            trace_id="trace-k8s",
+        ),
+    )
+    assert env["ANTHROPIC_API_KEY"] == "sk-fake"
+    assert env["ANTHROPIC_BASE_URL"] == "https://proxy.example.test"
+    assert env["RELAY_TRACE_ID"] == "trace-k8s"
+    assert "CLAUDE_CONFIG_DIR" not in env
 
 
 @pytest.mark.asyncio

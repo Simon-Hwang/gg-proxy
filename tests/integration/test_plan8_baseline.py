@@ -102,7 +102,8 @@ def test_alembic_head_advances_with_plan_8() -> None:
     into a single 0012 (events.seq + dashboard_internal_keys).
 
     Plan v3 §B.1 adds ``0013`` (``user_credentials`` for per-user
-    upstream credentials). Head must therefore be exactly ``0013``.
+    upstream credentials). Plan 10 adds ``0014`` (SDK hook trace).
+    Head must therefore be exactly ``0014``.
     """
     result = subprocess.run(
         ["uv", "run", "alembic", "heads"],
@@ -110,7 +111,7 @@ def test_alembic_head_advances_with_plan_8() -> None:
         text=True,
         cwd=REPO_ROOT,
     )
-    assert "0013" in result.stdout, (
-        f"alembic head not 0013: stdout={result.stdout!r} "
+    assert "0014" in result.stdout, (
+        f"alembic head not 0014: stdout={result.stdout!r} "
         f"stderr={result.stderr!r}"
     )

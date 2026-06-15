@@ -25,6 +25,16 @@ def test_service_dockerfile_exists():
     assert "FROM docker:24.0-cli" in body
 
 
+def test_runner_dockerfile_installs_plugins_under_home_claude():
+    df = REPO_ROOT / "images" / "gg-relay-runner" / "Dockerfile"
+    assert df.is_file()
+    body = df.read_text()
+    assert "/home/gguser/.claude" in body
+    assert "cp -a /opt/gg-plugins-home/.claude/." in body
+    assert "ENV CLAUDE_CONFIG_DIR" not in body
+    assert "CLAUDE_CONFIG_DIR=" not in body
+
+
 def test_docker_compose_dev_mounts_socket():
     f = DEPLOY_DIR / "docker-compose.dev.yml"
     assert f.is_file()

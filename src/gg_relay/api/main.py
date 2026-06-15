@@ -14,8 +14,9 @@ import asyncio
 import contextlib
 import logging
 import secrets as stdlib_secrets
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI
@@ -44,6 +45,7 @@ from gg_relay.api.routers import (
     metrics_router,
     sessions_router,
     templates_router,
+    trace_router,
     user_credentials_admin_router,
     user_credentials_me_router,
 )
@@ -66,7 +68,11 @@ from gg_relay.session.hitl.policy import ToolPolicy
 from gg_relay.session.manager import ExecutorFactory, SessionManager
 from gg_relay.session.plugins.install_shell import InstallShellAssembler
 from gg_relay.session.plugins.protocol import PluginAssembler
-from gg_relay.session.recovery import recover_on_startup, recover_paused_timers
+from gg_relay.session.recovery import (
+    recover_on_startup_with_events,
+    recover_paused_timers,
+    recover_queued_rows,
+)
 from gg_relay.session.runner.bridge import WireBridge  # noqa: F401  (re-export for plugins)
 from gg_relay.store import SessionRepository, make_async_engine
 from gg_relay.store.durable_event import SqlAlchemyDurableEventStore
@@ -105,7 +111,11 @@ class _NoopAssembler:
         )
 
 
-def _build_executor_factory(cfg: Config) -> ExecutorFactory:
+def _build_executor_factory(
+    cfg: Config,
+    *,
+    cleanup_callbacks: list[Callable[[], Awaitable[None]]] | None = None,
+) -> ExecutorFactory:
     """Return an :data:`ExecutorFactory` that picks the executor backend.
 
     The in-process path uses :func:`make_sdk_runner` only when the
@@ -127,7 +137,17 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
     """
     # Cached lazily so the first call pays the kubernetes-asyncio
     # import cost; subsequent calls reuse the same client.
+    docker_executor_cache: dict[str, DockerExecutor] = {}
     k8s_executor_cache: dict[str, Any] = {}
+    registered_cleanup_keys: set[str] = set()
+
+    def _register_cleanup_once(key: str, callback: Callable[[], Awaitable[None]]) -> None:
+        if cleanup_callbacks is None:
+            return
+        if key in registered_cleanup_keys:
+            return
+        registered_cleanup_keys.add(key)
+        cleanup_callbacks.append(callback)
 
     def _factory(
         kind: str,
@@ -140,11 +160,19 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
         install_report: Any = None,
     ) -> Any:
         if kind == "docker":
-            return DockerExecutor(
-                image=cfg.docker_image,
-                socket_root=cfg.docker_socket_root,
-                proxy_url=cfg.outbound_proxy_url,
-            )
+            executor = docker_executor_cache.get("executor")
+            if executor is None:
+                executor = DockerExecutor(
+                    image=cfg.docker_image,
+                    socket_root=cfg.docker_socket_root,
+                    proxy_url=cfg.outbound_proxy_url,
+                    model=cfg.claude_model,
+                    subagent_model=cfg.claude_subagent_model,
+                    setting_sources=cfg.claude_setting_sources,
+                )
+                docker_executor_cache["executor"] = executor
+                _register_cleanup_once("docker", executor.close)
+            return executor
         if kind == "k8s_job":
             executor = k8s_executor_cache.get("executor")
             if executor is None:
@@ -161,8 +189,12 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
                     runner_port=cfg.k8s_runner_port,
                     max_concurrent_jobs=cfg.k8s_max_concurrent_jobs,
                     ttl_seconds_after_finished=cfg.k8s_job_ttl_seconds_after_finished,
+                    model=cfg.claude_model,
+                    subagent_model=cfg.claude_subagent_model,
+                    setting_sources=cfg.claude_setting_sources,
                 )
                 k8s_executor_cache["executor"] = executor
+                _register_cleanup_once("k8s_job", executor.close)
             return executor
         from gg_relay.session.client import make_sdk_runner
 
@@ -179,6 +211,9 @@ def _build_executor_factory(cfg: Config) -> ExecutorFactory:
             # upstream auth failures instead of letting the CLI burn
             # its full 10-attempt internal retry loop.
             api_retry_budget=cfg.sdk_api_retry_budget,
+            model=cfg.claude_model,
+            subagent_model=cfg.claude_subagent_model,
+            setting_sources=cfg.claude_setting_sources,
         )
         return InProcessExecutor(runner=runner, control_channel=control_channel)
 
@@ -225,6 +260,7 @@ def _configure_structlog_redaction() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    lifespan_started_at = datetime.now(UTC)
     cfg: Config = getattr(app.state, "config", None) or Config()
     app.state.config = cfg
 
@@ -349,15 +385,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         ),
     )
     assembler = _build_assembler(cfg)
+    executor_cleanup_callbacks: list[Callable[[], Awaitable[None]]] = []
     executor_factory: ExecutorFactory = (
         getattr(app.state, "executor_factory_override", None)
-        or _build_executor_factory(cfg)
+        or _build_executor_factory(
+            cfg, cleanup_callbacks=executor_cleanup_callbacks
+        )
     )
 
-    report = await recover_on_startup(store)
+    report = await recover_on_startup_with_events(store, bus)
     if report.interrupted_count:
         logger.warning(
             "recovery: marked %d sessions as interrupted", report.interrupted_count
+        )
+    queued_report = await recover_queued_rows(
+        store, bus, cutoff=lifespan_started_at
+    )
+    if queued_report.interrupted_count:
+        logger.warning(
+            "recovery: marked %d queued sessions as interrupted",
+            queued_report.interrupted_count,
         )
 
     # Plan 9 D9.3 — swap the in-process rate limiter for the Redis
@@ -468,6 +515,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.coordinator = coordinator
     app.state.redactor = redactor
     app.state.manager = manager
+    app.state.executor_cleanup_callbacks = executor_cleanup_callbacks
     app.state.user_credentials_store = user_credentials_store
     app.state.user_credentials_warn_disabled = user_creds_warn_disabled
 
@@ -725,6 +773,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await rate_limiter.stop()
         # Stop accepting new submits, give in-flight sessions grace, then cancel.
         await manager.shutdown(grace_period_s=cfg.grace_period_s)
+        for cleanup in executor_cleanup_callbacks:
+            with contextlib.suppress(Exception, asyncio.CancelledError):
+                await cleanup()
         # Plan 8 D8.7 — drain alert subscriber BEFORE the bus closes so
         # any in-flight terminal events fanning out from manager.shutdown
         # have a chance to land in the router's cooldown LRU.
@@ -925,6 +976,9 @@ def create_app(config: Config | None = None) -> FastAPI:
     # block ends with the collaboration + accounting endpoints
     # together (a natural read order on the docs page).
     app.include_router(cost_router, prefix="/api/v1")
+    # Plan 10 — SDK hook trace analytics. Mounted near cost because both
+    # are read-side observability endpoints over session execution data.
+    app.include_router(trace_router, prefix="/api/v1")
     # Plan 8 Task 22 / D8.29 — admin api_key self-service. Router's
     # internal prefix is ``/admin/keys`` so the mounted path is
     # ``/api/v1/admin/keys``. Mounted last in the v1 block so the

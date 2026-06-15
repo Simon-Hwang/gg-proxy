@@ -56,6 +56,7 @@ from gg_relay.store.schema import (
     session_comments,
     session_favorites,
     sessions,
+    trace_invocations,
 )
 
 
@@ -1173,6 +1174,45 @@ class SqlAlchemyStore:
                 )
         return ids
 
+    async def mark_queued_as_interrupted(self, *, cutoff: datetime) -> list[str]:
+        """Move stale ``queued`` rows to ``interrupted`` at startup.
+
+        ``cutoff`` is captured by the lifespan before recovery runs so rows
+        submitted after the new process starts are not mistaken for crash
+        leftovers.
+        """
+        now = _utcnow()
+        async with self._engine.begin() as conn:
+            ids = [
+                r[0]
+                for r in (
+                    await conn.execute(
+                        select(sessions.c.id).where(
+                            and_(
+                                sessions.c.status == "queued",
+                                sessions.c.submitted_at < cutoff,
+                            )
+                        )
+                    )
+                ).fetchall()
+            ]
+            if ids:
+                await conn.execute(
+                    update(sessions)
+                    .where(
+                        and_(
+                            sessions.c.status == "queued",
+                            sessions.c.submitted_at < cutoff,
+                        )
+                    )
+                    .values(
+                        status="interrupted",
+                        ended_at=now,
+                        end_reason="queued_interrupted_on_startup",
+                    )
+                )
+        return ids
+
     # ── frames ─────────────────────────────────────────────────────────
 
     async def append_frame(
@@ -1210,6 +1250,76 @@ class SqlAlchemyStore:
                 .order_by(frames.c.seq.asc())
                 .limit(limit)
                 .offset(offset)
+            )
+            return list(result.mappings().all())
+
+    async def record_trace_invocation(
+        self,
+        *,
+        session_id: str,
+        seq: int,
+        event_type: str,
+        tool_name: str | None = None,
+        tool_use_id: str | None = None,
+        parent_tool_use_id: str | None = None,
+        input_hash: str | None = None,
+        input_redacted: Mapping[str, Any] | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        """Append one SDK hook invocation record."""
+        async with self._engine.begin() as conn:
+            await conn.execute(
+                insert(trace_invocations).values(
+                    session_id=session_id,
+                    seq=seq,
+                    event_type=event_type,
+                    tool_name=tool_name,
+                    tool_use_id=tool_use_id,
+                    parent_tool_use_id=parent_tool_use_id,
+                    input_hash=input_hash,
+                    input_redacted=dict(input_redacted or {}),
+                    created_at=created_at or _utcnow(),
+                )
+            )
+
+    async def list_trace_invocations(
+        self,
+        session_id: str,
+        *,
+        limit: int = 100,
+    ) -> list[RowMapping]:
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(trace_invocations)
+                .where(trace_invocations.c.session_id == session_id)
+                .order_by(trace_invocations.c.seq.asc())
+                .limit(limit)
+            )
+            return list(result.mappings().all())
+
+    async def aggregate_tool_patterns(
+        self,
+        *,
+        since: datetime | None = None,
+        limit: int = 50,
+    ) -> list[RowMapping]:
+        conditions = [trace_invocations.c.tool_name.is_not(None)]
+        if since is not None:
+            conditions.append(trace_invocations.c.created_at >= since)
+        async with self._engine.connect() as conn:
+            result = await conn.execute(
+                select(
+                    trace_invocations.c.tool_name,
+                    trace_invocations.c.input_hash,
+                    func.count().label("count"),
+                )
+                .where(and_(*conditions))
+                .group_by(
+                    trace_invocations.c.tool_name,
+                    trace_invocations.c.input_hash,
+                )
+                .order_by(func.count().desc())
+                .limit(limit)
             )
             return list(result.mappings().all())
 

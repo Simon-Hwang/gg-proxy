@@ -102,6 +102,9 @@ class DockerExecutor:
         accept_timeout: float = 30.0,
         shutdown_grace_s: float = 5.0,
         extra_hosts: Mapping[str, str] | None = None,
+        model: str | None = None,
+        subagent_model: str | None = None,
+        setting_sources: str | None = None,
     ) -> None:
         self._image = image
         self._socket_root = socket_root
@@ -119,6 +122,9 @@ class DockerExecutor:
         self._extra_hosts: dict[str, str] = dict(
             extra_hosts or {"host.docker.internal": "host-gateway"}
         )
+        self._model = model
+        self._subagent_model = subagent_model
+        self._setting_sources = setting_sources
         self._containers: dict[str, _ContainerLike] = {}
         self._servers: dict[str, UnixSocketServer] = {}
 
@@ -268,6 +274,12 @@ class DockerExecutor:
             env["HTTPS_PROXY"] = self._proxy_url
             env["HTTP_PROXY"] = self._proxy_url
             env["NO_PROXY"] = "localhost,127.0.0.1"
+        if self._model:
+            env["CLAUDE_MODEL"] = self._model
+        if self._subagent_model:
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = self._subagent_model
+        if self._setting_sources:
+            env["CLAUDE_SETTING_SOURCES"] = self._setting_sources
         for key, value in runtime_ctx.credentials.items():
             env[key] = value
         for key, value in spec.plugins.extra_env:

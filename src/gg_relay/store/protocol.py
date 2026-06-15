@@ -213,6 +213,10 @@ class SessionStore(Protocol):
         """Move every ``running`` row to ``interrupted`` (recovery)."""
         ...
 
+    async def mark_queued_as_interrupted(self, *, cutoff: datetime) -> list[str]:
+        """Move stale ``queued`` rows to ``interrupted`` (recovery)."""
+        ...
+
     async def aggregate_cost_by_owner(
         self,
         *,
@@ -300,6 +304,40 @@ class FrameStore(Protocol):
         offset: int = 0,
     ) -> Sequence[Mapping[str, Any]]:
         """List frames for a session in ``seq`` ascending order."""
+        ...
+
+    async def record_trace_invocation(
+        self,
+        *,
+        session_id: str,
+        seq: int,
+        event_type: str,
+        tool_name: str | None = None,
+        tool_use_id: str | None = None,
+        parent_tool_use_id: str | None = None,
+        input_hash: str | None = None,
+        input_redacted: Mapping[str, Any] | None = None,
+        created_at: datetime | None = None,
+    ) -> None:
+        """Append one SDK hook trace row."""
+        ...
+
+    async def list_trace_invocations(
+        self,
+        session_id: str,
+        *,
+        limit: int = 100,
+    ) -> Sequence[Mapping[str, Any]]:
+        """List SDK hook trace rows for a session."""
+        ...
+
+    async def aggregate_tool_patterns(
+        self,
+        *,
+        since: datetime | None = None,
+        limit: int = 50,
+    ) -> Sequence[Mapping[str, Any]]:
+        """Aggregate tool/input-hash frequencies from hook trace rows."""
         ...
 
     async def prune_frames_older_than(self, *, cutoff: datetime) -> int:

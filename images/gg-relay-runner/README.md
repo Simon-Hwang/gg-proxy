@@ -11,13 +11,16 @@ Per-session container image for the `gg-relay` docker backend
 | `tini` (apt) | PID 1 init — signal forwarding, zombie reaping (D3.19) |
 | NodeSource Node 20 | `node` for the claude CLI + gg-plugins JS hooks |
 | `@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}` (npm) | The CLI the SDK shells out to (D3.15) |
-| `gg-plugins@${GG_PLUGINS_VERSION}` (git tag, `--profile full`) | Baked at build time so per-session start is fast (D3.3 / D3.14) |
+| `gg-plugins@${GG_PLUGINS_VERSION}` (git tag, `--profile full`) | Baked at build time into `/home/gguser/.claude` so each task container/pod exposes the normal Claude Code config path |
 | `gg-relay` (`pip install -e .`) | The Python wire runner that `tini` execs into |
 
 Entry: `tini -- python -m gg_relay.session.runner.wire_runner`.
 
 The image runs as non-root **UID 1000** (`gguser`) so the bind-mounted
 unix socket created by the host (`chmod 0o666`) is reachable.
+Because Docker and K8s run one task per container/pod, the image does not use
+`CLAUDE_CONFIG_DIR` for isolation; inspect `/home/gguser/.claude` inside the
+runner to see the baked gg-plugins configuration.
 
 ## Build args
 

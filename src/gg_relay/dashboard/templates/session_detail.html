@@ -7,12 +7,40 @@
     <dt>Backend</dt><dd>{{ detail.backend }}</dd>
     <dt>Runtime ID</dt><dd>{{ detail.runtime_id or "—" }}</dd>
     <dt>Trace ID</dt><dd>{% if detail.trace_id %}<code>{{ detail.trace_id }}</code>{% else %}—{% endif %}</dd>
-    <dt>Submitted</dt><dd>{{ detail.submitted_at.isoformat() }}</dd>
-    {% if detail.started_at %}<dt>Started</dt><dd>{{ detail.started_at.isoformat() }}</dd>{% endif %}
-    {% if detail.ended_at %}<dt>Ended</dt><dd>{{ detail.ended_at.isoformat() }}</dd>{% endif %}
+    <dt>Submitted</dt><dd><time datetime="{{ detail.submitted_at|html_datetime }}">{{ detail.submitted_at|local_time }}</time></dd>
+    {% if detail.started_at %}<dt>Started</dt><dd><time datetime="{{ detail.started_at|html_datetime }}">{{ detail.started_at|local_time }}</time></dd>{% endif %}
+    {% if detail.ended_at %}<dt>Ended</dt><dd><time datetime="{{ detail.ended_at|html_datetime }}">{{ detail.ended_at|local_time }}</time></dd>{% endif %}
     {% if detail.end_reason %}<dt>End reason</dt><dd>{{ detail.end_reason }}</dd>{% endif %}
     <dt>Tags</dt><dd>{{ detail.tags|join(", ") or "—" }}</dd>
 </dl>
+
+<section class="session-summary-grid">
+    <div class="session-summary-block">
+        <h3>Prompt</h3>
+        {% if display.prompt %}
+        <pre class="session-text">{{ display.prompt }}</pre>
+        {% else %}
+        <p class="muted">No prompt recorded.</p>
+        {% endif %}
+    </div>
+    <div class="session-summary-block">
+        <h3>Output</h3>
+        {% if display.output %}
+        <pre class="session-text">{{ display.output }}</pre>
+        {% else %}
+        <p class="muted">No assistant text output recorded.</p>
+        {% endif %}
+    </div>
+    <div class="session-summary-block session-cost-block">
+        <h3>Cost</h3>
+        <dl class="cost-mini">
+            <dt>USD</dt><dd>${{ "%.4f"|format(display.cost_usd or 0.0) }}</dd>
+            <dt>Input</dt><dd>{{ "{:,}".format(display.input_tokens or 0) }}</dd>
+            <dt>Output</dt><dd>{{ "{:,}".format(display.output_tokens or 0) }}</dd>
+            <dt>Turns</dt><dd>{{ display.turn_count or 0 }}</dd>
+        </dl>
+    </div>
+</section>
 
 {# Plan 6 Task 10 — chart + span-tree partials lazy-loaded via HTMX. The
    ``revealed`` trigger only fires when the operator scrolls each
@@ -91,7 +119,7 @@
         {% for f in detail.frames %}
             <tr>
                 <td>{{ f.seq }}</td>
-                <td>{{ f.ts.isoformat() if f.ts.isoformat is defined else f.ts }}</td>
+                <td><time datetime="{{ f.ts|html_datetime }}">{{ f.ts|local_time }}</time></td>
                 <td>{{ f.type }}</td>
                 <td><pre class="frame-payload">{{ f.payload|tojson }}</pre></td>
             </tr>

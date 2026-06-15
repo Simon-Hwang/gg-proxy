@@ -9,6 +9,8 @@
 
 `gg-relay` 是**服务端**，设计为 [`gg-plugins`](https://github.com/Simon-Hwang/gg-plugins)（独立仓库）的配套服务——插件内容由 `install.sh` 安装到每个会话沙箱，并在运行时暴露给 Claude Code 会话。
 
+插件加载边界跟随执行器隔离模型：Docker / K8s 是一个任务一个容器或 Pod，因此 runner 镜像会把 gg-plugins baked 到运行用户标准的 `$HOME/.claude`，方便进入任务环境后直接查看配置；in-process 会话保留宿主 `$HOME/.claude` 作为基础，再把 `RELAY_INSTALL_DIR_ROOT` 下的本次会话安装目录作为额外 plugin 目录传给 SDK，不用 `CLAUDE_CONFIG_DIR` 替换宿主配置。
+
 ---
 
 ## 能力一览

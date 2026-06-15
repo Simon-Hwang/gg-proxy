@@ -42,6 +42,9 @@ __all__ = [
     "SessionCreated",
     "SessionOutputChunk",
     "SessionStateChanged",
+    "SubagentCompleted",
+    "ToolInvocationFinished",
+    "ToolInvocationStarted",
     "ToolRequested",
     "ToolResolved",
     "frame_to_event",
@@ -171,6 +174,51 @@ class ToolResolved(RelayEvent):
 
 
 @dataclass(frozen=True, slots=True)
+class ToolInvocationStarted(RelayEvent):
+    """SDK hook trace for a tool invocation before it runs."""
+
+    session_id: str = ""
+    seq: int = 0
+    event_type: str = "PreToolUse"
+    tool_name: str | None = None
+    tool_use_id: str | None = None
+    parent_tool_use_id: str | None = None
+    input_hash: str | None = None
+    input_redacted: dict[str, Any] = field(default_factory=dict)
+    delivery_tier: DeliveryTier = "durable"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolInvocationFinished(RelayEvent):
+    """SDK hook trace for a tool invocation after it runs."""
+
+    session_id: str = ""
+    seq: int = 0
+    event_type: str = "PostToolUse"
+    tool_name: str | None = None
+    tool_use_id: str | None = None
+    parent_tool_use_id: str | None = None
+    input_hash: str | None = None
+    input_redacted: dict[str, Any] = field(default_factory=dict)
+    delivery_tier: DeliveryTier = "durable"
+
+
+@dataclass(frozen=True, slots=True)
+class SubagentCompleted(RelayEvent):
+    """SDK hook trace for subagent completion."""
+
+    session_id: str = ""
+    seq: int = 0
+    event_type: str = "SubagentStop"
+    tool_name: str | None = None
+    tool_use_id: str | None = None
+    parent_tool_use_id: str | None = None
+    input_hash: str | None = None
+    input_redacted: dict[str, Any] = field(default_factory=dict)
+    delivery_tier: DeliveryTier = "durable"
+
+
+@dataclass(frozen=True, slots=True)
 class InstallDone(RelayEvent):
     """Plugin assembler finished; ``modules`` is the actually-installed set."""
 
@@ -240,6 +288,9 @@ RelayEventT = (
     | HITLResolved
     | ToolRequested
     | ToolResolved
+    | ToolInvocationStarted
+    | ToolInvocationFinished
+    | SubagentCompleted
     | InstallDone
     | InstallError
     | Heartbeat
@@ -296,6 +347,55 @@ def _from_tool_result(sid: str, payload: dict[str, Any]) -> ToolResolved:
         result_redacted=dict(payload.get("result") or {}),
         error=payload.get("error") if isinstance(payload.get("error"), str) else None,
     )
+
+
+def _trace_fields(payload: dict[str, Any]) -> dict[str, Any]:
+    input_redacted = payload.get("input_redacted")
+    if not isinstance(input_redacted, dict):
+        input_redacted = {}
+    return {
+        "seq": _safe_int(payload.get("seq")),
+        "event_type": _safe_str(payload.get("event_type"), _safe_str(payload.get("type"))),
+        "tool_name": (
+            payload.get("tool_name")
+            if isinstance(payload.get("tool_name"), str)
+            else None
+        ),
+        "tool_use_id": (
+            payload.get("tool_use_id")
+            if isinstance(payload.get("tool_use_id"), str)
+            else None
+        ),
+        "parent_tool_use_id": (
+            payload.get("parent_tool_use_id")
+            if isinstance(payload.get("parent_tool_use_id"), str)
+            else None
+        ),
+        "input_hash": (
+            payload.get("input_hash")
+            if isinstance(payload.get("input_hash"), str)
+            else None
+        ),
+        "input_redacted": dict(input_redacted),
+    }
+
+
+def _from_hook_pre_tool_use(
+    sid: str, payload: dict[str, Any]
+) -> ToolInvocationStarted:
+    return ToolInvocationStarted(session_id=sid, **_trace_fields(payload))
+
+
+def _from_hook_post_tool_use(
+    sid: str, payload: dict[str, Any]
+) -> ToolInvocationFinished:
+    return ToolInvocationFinished(session_id=sid, **_trace_fields(payload))
+
+
+def _from_hook_subagent_stop(
+    sid: str, payload: dict[str, Any]
+) -> SubagentCompleted:
+    return SubagentCompleted(session_id=sid, **_trace_fields(payload))
 
 
 def _from_install_done(sid: str, payload: dict[str, Any]) -> InstallDone:
@@ -371,6 +471,9 @@ _FRAME_TO_EVENT: dict[str, Any] = {
     "msg.chunk": _from_msg_chunk,
     "tool.request": _from_tool_request,
     "tool.result": _from_tool_result,
+    "hook.pre_tool_use": _from_hook_pre_tool_use,
+    "hook.post_tool_use": _from_hook_post_tool_use,
+    "hook.subagent_stop": _from_hook_subagent_stop,
     "install.done": _from_install_done,
     "install.error": _from_install_error,
     "error": _from_error_frame,

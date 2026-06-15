@@ -78,7 +78,7 @@ def _validate_body_credentials(creds: Mapping[str, str]) -> None:
     mode + leaked operator's host ``ANTHROPIC_API_KEY`` to attacker
     infra via the SDK env merge.
     """
-    bad = [k for k in creds.keys() if k not in ALLOWED_ENV_NAMES]
+    bad = [k for k in creds if k not in ALLOWED_ENV_NAMES]
     if bad:
         raise HTTPException(
             status_code=400,
@@ -588,6 +588,51 @@ async def list_my_favorites(
             }
         )
     return {"items": items, "user": target}
+
+
+@router.get(
+    "/{session_id}/trace",
+    dependencies=[Depends(require_role_or_own_session("admin"))],
+)
+async def list_session_trace(
+    request: Request,
+    session_id: str,
+    limit: int = Query(default=100, ge=1, le=500),
+) -> dict[str, Any]:
+    """List persisted SDK hook trace records for one session."""
+    store = request.app.state.store
+    sess = await store.get_session(session_id)
+    if sess is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "session not found",
+                "code": "session_not_found",
+            },
+        )
+    rows = await store.list_trace_invocations(session_id, limit=limit)
+    items: list[dict[str, Any]] = []
+    for row in rows:
+        created_at = row["created_at"]
+        items.append(
+            {
+                "id": row["id"],
+                "session_id": row["session_id"],
+                "seq": row["seq"],
+                "event_type": row["event_type"],
+                "tool_name": row["tool_name"],
+                "tool_use_id": row["tool_use_id"],
+                "parent_tool_use_id": row["parent_tool_use_id"],
+                "input_hash": row["input_hash"],
+                "input_redacted": row["input_redacted"],
+                "created_at": (
+                    created_at.isoformat()
+                    if hasattr(created_at, "isoformat")
+                    else created_at
+                ),
+            }
+        )
+    return {"session_id": session_id, "items": items}
 
 
 @router.get("/{session_id}", response_model=SessionDetailResponse)

@@ -341,6 +341,7 @@ class SessionManager:
         # state. ``None`` means "API key had no label" — falls back to
         # ``"anon"`` at audit time.
         self._owner_by_session: dict[str, str | None] = {}
+        self._session_states: dict[str, SessionState] = {}
 
     @property
     def accepting_new(self) -> bool:
@@ -525,6 +526,7 @@ class SessionManager:
         self._metrics[sid] = _RunMetrics()
         self._api_key_by_session[sid] = api_key_id
         self._owner_by_session[sid] = owner
+        self._session_states[sid] = SessionState.QUEUED
         task = asyncio.create_task(
             self._run(sid, spec, runtime_ctx), name=f"session-{sid}"
         )
@@ -829,6 +831,7 @@ class SessionManager:
             status=SessionState.PAUSED.value,
             paused_at=self._paused_at[sid],
         )
+        self._session_states[sid] = SessionState.PAUSED
         await self._audit_record(
             actor=self._owner_of(sid),
             action="session_pause",
@@ -911,6 +914,7 @@ class SessionManager:
             expected_version=expected_v,
             status=SessionState.RUNNING.value,
         )
+        self._session_states[sid] = SessionState.RUNNING
         await self._audit_record(
             actor=self._owner_of(sid),
             action="session_resume",
@@ -1089,6 +1093,7 @@ class SessionManager:
                     to_state=SessionState.RUNNING.value,
                 )
             )
+            self._session_states[sid] = SessionState.RUNNING
             install_report = await self._prepare_plugins(sid, spec)
             handle = await self._start_executor(
                 sid, spec, runtime_ctx, policy, install_report=install_report
@@ -1168,6 +1173,9 @@ class SessionManager:
             self._bridges.pop(sid, None)
             self._api_key_by_session.pop(sid, None)
             self._owner_by_session.pop(sid, None)
+            from_state = self._session_states.pop(
+                sid, SessionState.RUNNING
+            )
             # Plan 7 D7.5: terminal-state write is optimistically
             # locked but ConcurrencyError is suppressed — if cancel /
             # pause raced into a terminal state already, that outcome
@@ -1207,7 +1215,7 @@ class SessionManager:
             await self._bus.publish(
                 SessionStateChanged(
                     session_id=sid,
-                    from_state=SessionState.RUNNING.value,
+                    from_state=from_state.value,
                     to_state=end_status,
                     reason=end_reason,
                 )
@@ -1346,7 +1354,7 @@ class SessionManager:
     ) -> None:
         """Drain the transport. Docker uses WireBridge, in-process drains
         the transport directly."""
-        if spec.executor == "docker":
+        if spec.executor in {"docker", "k8s_job"}:
             bridge = WireBridge(handle.transport, self._coordinator)
             self._bridges[sid] = bridge
             bridge_task = asyncio.create_task(
@@ -1550,6 +1558,7 @@ class SessionManager:
         # also flows through.
         if redacted.get("type") == "session.end":
             self._record_session_end(sid, dict(redacted))
+        await self._record_trace_frame(sid, dict(redacted), ts)
         typed = frame_to_event(sid, dict(redacted))
         if typed is not None:
             await self._bus.publish(typed)
@@ -1558,6 +1567,53 @@ class SessionManager:
             # str-topic subscribers (Plan 4 OTel subscriber etc.) until
             # they fully migrate. Plan 6+ removes this fallback.
             await self._bus.publish("frame", {"session_id": sid, **redacted})
+
+    async def _record_trace_frame(
+        self, sid: str, frame: dict[str, Any], ts: datetime
+    ) -> None:
+        """Persist hook frames into the trace-invocation table."""
+        frame_type = frame.get("type")
+        if not isinstance(frame_type, str) or not frame_type.startswith("hook."):
+            return
+        input_redacted = frame.get("input_redacted")
+        if not isinstance(input_redacted, Mapping):
+            input_redacted = {}
+        try:
+            await self._store.record_trace_invocation(
+                session_id=sid,
+                seq=int(frame.get("seq", 0)),
+                event_type=str(frame.get("event_type") or frame_type),
+                tool_name=(
+                    str(frame["tool_name"])
+                    if isinstance(frame.get("tool_name"), str)
+                    else None
+                ),
+                tool_use_id=(
+                    str(frame["tool_use_id"])
+                    if isinstance(frame.get("tool_use_id"), str)
+                    else None
+                ),
+                parent_tool_use_id=(
+                    str(frame["parent_tool_use_id"])
+                    if isinstance(frame.get("parent_tool_use_id"), str)
+                    else None
+                ),
+                input_hash=(
+                    str(frame["input_hash"])
+                    if isinstance(frame.get("input_hash"), str)
+                    else None
+                ),
+                input_redacted=input_redacted,
+                created_at=ts,
+            )
+        except Exception:
+            logger.warning(
+                "trace persistence failed sid=%s type=%s seq=%s",
+                sid,
+                frame_type,
+                frame.get("seq"),
+                exc_info=True,
+            )
 
     def _record_session_end(self, sid: str, frame: dict[str, Any]) -> None:
         """Capture the ``session.end`` frame's token / cost / turn aggregates.

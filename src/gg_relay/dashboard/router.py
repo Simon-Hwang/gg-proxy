@@ -44,7 +44,9 @@ import secrets
 import urllib.parse
 from collections.abc import AsyncIterator
 from dataclasses import asdict
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -96,8 +98,63 @@ def _owner_color(owner: str | None) -> str:
     return f"hsl({hue}, 55%, 45%)"
 
 
+def _local_time(value: Any) -> str:
+    """Render UTC-ish timestamps in the server's local timezone.
+
+    SQLite returns naive datetimes for several columns. Those values are
+    persisted as UTC, so attach UTC before converting to the process-local
+    timezone. A string fallback keeps older rows/render paths harmless.
+    """
+    if value is None:
+        return "—"
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    return str(value)
+
+
+def _html_datetime(value: Any) -> str:
+    if isinstance(value, datetime):
+        dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return dt.isoformat()
+    return str(value or "")
+
+
+def _extract_assistant_text(frames: list[Any] | tuple[Any, ...]) -> str:
+    """Return the last assistant text payload from persisted frames."""
+    latest = ""
+    for frame in frames:
+        payload = frame.get("payload", {}) if hasattr(frame, "get") else {}
+        data = payload.get("data") if isinstance(payload, dict) else None
+        msg = data if isinstance(data, dict) else payload
+        if not isinstance(msg, dict) or msg.get("type") != "AssistantMessage":
+            continue
+        parts: list[str] = []
+        for block in msg.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text = block.get("text")
+                if text:
+                    parts.append(str(text))
+        if parts:
+            latest = "\n".join(parts)
+    return latest
+
+
+def _prompt_from_spec(spec: Any) -> str:
+    return str(spec.get("prompt") or "") if isinstance(spec, dict) else ""
+
+
+def _excerpt(text: str, limit: int = 180) -> str:
+    compact = " ".join((text or "").split())
+    if len(compact) <= limit:
+        return compact
+    return compact[: limit - 1].rstrip() + "…"
+
+
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 templates.env.filters["owner_color"] = _owner_color
+templates.env.filters["local_time"] = _local_time
+templates.env.filters["html_datetime"] = _html_datetime
 
 
 def _ctx_dashboard_role(request: Request) -> str:
@@ -323,11 +380,24 @@ async def session_detail(
     except SessionNotFound as exc:
         raise HTTPException(status_code=404, detail="session not found") from exc
     pending = coordinator.pending_snapshot(session_id=session_id)
+    store: SessionRepository = request.app.state.store
+    row = await store.get_session(session_id)
+    prompt = _prompt_from_spec(detail.spec_json)
+    output = _extract_assistant_text(detail.frames)
+    display = {
+        "prompt": prompt,
+        "output": output,
+        "input_tokens": int((row or {}).get("input_tokens", 0) or 0),
+        "output_tokens": int((row or {}).get("output_tokens", 0) or 0),
+        "cost_usd": float((row or {}).get("cost_usd", 0.0) or 0.0),
+        "turn_count": int((row or {}).get("turn_count", 0) or 0),
+    }
     return templates.TemplateResponse(
         request,
         "session_detail.html",
         {
             "detail": detail,
+            "display": display,
             "pending_hitl": [
                 {"req_id": rid, "tool": v["tool"], "args": v["args"]}
                 for rid, v in pending.items()
@@ -368,6 +438,46 @@ def _kanban_columns(
         else:
             columns["terminal"].append(s)
     return columns
+
+
+async def _kanban_display_sessions(
+    request: Request,
+    sessions: list[Any],
+) -> list[Any]:
+    """Add prompt/output/cost fields used by compact kanban cards."""
+    store: SessionRepository = request.app.state.store
+    decorated: list[Any] = []
+    for s in sessions:
+        row = await store.get_session(s.id)
+        spec = row.get("spec_json") if row is not None and hasattr(row, "get") else {}
+        status_value = s.status.value if hasattr(s.status, "value") else str(s.status)
+        frames: list[Any] = []
+        if status_value in {"completed", "failed", "cancelled", "interrupted"}:
+            frames = list(await store.list_frames(s.id, limit=200, offset=0))
+        prompt = _prompt_from_spec(spec)
+        output = _extract_assistant_text(frames)
+        decorated.append(
+            SimpleNamespace(
+                id=s.id,
+                status=s.status,
+                submitted_at=s.submitted_at,
+                started_at=s.started_at,
+                ended_at=s.ended_at,
+                tags=s.tags,
+                backend=s.backend,
+                end_reason=s.end_reason,
+                owner=s.owner,
+                prompt=prompt,
+                prompt_excerpt=_excerpt(prompt, 160),
+                output=output,
+                output_excerpt=_excerpt(output, 180),
+                input_tokens=int((row or {}).get("input_tokens", 0) or 0),
+                output_tokens=int((row or {}).get("output_tokens", 0) or 0),
+                cost_usd=float((row or {}).get("cost_usd", 0.0) or 0.0),
+                turn_count=int((row or {}).get("turn_count", 0) or 0),
+            )
+        )
+    return decorated
 
 
 @router.get("/kanban", response_class=HTMLResponse)
@@ -416,7 +526,7 @@ async def kanban_page(
         sessions = list(sessions_summaries)
         effective_owner = owner
 
-    columns = _kanban_columns(list(sessions))
+    columns = _kanban_columns(await _kanban_display_sessions(request, list(sessions)))
     return templates.TemplateResponse(
         request,
         "kanban.html",
@@ -617,7 +727,7 @@ async def kanban_board_partial(
         )
     except (CursorFilterMismatchError, CursorInvalidError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    columns = _kanban_columns(list(sessions))
+    columns = _kanban_columns(await _kanban_display_sessions(request, list(sessions)))
     return templates.TemplateResponse(
         request,
         "_kanban_board.html",

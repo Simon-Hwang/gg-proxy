@@ -15,6 +15,7 @@ from typing import Any, Literal, cast
 from gg_relay.session.plugins.protocol import InstallReport
 from gg_relay.session.transport.protocol import (
     ErrorFrame,
+    HookFrame,
     InstallDoneFrame,
     InstallErrorFrame,
     MsgChunkFrame,
@@ -62,6 +63,33 @@ def make_tool_result(
         ToolResultFrame,
         _envelope(seq, "tool.result", req_id=req_id, ok=ok, result=result),
     )
+
+
+def make_hook_frame(
+    seq: int,
+    type_: str,
+    *,
+    event_type: str,
+    input_redacted: dict[str, Any],
+    tool_name: str | None = None,
+    tool_use_id: str | None = None,
+    parent_tool_use_id: str | None = None,
+    sdk_session_id: str | None = None,
+    input_hash: str | None = None,
+) -> HookFrame:
+    payload: dict[str, Any] = {
+        "event_type": event_type,
+        "input_redacted": input_redacted,
+    }
+    optional = {
+        "tool_name": tool_name,
+        "tool_use_id": tool_use_id,
+        "parent_tool_use_id": parent_tool_use_id,
+        "sdk_session_id": sdk_session_id,
+        "input_hash": input_hash,
+    }
+    payload.update({k: v for k, v in optional.items() if v is not None})
+    return cast(HookFrame, _envelope(seq, type_, **payload))
 
 
 def make_session_end(

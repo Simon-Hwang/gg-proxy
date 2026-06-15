@@ -137,6 +137,9 @@ class K8sJobExecutor:
         ttl_seconds_after_finished: int = 600,
         pod_ip_timeout_s: float = 60.0,
         shutdown_grace_s: float = 5.0,
+        model: str | None = None,
+        subagent_model: str | None = None,
+        setting_sources: str | None = None,
     ) -> None:
         self._client = client
         self._namespace = namespace
@@ -146,6 +149,9 @@ class K8sJobExecutor:
         self._ttl = ttl_seconds_after_finished
         self._pod_ip_timeout_s = pod_ip_timeout_s
         self._shutdown_grace_s = shutdown_grace_s
+        self._model = model
+        self._subagent_model = subagent_model
+        self._setting_sources = setting_sources
         self._inflight: dict[str, K8sJobHandle] = {}
 
     @property
@@ -153,10 +159,10 @@ class K8sJobExecutor:
         return len(self._inflight)
 
     async def close(self) -> None:
-        """No-op for now — kept for ExecutorBackend parity with
-        :class:`DockerExecutor.close`. The real ``KubernetesAsyncIOClient``
-        owns the aiohttp session and is closed by the lifespan, not
-        the executor."""
+        """Release the underlying K8s API client when it exposes close()."""
+        close = getattr(self._client, "close", None)
+        if close is not None:
+            await close()
 
     async def start(
         self,
@@ -317,17 +323,31 @@ class K8sJobExecutor:
     def _build_env(
         self, spec: SessionSpec, runtime_ctx: SessionRuntimeContext
     ) -> dict[str, str]:
-        """Compose the runner env. ``ANTHROPIC_API_KEY`` and the auth
-        token are NOT included here — the K8s Secret machinery in
-        :class:`K8sClient.create_job` is responsible for both."""
+        """Compose the runner env.
+
+        K8s mirrors Docker's per-task isolation model: one Job/Pod owns one
+        session, and the runner image exposes baked gg-plugins at the
+        container user's normal ``$HOME/.claude``. We therefore do not set
+        ``CLAUDE_CONFIG_DIR`` here. Runtime credentials are in env because
+        they are per-session data; the one-shot transport auth token remains
+        in the K8s Secret handled by :class:`K8sClient.create_job`.
+        """
         env = {
             "GG_RELAY_SPEC_JSON": spec.to_json(),
             "GG_RELAY_TCP_LISTEN": f"0.0.0.0:{self._runner_port}",
         }
+        if self._model:
+            env["CLAUDE_MODEL"] = self._model
+        if self._subagent_model:
+            env["CLAUDE_CODE_SUBAGENT_MODEL"] = self._subagent_model
+        if self._setting_sources:
+            env["CLAUDE_SETTING_SOURCES"] = self._setting_sources
         for k, v in (runtime_ctx.credentials or {}).items():
             if v is None:
                 continue
             env[k] = str(v)
+        for k, v in spec.plugins.extra_env:
+            env[k] = v
         if runtime_ctx.trace_id:
             env["RELAY_TRACE_ID"] = runtime_ctx.trace_id
         return env

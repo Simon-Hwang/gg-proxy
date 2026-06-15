@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
+from gg_relay.core import EventBusBackend, SessionStateChanged
 from gg_relay.store import SessionRepository
 
 logger = logging.getLogger("gg_relay.session.recovery")
@@ -49,6 +50,58 @@ async def recover_on_startup(store: SessionRepository) -> RecoveryReport:
     first pass returns ``RecoveryReport(0, ())``.
     """
     ids = await store.mark_in_flight_as_interrupted()
+    return RecoveryReport(interrupted_count=len(ids), interrupted_ids=tuple(ids))
+
+
+async def recover_on_startup_with_events(
+    store: SessionRepository,
+    bus: EventBusBackend,
+) -> RecoveryReport:
+    """Promote ``running`` rows and publish matching state events."""
+    report = await recover_on_startup(store)
+    for sid in report.interrupted_ids:
+        try:
+            await bus.publish(
+                SessionStateChanged(
+                    session_id=sid,
+                    from_state="running",
+                    to_state="interrupted",
+                    reason="interrupted_on_startup",
+                )
+            )
+        except Exception:
+            logger.warning(
+                "recovery event publish failed sid=%s from=running",
+                sid,
+                exc_info=True,
+            )
+    return report
+
+
+async def recover_queued_rows(
+    store: SessionRepository,
+    bus: EventBusBackend,
+    *,
+    cutoff: datetime,
+) -> RecoveryReport:
+    """Promote stale ``queued`` rows to ``interrupted`` and publish events."""
+    ids = await store.mark_queued_as_interrupted(cutoff=cutoff)
+    for sid in ids:
+        try:
+            await bus.publish(
+                SessionStateChanged(
+                    session_id=sid,
+                    from_state="queued",
+                    to_state="interrupted",
+                    reason="queued_interrupted_on_startup",
+                )
+            )
+        except Exception:
+            logger.warning(
+                "recovery event publish failed sid=%s from=queued",
+                sid,
+                exc_info=True,
+            )
     return RecoveryReport(interrupted_count=len(ids), interrupted_ids=tuple(ids))
 
 

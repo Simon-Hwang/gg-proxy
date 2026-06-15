@@ -313,6 +313,30 @@ class Config(BaseSettings):
     the env file.
     """
 
+    claude_model: str | None = None
+    """Model name passed as ``ClaudeCodeOptions.model``.
+
+    Set via ``RELAY_CLAUDE_MODEL``. This maps to the Claude CLI
+    ``--model`` flag through the Python SDK and is preferred over relying on
+    provider-specific model environment variables.
+    """
+
+    claude_subagent_model: str | None = None
+    """Subagent model passed through ``ClaudeCodeOptions.env``.
+
+    Set via ``RELAY_CLAUDE_SUBAGENT_MODEL``. The current Claude Code CLI does
+    not expose ``--subagent-model``, so we inject
+    ``CLAUDE_CODE_SUBAGENT_MODEL`` into the SDK session environment instead.
+    """
+
+    claude_setting_sources: str | None = None
+    """Comma-separated Claude Code setting sources for SDK sessions.
+
+    Set via ``RELAY_CLAUDE_SETTING_SOURCES``. This maps to the Claude CLI
+    ``--setting-sources`` flag and is useful when relay sessions must avoid
+    inheriting user-level ``~/.claude/settings.json`` env overrides.
+    """
+
     # ── persistence ─────────────────────────────────────────────────────
     database_url: str = DEFAULT_SQLITE_URL
 

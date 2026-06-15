@@ -58,6 +58,18 @@ class ToolResultFrame(_BaseFrame):
     error: NotRequired[str]
 
 
+class HookFrame(_BaseFrame):
+    """SDK hook event emitted by in-process and wire runners."""
+
+    event_type: str
+    tool_name: NotRequired[str | None]
+    tool_use_id: NotRequired[str | None]
+    parent_tool_use_id: NotRequired[str | None]
+    sdk_session_id: NotRequired[str | None]
+    input_hash: NotRequired[str | None]
+    input_redacted: dict[str, Any]
+
+
 class SessionEndFrame(_BaseFrame):
     status: Literal["completed", "cancelled", "crashed"]
     tokens: NotRequired[dict[str, int]]
@@ -101,6 +113,7 @@ EventFrame = (
     | MsgChunkFrame
     | ToolRequestFrame
     | ToolResultFrame
+    | HookFrame
     | SessionEndFrame
     | ErrorFrame
     | PongFrame

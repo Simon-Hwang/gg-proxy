@@ -46,6 +46,7 @@ class KubernetesAsyncIOClient:
         self._ready = False
         self._core_v1: Any = None
         self._batch_v1: Any = None
+        self._api_client: Any = None
         self._lock = asyncio.Lock()
 
     async def _ensure_ready(self) -> None:
@@ -70,9 +71,26 @@ class KubernetesAsyncIOClient:
                 # Out-of-cluster fallback for operator-local testing.
                 await config.load_kube_config()
             api_client = client.ApiClient()
+            self._api_client = api_client
             self._core_v1 = client.CoreV1Api(api_client)
             self._batch_v1 = client.BatchV1Api(api_client)
             self._ready = True
+
+    async def close(self) -> None:
+        """Close the kubernetes-asyncio ApiClient/aiohttp session."""
+        api_client = self._api_client
+        self._api_client = None
+        self._core_v1 = None
+        self._batch_v1 = None
+        self._ready = False
+        if api_client is None:
+            return
+        close = getattr(api_client, "close", None)
+        if close is None:
+            return
+        result = close()
+        if hasattr(result, "__await__"):
+            await result
 
     async def create_secret(
         self, *, namespace: str, name: str, data: Mapping[str, str]

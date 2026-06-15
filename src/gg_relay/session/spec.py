@@ -95,7 +95,7 @@ class SessionSpec:
     prompt: str
     cwd: Path
     plugins: PluginManifest
-    executor: Literal["docker", "inprocess"] = "docker"
+    executor: Literal["docker", "inprocess", "k8s_job"] = "docker"
     timeout_s: int = 1800
     metadata: tuple[tuple[str, Any], ...] = ()
     hitl_policy: Any | None = None

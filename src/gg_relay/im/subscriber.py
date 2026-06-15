@@ -25,6 +25,7 @@ from typing import Any
 from gg_relay.core import (
     EventBusBackend,
     HITLRequested,
+    InstallError,
     RelayEvent,
     SessionCompleted,
     SessionStateChanged,
@@ -74,10 +75,23 @@ def _build_state(
     return builder.build_session_state_card(event)
 
 
+def _build_install_error(
+    builder: CardBuilder, event: RelayEvent, callback_base: str
+) -> RenderedCard | None:
+    del callback_base
+    if not isinstance(event, InstallError):
+        return None
+    build_error = getattr(builder, "build_install_error_card", None)
+    if callable(build_error):
+        return build_error(event)
+    return builder.build_other(event)
+
+
 _DISPATCH: dict[type[RelayEvent], _BuilderFn] = {
     HITLRequested: _build_hitl,
     SessionCompleted: _build_completed,
     SessionStateChanged: _build_state,
+    InstallError: _build_install_error,
 }
 
 
@@ -243,5 +257,3 @@ class IMSubscriber:
                 type(event).__name__,
                 exc,
             )
-
-

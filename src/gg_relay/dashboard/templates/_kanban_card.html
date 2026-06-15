@@ -37,11 +37,20 @@
         <div class="kanban-card-meta">
             <span class="badge badge-{{ s.status.value }}">{{ s.status.value }}</span>
             <span class="kanban-card-backend">{{ s.backend }}</span>
+            {% if s.cost_usd %}
+            <span class="kanban-card-cost">${{ "%.4f"|format(s.cost_usd) }}</span>
+            {% endif %}
         </div>
+        {% if s.prompt_excerpt %}
+        <div class="kanban-card-prompt" title="{{ s.prompt }}">{{ s.prompt_excerpt }}</div>
+        {% endif %}
+        {% if s.output_excerpt %}
+        <div class="kanban-card-output" title="{{ s.output }}">{{ s.output_excerpt }}</div>
+        {% endif %}
         <div class="kanban-card-times muted">
-            <time datetime="{{ s.submitted_at.isoformat() }}">{{ s.submitted_at.isoformat() }}</time>
+            <time datetime="{{ s.submitted_at|html_datetime }}">{{ s.submitted_at|local_time }}</time>
             {% if s.ended_at %}
-                → <time datetime="{{ s.ended_at.isoformat() }}">{{ s.ended_at.isoformat() }}</time>
+                → <time datetime="{{ s.ended_at|html_datetime }}">{{ s.ended_at|local_time }}</time>
             {% endif %}
         </div>
         {% if s.tags %}

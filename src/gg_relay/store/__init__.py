@@ -46,6 +46,7 @@ from gg_relay.store.schema import (
     session_comments,
     session_favorites,
     sessions,
+    trace_invocations,
 )
 
 __all__ = [
@@ -71,4 +72,5 @@ __all__ = [
     "session_comments",
     "session_favorites",
     "sessions",
+    "trace_invocations",
 ]

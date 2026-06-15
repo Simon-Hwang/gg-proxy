@@ -54,6 +54,7 @@ from claude_code_sdk import (
 from claude_code_sdk.types import StreamEvent
 
 from gg_relay.core.exceptions import SDKPermissionError
+from gg_relay.redaction import RedactionEngine
 from gg_relay.session.control import (
     AckSender,
     ControlChannel,
@@ -70,6 +71,7 @@ from gg_relay.session.frames import (
 )
 from gg_relay.session.hitl.coordinator import HITLCoordinator
 from gg_relay.session.hitl.policy import ToolPolicy
+from gg_relay.session.hooks import HookRelay
 from gg_relay.session.plugins import InstallReport
 from gg_relay.session.runner.proxy_client import WireCoordinatorProxy
 from gg_relay.session.spec import Decision, SessionRuntimeContext, SessionSpec
@@ -229,6 +231,14 @@ _SDK_HOST_ENV_PASSTHROUGH = (
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_AUTH_TOKEN",
     "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL_NAME",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL_NAME",
+    "CLAUDE_CODE_SUBAGENT_MODEL",
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "AWS_SESSION_TOKEN",
@@ -448,6 +458,9 @@ async def _make_runner_core(
     control_ack: AckSender | None = None,
     runtime_ctx: SessionRuntimeContext | None = None,
     api_retry_budget: int = 0,
+    model: str | None = None,
+    subagent_model: str | None = None,
+    setting_sources: str | None = None,
 ) -> None:
     """Shared dispatch loop for the in-process and wire runners.
 
@@ -557,7 +570,8 @@ async def _make_runner_core(
     #   3. RELAY_TRACE_ID          (explicit set — system marker that
     #      MUST win over extra_env; inprocess-only convention pinned
     #      by ``test_trace_id_does_not_clobber_existing_env``)
-    #   4. CLAUDE_ROOT             (setdefault; extra_env wins)
+    #   4. RELAY_INSTALL_DIR_ROOT  (setdefault; extra_env wins)
+    #   5. --plugin-dir            (additive; keeps host ~/.claude visible)
     #
     # The SDK transport (``claude_code_sdk._internal.transport.subprocess_cli``)
     # merges ``options.env`` on top of ``os.environ``, so any key we
@@ -576,17 +590,34 @@ async def _make_runner_core(
         env[k] = v
     if runtime_ctx is not None and runtime_ctx.trace_id:
         env["RELAY_TRACE_ID"] = runtime_ctx.trace_id
-    # Inject CLAUDE_ROOT so the SDK reads skills/commands/rules from the
-    # per-session install directory built by InstallShellAssembler. Uses
-    # setdefault so spec.plugins.extra_env can still override if needed.
-    # Mirrors docker executor behaviour where the runner image ships
-    # GG_PLUGINS_HOME; inprocess achieves the same isolation via CLAUDE_ROOT.
+    extra_args: dict[str, str | None] = {}
+    # In-process sessions intentionally keep the host's normal Claude Code
+    # home visible so ~/.claude remains the operator's baseline. The
+    # per-session install root is added as a plugin directory instead of
+    # replacing HOME/CLAUDE_CONFIG_DIR, which lets gg-plugins materialized
+    # under RELAY_INSTALL_DIR_ROOT layer on top of the host configuration.
     if install_report is not None and install_report.install_root is not None:
-        env.setdefault("CLAUDE_ROOT", str(install_report.install_root))
+        install_root = str(install_report.install_root)
+        env.setdefault("RELAY_INSTALL_DIR_ROOT", install_root)
+        extra_args.setdefault("plugin-dir", install_root)
+    if setting_sources:
+        extra_args["setting-sources"] = setting_sources
+    if subagent_model:
+        env["CLAUDE_CODE_SUBAGENT_MODEL"] = subagent_model
+
+    hook_relay = HookRelay(
+        transport=transport,
+        relay_session_id=session_id,
+        redactor=RedactionEngine(),
+    )
+
     options = ClaudeCodeOptions(
         can_use_tool=can_use_tool,
         cwd=str(spec.cwd),
         env=env,
+        extra_args=extra_args,
+        hooks=hook_relay.make_hook_config(),
+        model=model,
     )
 
     client: Any = None
@@ -769,6 +800,9 @@ def make_sdk_runner(
     control_channel: ControlChannel | None = None,
     runtime_ctx: SessionRuntimeContext | None = None,
     api_retry_budget: int = 0,
+    model: str | None = None,
+    subagent_model: str | None = None,
+    setting_sources: str | None = None,
 ) -> RunnerCallable:
     """In-process runner factory.
 
@@ -805,6 +839,9 @@ def make_sdk_runner(
             control_ack=(control_channel.runner_ack if control_channel else None),
             runtime_ctx=runtime_ctx,
             api_retry_budget=api_retry_budget,
+            model=model,
+            subagent_model=subagent_model,
+            setting_sources=setting_sources,
         )
 
     return runner
@@ -817,6 +854,9 @@ def make_wire_runner(
     sdk_factory: SdkFactory = ClaudeSDKClient,
     session_id: str = "",
     api_retry_budget: int = 0,
+    model: str | None = None,
+    subagent_model: str | None = None,
+    setting_sources: str | None = None,
 ) -> RunnerCallable:
     """Container-side runner factory.
 
@@ -844,6 +884,9 @@ def make_wire_runner(
             control_channel=coordinator.control_channel,
             control_ack=coordinator.send_ack,
             api_retry_budget=api_retry_budget,
+            model=model,
+            subagent_model=subagent_model,
+            setting_sources=setting_sources,
         )
 
     return runner

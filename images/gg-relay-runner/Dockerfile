@@ -42,7 +42,9 @@ RUN if [ -f package-lock.json ]; then \
         npm install --omit=dev --no-audit --no-fund; \
     fi
 # Run the install.sh once to materialise the `--profile full` skill / module
-# tree under /opt/gg-plugins-home. This bakes the assembled tree into the
+# tree under /opt/gg-plugins-home/.claude. The runtime stage copies that
+# .claude tree into gguser's HOME so each per-task container/pod exposes the
+# exact Claude Code configuration at the normal, inspectable user path.
 # image so per-session start time isn't dominated by network installs.
 ENV GG_PLUGINS_HOME=/opt/gg-plugins-home
 RUN if [ -x ./install.sh ]; then \
@@ -67,7 +69,9 @@ RUN apt-get update \
  && npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
  && npm cache clean --force
 
-# Copy the gg-plugins tree from stage 1.
+# Copy the gg-plugins tree from stage 1. The full install root remains under
+# /opt for diagnostics; the active Claude Code configuration is copied into
+# /home/gguser/.claude below.
 COPY --from=plugins-builder /opt/gg-plugins /opt/gg-plugins
 COPY --from=plugins-builder /opt/gg-plugins-home /opt/gg-plugins-home
 ENV GG_PLUGINS_HOME=/opt/gg-plugins-home
@@ -85,9 +89,15 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 # Non-root execution. Plan 3 chose UID 1000 so the bind-mounted socket
-# (chmod 0o666 on the host) is reachable without --user root.
+# (chmod 0o666 on the host) is reachable without --user root. Docker/K8s use
+# one container/pod per task, so the baked gg-plugins config lives at the
+# normal HOME location rather than behind CLAUDE_CONFIG_DIR indirection.
 RUN useradd --create-home --uid 1000 --shell /bin/bash gguser \
- && chown -R gguser:gguser /opt/gg-relay /opt/gg-plugins-home
+ && mkdir -p /home/gguser/.claude \
+ && if [ -d /opt/gg-plugins-home/.claude ]; then \
+        cp -a /opt/gg-plugins-home/.claude/. /home/gguser/.claude/; \
+    fi \
+ && chown -R gguser:gguser /opt/gg-relay /opt/gg-plugins-home /home/gguser/.claude
 USER gguser
 
 # Working directory for the SDK — DockerExecutor will mount the user's

@@ -132,6 +132,44 @@ class TestFramesCrud:
                 "su", seq=1, ts=ts, type_="msg.chunk", payload={}
             )
 
+    async def test_trace_invocation_crud_and_patterns(
+        self, repo: SessionRepository
+    ):
+        await repo.create_session(
+            id="st", spec_json={}, trace_id=None, backend="inprocess"
+        )
+        ts = datetime.now(UTC)
+        await repo.record_trace_invocation(
+            session_id="st",
+            seq=900001,
+            event_type="PreToolUse",
+            tool_name="Bash",
+            tool_use_id="tool-1",
+            input_hash="h1",
+            input_redacted={"command": "echo ok"},
+            created_at=ts,
+        )
+        await repo.record_trace_invocation(
+            session_id="st",
+            seq=900002,
+            event_type="PostToolUse",
+            tool_name="Bash",
+            tool_use_id="tool-1",
+            input_hash="h1",
+            input_redacted={"command": "echo ok"},
+            created_at=ts + timedelta(seconds=1),
+        )
+
+        rows = await repo.list_trace_invocations("st")
+        assert [r["event_type"] for r in rows] == ["PreToolUse", "PostToolUse"]
+        assert rows[0]["input_redacted"] == {"command": "echo ok"}
+
+        patterns = await repo.aggregate_tool_patterns()
+        assert len(patterns) == 1
+        assert patterns[0]["tool_name"] == "Bash"
+        assert patterns[0]["input_hash"] == "h1"
+        assert patterns[0]["count"] == 2
+
     async def test_list_frames_pagination(self, repo: SessionRepository):
         await repo.create_session(
             id="sp", spec_json={}, trace_id=None, backend="inprocess"

@@ -203,6 +203,9 @@ class TestStartHappyPath:
         assert "X=1" in env_list
         # OTel trace correlation is threaded through
         assert "RELAY_TRACE_ID=trace-7" in env_list
+        # Per-container isolation comes from one task per container plus the
+        # runner image's normal $HOME/.claude layout, not config-dir rewrites.
+        assert not any(e.startswith("CLAUDE_CONFIG_DIR=") for e in env_list)
 
         await executor.stop(handle)
 

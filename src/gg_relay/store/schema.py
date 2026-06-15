@@ -158,6 +158,30 @@ frames = Table(
     Index("ix_frames_ts", "ts"),
 )
 
+trace_invocations = Table(
+    "trace_invocations",
+    metadata,
+    Column("id", _PK_BIG, primary_key=True, autoincrement=True),
+    Column(
+        "session_id",
+        String(36),
+        ForeignKey("sessions.id", ondelete="CASCADE"),
+        nullable=False,
+    ),
+    Column("seq", Integer, nullable=False),
+    Column("event_type", String(32), nullable=False),
+    Column("tool_name", String(128), nullable=True),
+    Column("tool_use_id", String(128), nullable=True),
+    Column("parent_tool_use_id", String(128), nullable=True),
+    Column("input_hash", String(64), nullable=True),
+    Column("input_redacted", JSON, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Index("ix_trace_invocations_session", "session_id"),
+    Index("ix_trace_invocations_session_seq", "session_id", "seq"),
+    Index("ix_trace_invocations_tool", "tool_name"),
+    Index("ix_trace_invocations_parent", "parent_tool_use_id"),
+)
+
 hitl_requests = Table(
     "hitl_requests",
     metadata,

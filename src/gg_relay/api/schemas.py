@@ -14,8 +14,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 # ── pre_run_cmds 校验上限 ────────────────────────────────────────────
 # 设计目标：把 API body 注入到容器内执行的能力收敛到一个可审计的小窗口。
@@ -81,18 +86,19 @@ class SessionSpecIn(BaseModel):
     prompt: str
     cwd: str
     plugins: PluginManifestIn
-    executor: Literal["docker", "inprocess"] = "docker"
+    executor: Literal["docker", "inprocess", "k8s_job"] = "docker"
     timeout_s: int = 1800
     tags: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _enforce_pre_run_executor(self) -> SessionSpecIn:
         # pre_run_cmds 在 inprocess 下会直接在 gg-relay 宿主机进程执行 argv，
-        # 绕过 ToolPolicy/HITL，本期出于"安全是 P0"原则只允许 docker。
+        # 绕过 ToolPolicy/HITL，本期出于"安全是 P0"原则只允许容器隔离执行器。
         # 后续若启用，需要 admin-only 配置开关 + allowlist。
-        if self.executor != "docker" and self.plugins.pre_run_cmds:
+        if self.executor not in {"docker", "k8s_job"} and self.plugins.pre_run_cmds:
             raise ValueError(
-                "pre_run_cmds is only supported with executor='docker'; "
+                "pre_run_cmds is only supported with executor='docker' or "
+                "executor='k8s_job'; "
                 "inprocess sessions execute argv on the host and are blocked "
                 "in this release for safety."
             )

@@ -135,7 +135,11 @@ async def _amain() -> int:
             loop.add_signal_handler(sig, _on_signal)  # noqa: SIM117
 
     runner_fn = make_wire_runner(
-        policy=_HOST_DELEGATING_POLICY, coordinator=coordinator
+        policy=_HOST_DELEGATING_POLICY,
+        coordinator=coordinator,
+        model=os.environ.get("CLAUDE_MODEL") or None,
+        subagent_model=os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL") or None,
+        setting_sources=os.environ.get("CLAUDE_SETTING_SOURCES") or None,
     )
 
     async def _run_runner() -> None:
